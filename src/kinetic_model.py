@@ -78,7 +78,9 @@ class KineticModel:
         from 2015 paper"""
         return ((np.exp(np.cbrt((np.log(self.n0)-np.log(n))/self.urho))/p)/self.b)
 
-    
+    def truncated_n(self,t,p): 
+        return self.n0*np.exp(-self.urho*np.power(np.log(t*self.b*p),3))
+
     def lum_tau_c(self, ne, n, tauc,z=None):
         """Luminescence using critical tau"""
         if z is None:
@@ -86,6 +88,9 @@ class KineticModel:
         else:
             z_use = z
         return (3*ne*np.cbrt(self.urho)/tauc)*(np.power(np.cbrt(np.log(self.n0)-np.log(n)),2)*z_use)
+    
+    def truncated_lum(self,t,p,n):
+        return (3*n*self.urho*self.z/t)*np.power((np.log(t*self.b*p)),2)
     
     def set_ur_values(self,N):
         """Generates N unitless values of r and sets 
@@ -107,7 +112,9 @@ class KineticModel:
         return sigma * I
     
 
-    def analytical_thermal2012(self,time): 
+    def analytical_thermal2012(self,time):
+        """Analytical model from Mayank Jain et al 2012 J. Phys.: Condens. Matter 24 385402
+        uses equations 7, 8, 9, 10 and 11"""  
         def system(t,vars,tau):
             ng, ne = vars 
             T = self.dt_dt*t + self.T_init
@@ -148,6 +155,8 @@ class KineticModel:
         return [T_solution, ng, ne, lum]
     
     def semi_analytical_thermal2012(self,time,z):
+        """Semi-Analytical model from Mayank Jain et al 2012 J. Phys.: Condens. Matter 24 385402
+        uses equations 7, 8, 9 and 10"""
         def system(t,vars):
             ng, ne = vars
             n = ng+ne
@@ -179,7 +188,9 @@ class KineticModel:
 
         return [T_solution, ng, ne, lum]
     
-    def analytical_thermal2015(self,time): 
+    def analytical_thermal2015(self,time):
+        """Analytical model from M. Jain et. al Radiation Measurements 81 (2015) 242-250
+        uses equations (14), 15, 19, 20, 21, and 22""" 
         def system(t,Dt,ur,ng,ne):
             T = self.dt_dt*t + self.T_init
             A = self.set_thermal_A(T)
@@ -220,6 +231,8 @@ class KineticModel:
         return [T_solution, ng, ne, lum]
     
     def semi_analytical_thermal2015(self,time,z):
+        """Semi-Analytical model from M. Jain et. al Radiation Measurements 81 (2015) 242-250
+        uses equations 8 and 9""" 
         def system(t,Dt,ng,ne): 
             n = ng+ne
             T = self.dt_dt*t + self.T_init
@@ -257,7 +270,27 @@ class KineticModel:
         lum = self.lum_tau_c(ne,n,tauc)
         T_solution = T_solution-273.15
         return [T_solution, ng, ne, lum]
+    
+    def truncated_model_2015(self,time,z):
+        """Truncated nearest neighbour model from M. Jain et. al Radiation Measurements 81 (2015) 242-250
+        uses equations 14 and 15"""
 
+        self.z = z
+        t_span = (0,time)
+        t_eval = np.linspace(t_span[0], t_span[1], self.steps)
+        T = self.dt_dt*t_eval + self.T_init
+        p=self.set_thermal_A(T)/self.s
+        tau0 = self.Tau_rc2015(self.n0,p[0])
+        t_prime = (self.z*t_eval)+tau0
+        n = self.truncated_n(t_prime,p)
+        lum = self.truncated_lum(t_prime,p,n)
+        ng = n
+        ne = (n*p)
+        T_solution = T-273.15
+        return [T_solution, ng, ne, lum]
+        
+
+          
 def plot_ng(ax,T,ng,line,color,lab,factor=1):
     if lab == 0:
         ax.plot(T,ng*factor,linestyle=line,color=color)
@@ -380,16 +413,26 @@ def main():
 
 
         file_name = f"E_{input["E_loc"]}_s_{'{:.1E}'.format(input["s"])}_rho_{'{:.1E}'.format(input["rho"])}_result.xlsx"
-        # output_to_excel(analytic_2012,semi_analytic_2012,analytic_2015,semi_analytic_2015,file_name) 
+        output_to_excel(analytic_2012,semi_analytic_2012,analytic_2015,semi_analytic_2015,file_name) 
          
+    # factors = [1e6,1e4,2e6]
+    # i=0
+    # for input in inputs:
+    #     km = KineticModel(E_loc=input["E_loc"],s=input["s"],b=input["b"],rho=input["rho"],
+    #                       unitless=True,set_urho=True,T=T_init,dtdt=dtdt,n0=n0,steps=steps)
+
+    #     truncated = km.truncated_model_2015(time,z)
+    #     format_string = f"ρ'={pretty_exponent_maker(input["rho"])}; E={input["E_loc"]}; s={pretty_exponent_maker(input["s"])}"
+    #     plot_ng(ax,truncated[0],truncated[1],"solid", input["c1"],0,factor=1)
+    #     plot_ne(ax,truncated[0],truncated[2],"dotted",input["c1"],0,factor=factors[i])
+    #     plot_lum(ax2,truncated[0],truncated[3],"dotted", input["c1"],format_string,factor=1)
+    #     i+=1
+
     ax.text(50,0.03e9,"n$_e$")    
     ax.text(50,0.97e9,"n$_g$")    
     ax.legend() 
     ax2.legend()
     plt.show()
-
-  
-
 
 if __name__ == "__main__":
     main()
