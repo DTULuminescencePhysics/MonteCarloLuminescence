@@ -1,52 +1,62 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from classes.constants import cnst
 import numpy as np
-from scipy.spatial import cKDTree
-from scipy.optimize import linear_sum_assignment
-from scipy.spatial.distance import cdist
+
 
 @dataclass(frozen=True)
-class system_parameters:
+class system:
 
-    alpha: float # tunneling rate constant (1/Å)
-    b : float # attmpt to tunnel frequency (s⁻¹)
-    s : float # Escape frequency (s⁻¹)
-    E_cb: float # Conduction band energy (eV)
-    E_loc:float # Energy barrier height (eV)
+    E_loc:float # Energy barrier height 
+    alpha: float = field(default=None) # tunneling rate constant 
+    b : float # attmpt to tunnel frequency 
+    s : float # Escape frequency 
+    E_cb: float = field(default=None) # Conduction band energy
+    D0: float = field(default=None) # Characteristic does
+    D_dot : float = field(default=None) # Radition per second
+    T_init : float = field(default=273.15) #Initial temperature
+    dT : float = field(default=5) #Heating rate
+    rho : float = field(init=False)
+    urho : float = field(init=False)
+
+    def __post_init__(self):
+        if self.alpha is None:
+            self.alpha = self.set_alpha()
+
+    def set_alpha(self):
+        """Square tunneling potential"""
+        alpha = 2*np.sqrt(2*cnst.m_e*self.E_loc*cnst.ev_to_j)/ cnst.h_bar
+        return alpha
     
-    D0: float 
-    D_dot : float
+    def T(self,t):
+        """Calculates the temperature"""
+        return self.T_init + t*self.dT
 
+    def tunn_decay(self,r,T):
+        """Rate of decay by tunnelling from excited state"""
+        return self.b *(np.exp(-self.alpha*r-(self.E_loc/(cnst.k_b_ev*T))))
 
+    def deloc_decay(self,T):
+        """Recombination rate with the conduciton band"""
+        if self.E_cb is not None:
+            return self.s * (np.exp(-self.E_cb)-np.exp(cnst.k_b_ev*T))
+        else:
+            return 0 
+        
+    def fading_rate(self,r,T):
+        return self.tunn_decay(r,T) + self.deloc_decay(T) 
+    
+    def filling_rate(self,ne,nt):
+        """Filling rate based on number of electrons and traps"""
+        return self.D0/(self.D_dot*(nt-ne)) 
 
-@dataclass
-class crystal:
-    Height: float
-    Width: float
-    Length: float
-    boundary_factor: float
-    n_0 : int 
-    trap_0 : int
+    def set_rho(self,rho):
+        self.rho = rho 
+        self.urho = (4*np.pi* self.rho/3)/np.power(self.alpha,3)
 
+    def set_urho(self,urho):
+        self.urho = urho 
+        self.rho = self.urho*np.power(self.alpha,3)*(3/(np.pi*4))
 
-    def initialise_electrons(self):
-        self.electrons = np.random.rand(self.n_0, 3)
-        self.electrons[:, 0] *= self.Length
-        self.electrons[:, 1] *= self.Width
-        self.electrons[:, 2] *= self.Height
-
-    def initialise_traps(self):
-        self.traps = np.random.rand(self.trap_0, 3)
-        self.traps[:, 0] *= self.Length
-        self.traps[:, 1] *= self.Width
-        self.traps[:, 2] *= self.Height
-
-    def nearest_neighbours(self):
-        # tree = cKDTree(self.electrons)
-        distance_matrix = cdist(self.traps,self.electrons,'euclidean')
-        # distances = np.min(distance_matrix,axis=1)
-        trap_indices,tree_indices = linear_sum_assignment(distance_matrix)
-        distances = distance_matrix[trap_indices,tree_indices] 
-        # return matched_distances
-        # distances, indices = tree.query(self.traps, k=1)
-        return distances #, matched_distances*1e10
+    def ur(self, r):
+        """Convert distance r (in m) to unitless form"""
+        return (np.cbrt((4*np.pi*self.rho)/3)*r)
