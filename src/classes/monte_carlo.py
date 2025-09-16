@@ -96,16 +96,15 @@ class MC:
             if dt == recomb_tim:
                 self.crystal.remove_electron(recomb_index)
                 event = 1
-                self._lifetime = np.delete(self._lifetime,recomb_index)
-                self._recomb_wait = np.delete(self._recomb_wait,recomb_index)
             elif dt == fill_time:
                 self.crystal.add_electron()
                 event = 0
                 self.re_calc = True
             elif dt == self.dt_cap:
                 event = 0 
-            
+         
             t_cur += dt
+            print(t_cur)
             Temp = self.phys.T(t_cur)
             if (max_steps - i < 2):
                 to_append = np.zeros(max_steps)
@@ -162,7 +161,7 @@ def run_monte_carlo_simulation():
     
    
    
-    reps = 1000
+    reps = 10000000
     
     from joblib import Parallel, delayed
     dfs = Parallel(n_jobs=-1)(delayed(MonteCarlo.run_simulation)() for _ in range(reps))
