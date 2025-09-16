@@ -3,18 +3,18 @@ from classes.constants import cnst
 import numpy as np
 
 
-@dataclass(frozen=True)
+@dataclass
 class system:
 
     E_loc:float # Energy barrier height 
-    alpha: float = field(default=None) # tunneling rate constant 
     b : float # attmpt to tunnel frequency 
-    s : float # Escape frequency 
+    s : float # Escape frequency
+    T_init : float = field(default=273.15) #Initial temperature
+    dT : float = field(default=5) #Heating rate
+    alpha: float = field(default=None) # tunneling rate constant 
     E_cb: float = field(default=None) # Conduction band energy
     D0: float = field(default=None) # Characteristic does
     D_dot : float = field(default=None) # Radition per second
-    T_init : float = field(default=273.15) #Initial temperature
-    dT : float = field(default=5) #Heating rate
     rho : float = field(init=False)
     urho : float = field(init=False)
 
@@ -31,6 +31,9 @@ class system:
         """Calculates the temperature"""
         return self.T_init + t*self.dT
 
+    def calc_p(self,T):
+        return np.exp(-self.E_loc/(cnst.k_b_ev*T))
+    
     def tunn_decay(self,r,T):
         """Rate of decay by tunnelling from excited state"""
         return self.b *(np.exp(-self.alpha*r-(self.E_loc/(cnst.k_b_ev*T))))
@@ -41,9 +44,9 @@ class system:
             return self.s * (np.exp(-self.E_cb)-np.exp(cnst.k_b_ev*T))
         else:
             return 0 
-        
+      
     def fading_rate(self,r,T):
-        return self.tunn_decay(r,T) + self.deloc_decay(T) 
+        return 1/(self.tunn_decay(r,T) + self.deloc_decay(T)) 
     
     def filling_rate(self,ne,nt):
         """Filling rate based on number of electrons and traps"""

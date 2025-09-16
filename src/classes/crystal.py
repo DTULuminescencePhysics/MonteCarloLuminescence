@@ -10,7 +10,7 @@ class box:
     Height: float = field(default=50*mp.ang)
     Width: float = field(default=50*mp.ang)
     Length: float = field(default=50*mp.ang)
-    boundary_factor: float
+    boundary_factor: float = field(default=1.5)
     n_el : int = field(init=False, repr=False) # Number of electrons
     n_trap : int = field(init=False, repr=False) # Number of electron traps
 
@@ -27,7 +27,7 @@ class box:
     @property
     def bdims(self):
         """Returns the dimensions of the crystal with boundary padding"""
-        return self.boundary_factor*self.dims 
+        return self.Length*self.boundary_factor, self.Width*self.boundary_factor, self.Height*self.boundary_factor
     
     @property 
     def volume(self):
@@ -41,7 +41,7 @@ class box:
 
     def initialise_electrons(self,n):
         """Intialises n free electrons in the crystal"""
-        self.electrons = np.random.rand(n, 3)*self.dims
+        self.electrons = np.random.rand(int(n), 3)*self.dims
         self.n_el = n
 
     def initialise_traps(self,n):
@@ -82,18 +82,21 @@ class box:
         self.n_el +=1 
         self.n_trap +=1
 
-    def remove_electron(self,ne,nt):
+    def remove_electron(self,elec_i):
         """Removes a single electron and hole to the crystal"""
+        # Get the index of the trap that's nearest neighbour is electron
+        # indexed, elec_i    
+        trap_i = self.t_index[elec_i]
         # Remove electron and trap indexed at ne and nt respectively 
-        self.electrons = np.delete(self.electrons,ne, axis=0)
-        self.traps = np.delete(self.traps,nt, axis=0)
-        # Find index of nearest neighbour electron for trap nt 
-        elec = np.where(self.t_index == nt)
+        self.electrons = np.delete(self.electrons,elec_i, axis=0)
+        self.traps = np.delete(self.traps,trap_i, axis=0)
         # Delete row and column from the distances matrix
-        self.distances = np.delete(self.distances,ne,axis=0)
-        self.distances = np.delete(self.distances,nt,axis=1)
+        self.distances = np.delete(self.distances,elec_i,axis=0)
+        self.distances = np.delete(self.distances,trap_i,axis=1)
         # Delete the nearest neighbour distances for ne and nt
-        self.recalculate_nearest_neighbour()
+        self.r = np.delete(self.r,elec_i)
+        self.t_index[self.t_index > elec_i] -= 1
+        # self.recalculate_nearest_neighbour()
         self.n_el -=1 
         self.n_trap -=1
 
@@ -102,11 +105,12 @@ class box:
         trap indices"""
         # Get indices of nearest neighbour lengths in the distance matrix
         e_index, t_index = linear_sum_assignment(self.distances)
+       
         # Reorder so electron indices run from 0 to n 
         sorted_e_index = np.argsort(e_index)
         ei = e_index[sorted_e_index]
         ti = t_index[sorted_e_index]
         # Form new nearest neighbour matrix
-        self.r = self.distances[ei,ti] 
-
+        self.r = self.distances[ei,ti]
+        self.t_index = ti
   
