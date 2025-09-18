@@ -1,0 +1,14 @@
+name     : mc # Name of the experiment
+exp_typ  : TL      # Type of experiment
+T_init   : 0       # Initial temperature in celsius 
+T_end    : 800    # Final temperature in celsius
+T_rate   : 5       # Heating rate
+duration : null    # Simulation time in seconds
+max_dt   : 1       # Maximum time step
+n_el     : 1e2     # Initial number of free electrons 
+n_tr     : 1e2     # Initial number of electron traps
+reps     : 10      # Number of Monte Carlo simulations to repeat
+l        : null    # Length of test crystal
+w        : null    # Width of test crystal
+h        : null    # Height of test crystal
+      

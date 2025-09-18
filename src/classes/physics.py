@@ -15,12 +15,16 @@ class system:
     E_cb: float = field(default=None) # Conduction band energy
     D0: float = field(default=None) # Characteristic does
     D_dot : float = field(default=None) # Radition per second
-    rho : float = field(init=False)
-    urho : float = field(init=False)
+    rho : float = field(default=None)
+    urho : float = field(default=None)
 
     def __post_init__(self):
         if self.alpha is None:
             self.alpha = self.set_alpha()
+        if self.rho is not None and self.urho is None:
+            self.urho_from_rho()
+        elif self.urho is not None and self.rho is None:
+            self.rho_from_urho()
 
     def set_alpha(self):
         """Square tunneling potential"""
@@ -53,11 +57,15 @@ class system:
         return self.D0/(self.D_dot*(nt-ne)) 
 
     def set_rho(self,rho):
-        self.rho = rho 
-        self.urho = (4*np.pi* self.rho/3)/np.power(self.alpha,3)
-
+        self.rho = rho
+        
     def set_urho(self,urho):
         self.urho = urho 
+
+    def urho_from_rho(self):
+        self.urho = (4*np.pi* self.rho/3)/np.power(self.alpha,3)
+
+    def rho_from_urho(self):
         self.rho = self.urho*np.power(self.alpha,3)*(3/(np.pi*4))
 
     def ur(self, r):

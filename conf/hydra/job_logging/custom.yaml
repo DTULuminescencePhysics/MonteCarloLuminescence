@@ -1,0 +1,23 @@
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  std:
+    format: "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+
+handlers:
+  split:
+    class: src.errors.ErrorOutputHandler        
+    formatter: std
+    out_file: "output.log"
+    err_file: "error.log"
+    error_level: 40
+    install_hooks: true          
+    logger_name: "lumphys"
+    include_asyncio: true
+    uncaught_level: 40
+    duplicate_errors_to_out: false
+
+root:
+  level: INFO
+  handlers: [split]

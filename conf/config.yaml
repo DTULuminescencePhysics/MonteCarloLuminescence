@@ -1,0 +1,20 @@
+defaults: 
+  - _self_
+  - physics: phys_crib 
+  - mc: monte_carlo_crib
+  - override hydra/job_logging: custom
+  - override hydra/hydra_logging: disabled
+
+setup:
+  project: "${mc.name}_${mc.exp_typ}_${physics.name}"
+  seed: 1
+
+hydra:
+  run:
+    dir: "run/${setup.project}_${now:%Y%m%d-%H%M%S}"
+  sweep: 
+    dir: "run/${setup.project}_${now:%Y%m%d-%H%M%S}"
+    subdir: "trial_${hydra.job.num}" 
+  output_subdir: ".config"
+  job:
+    chdir : true 
