@@ -1,134 +1,103 @@
 import sys
-from classes.physics import system
-from classes.crystal import box
 import numpy as np
+from dataclasses import dataclass, field
 from joblib import Parallel, delayed
+from typing import Type
+from src.errors import ErrorOutputHandler
+from src.classes.physics import _thermal, Thermal, ThermalConductionBand, ThermalDose, ThermalConductionDose
+from classes.crystal import box
+
 from src.filesystem import output_monte_carlo_results
-class MC:
-    """Sets up universal parameters used for all 
-    iterations of the Monte Carlo simulation"""
+@dataclass(kw_only=True)
+class MCBase(box):
+    duration: float = field(default=160)
+    dt_cap: float = field(default=1)
+    initial_el: int = field(default=1e2)
+    initial_tr: int = field(default=1e2)
+    iso: bool = field(default=False) 
+    
+    store: np.ndarray = field(init=False)
+    max_steps: int = field(init=False)
+    _lifetime: np.ndarray = field(init=False)
 
-    def __init__(self,E_loc,b,s,alpha=None,E_cb=None,
-                 T_init=273.15,dT=5, duration=160,
-                 D0=None,D_dot=None,
-                 rho = None, urho = None,
-                 tot = None, h=None, w=None, l=None):
-       
-        
-        self.phys = system(E_loc=E_loc,alpha=alpha,b=b,s=s,
-                           E_cb=E_cb,D0=D0,D_dot=D_dot,
-                           T_init=T_init,dT=dT)
-        
-        if tot is not None and urho is not None:
-            self.tot = tot 
-            self.phys.set_urho(urho)
-            side_len = np.cbrt(self.tot/self.phys.rho)
-            h=w=l=side_len
-            self.crystal = box(h,w,l,1.5)
+    def __post_init__(self):
+        self.max_steps = int(self.duration/self.dt_cap +1)*5
+        super().__post_init__() 
+        if self.Height is None or self.Width is None or self.Length is None:
+            self.Height = self.Width = self.Length = np.cbrt(self.initial_el/self.rho)
+
+    @property
+    def ur(self):
+        """Convert distance r (in m) to unitless form"""
+        return (np.cbrt((4*np.pi*self.rho)/3)*self.r)
+    
+    @property 
+    def _recomb_wait(self):
+        if not self.iso:
+            self._lifetime = self.fading_rate
+
+        return np.random.exponential(self._lifetime)
+    
+    def find_next_recombination(self):
+        if self.n_el > 0:
+            return np.min(self._recomb_wait), np.argmin(self._recomb_wait)
         else:
-            if h is None or w is None or l is None:
-                self.crystal = box(boundary_factor=1.5)
-            else:
-                self.crystal = box(h,w,l,1.5)
-            if rho is None and urho is not None:
-                self.phys.set_urho(urho)
-                self.tot = int(self.phys.rho*self.crystal.volume)
-            elif urho is None and rho is not None:
-                self.tot = int(rho*self.crystal.volume)
-                self.phys.set_rho(rho)
-            elif rho is None and urho is None and tot is not None:
-                self.tot = tot
-                rho = tot/self.crystal.volume
-                self.phys.set_rho(rho)
-            else: 
-                sys.exit("Need to define either a density or a number electrons")
+            return 1e30, 0
 
-        if D0 is not None and D_dot is not None:
-            self.filling = True 
-        else:
-            self.filling = False
+    def set_start(self,time=0):
+        self.time = time 
+        self.initialise_el_tr(self.initial_el,self.initial_tr)
+        self.store = np.zeros((3,self.max_steps))
+        self.store[1,0] =  self.n_el
+        self.store[2,0] = self.n_trap
 
-        self.duration = duration 
-        self.dt_cap = 1
-        
-    def find_next_recombination(self,T):
-        """Function that takes the list of nearest neighbours
-        and then computes lifetimes and then draws the recombination
-        times"""
-        # if self.recalc: 
-        #     self._alpha_r = self.phys.b*np.exp(-self.phys.alpha*self.crystal.r)
-        #     self.re_calc = False
-      
-        # self._lifetime = 1/(self._alpha_r*self.phys.calc_p(T))
-       
-        self._lifetime = self.phys.fading_rate(self.crystal.r,T)
-        self._recomb_wait = np.random.exponential(self._lifetime)
-        return np.min(self._recomb_wait), np.argmin(self._recomb_wait)
+    def run_simulation(self,rep: int, err: ErrorOutputHandler,time=0): 
 
-    def find_next_filling(self,ne,nt):
-        if self.filling and (ne != nt):
-            filltime = self.phys.filling_rate(ne,nt)
-            return  np.random.exponential(filltime)
-        else:
-            return 1e20
-
-    def run_simulation(self,rep,folder,handler):
-        """Function that runs a single iteration of the 
-        Monte Carlo simulation"""
-
-        self.crystal.initialise_el_tr(self.tot,self.tot)
-        t_cur = 0.0 
-        Temp = self.phys.T(t_cur)
-        max_steps = int(self.duration/self.dt_cap +1)*5
-        store = np.zeros((3,max_steps))
-        # time = np.zeros(max_steps)
-        # nel_store = np.zeros(max_steps)
-        # tr_store = np.zeros(max_steps)
-        store[1,0] =  self.crystal.n_el
-        store[2,0] = self.crystal.n_trap
-        i = 1
-        self.recalc  = True
-        while t_cur < self.duration: 
-            if self.crystal.n_el > 0:
-                recomb_tim, recomb_index = self.find_next_recombination(Temp)
-            else:
-                recomb_tim = 1e20
-            fill_time = self.find_next_filling(self.crystal.n_el,self.crystal.n_trap)
-            dt = min(recomb_tim,fill_time,self.dt_cap)
-
+        self.set_start(time)
+        i = 1 
+        while self.time < self.duration: 
+            recomb_tim, recomb_index = self.find_next_recombination() 
+            dt = min(recomb_tim,self.fill,self.dt_cap)
+            
             if dt == recomb_tim:
-                self.crystal.remove_electron(recomb_index)
-                event = 1
-            elif dt == fill_time:
-                self.crystal.add_electron()
-                event = 0
-                self.re_calc = True
+                self.remove_electron(recomb_index)
+            elif dt == self.fill:
+                self.add_electron()
             elif dt == self.dt_cap:
-                event = 0 
-         
-            t_cur += dt
-            Temp = self.phys.T(t_cur)
-            if (max_steps - i < 2):
-                to_append = np.zeros((3,max_steps))
+                pass 
+
+            self.timestep(dt)
+            if (self.max_steps - i < 2):
+                to_append = np.zeros((3,self.max_steps))
                 store = np.vstack(store,to_append)
                
-            store[0,i] = t_cur
-            store[1,i] =  self.crystal.n_el
-            store[2,i] = self.crystal.n_trap
+            self.store[0,i] = self.time
+            self.store[1,i] =  self.n_el
+            self.store[2,i] = self.n_trap
             i +=1
         
-        output_monte_carlo_results(rep,folder,store[:,0:i],handler)
-       
-        # df = pd.DataFrame({
-        #     "Time": time[0:i],
-        #     "Electrons": nel_store[0:i],
-        #     "Traps": tr_store[0:i]
-        # }) 
+        output_monte_carlo_results(rep,store[:,0:i],err)
 
-        # return df
+Physics: dict[str, Type[_thermal]] = {
+    "Thermal":   Thermal,
+    "ThermalC":  ThermalConductionBand,
+    "ThermalD":  ThermalDose,
+    "ThermalCD": ThermalConductionDose
+}
+
+def make_mc_class(thermal_kind: str, name: str | None = None):
+    phys = Physics[thermal_kind]
+    cls_name = name or f"MC+{thermal_kind.capitalize()}"
+    cls = type(cls_name,(phys,MCBase),{})
+    cls = dataclass(kw_only=True)(cls)
+    return cls 
+
+def make_mc_instance(thermal_kind: str, **kwargs):
+    MC = make_mc_class(thermal_kind)
+    return MC(**kwargs)
     
 
-def run_monte_carlo_simulation(folder,handler):
+def run_monte_carlo_simulation(phys_in : dict, mc_in: dict, err: ErrorOutputHandler):
     input1 = {"E_loc": 0.8, 
              "s":1e10, 
              "rho":8e-4, 
@@ -156,20 +125,45 @@ def run_monte_carlo_simulation(folder,handler):
              "c2":"grey"}
 
     inputs = input1
-    MonteCarlo = MC(inputs["E_loc"],inputs["b"],inputs["s"],alpha=None,E_cb=None,
-                 T_init=273.15,dT=5, duration=160,
-                 D0=None,D_dot=None,
-                 rho = None, urho = inputs["rho"],
-                 tot = 1e2, h=None, w=None, l=None)
+    if mc_in.type ==  "Thermal":
+        MC = make_mc_class("Thermal")
+        MonteCarlo = MC(duration=mc_in.duration,dt_cap=mc_in.max_dt,
+                initial_el=mc_in.n_el,initial_tr=mc_in.n_tr,
+                Height=mc_in.h, Width=mc_in.w, Length=mc_in.l,
+                E_loc=phys_in.E_loc,alpha=phys_in.alpha,
+                b=phys_in.b, s=phys_in.s, T_init=phys_in.T_init,
+                dT=phys_in.dT,rho=phys_in.rho,urho=phys_in.urho)
+    elif mc_in.type == "ThermalC":
+        MC = make_mc_class("ThermalC")
+        MonteCarlo = MC(duration=mc_in.duration,dt_cap=mc_in.max_dt,
+                initial_el=mc_in.n_el,initial_tr=mc_in.n_tr,
+                Height=mc_in.h, Width=mc_in.w, Length=mc_in.l,
+                E_loc=phys_in.E_loc,E_cb=phys_in.E_cb, alpha=phys_in.alpha,
+                b=phys_in.b, s=phys_in.s, T_init=phys_in.T_init,
+                dT=phys_in.dT,rho=phys_in.rho,urho=phys_in.urho)
+    elif mc_in.type == "ThermalD":
+        MC = make_mc_class("ThermalD")
+        MonteCarlo = MC(duration=mc_in.duration,dt_cap=mc_in.max_dt,
+                initial_el=mc_in.n_el,initial_tr=mc_in.n_tr,
+                Height=mc_in.h, Width=mc_in.w, Length=mc_in.l,
+                E_loc=phys_in.E_loc,alpha=phys_in.alpha,
+                D0=phys_in.D0, D_dot=phys_in.D_dot,
+                b=phys_in.b, s=phys_in.s, T_init=phys_in.T_init,
+                dT=phys_in.dT,rho=phys_in.rho,urho=phys_in.urho)
+    elif mc_in.type == "ThermalCD":
+        MC = make_mc_class("ThermalCD")
+        MonteCarlo = MC(duration=mc_in.duration,dt_cap=mc_in.max_dt,
+                initial_el=mc_in.n_el,initial_tr=mc_in.n_tr,
+                Height=mc_in.h, Width=mc_in.w, Length=mc_in.l,
+                E_loc=phys_in.E_loc, E_cb=phys_in.E_cb, alpha=phys_in.alpha,
+                D0=phys_in.D0, D_dot=phys_in.D_dot,
+                b=phys_in.b, s=phys_in.s, T_init=phys_in.T_init,
+                dT=phys_in.dT,rho=phys_in.rho,urho=phys_in.urho)
+    else:
+        err.error("Type of physics not known. Probably should never see this",fatal=True)
+
+    err.checkpoint()
+
+    Parallel(n_jobs=-1)(delayed(MonteCarlo.run_simulation)(i,err) for i in range(mc_in.reps))
+   
     
-   
-   
-    reps = 2
-    
-    Parallel(n_jobs=-1)(delayed(MonteCarlo.run_simulation)(i,folder,handler) for i in range(reps))
-   
-    # dfs =[]
-    # for i in range(reps):
-    #     df = MonteCarlo.run_simulation()
-    #     dfs.append(df)
- 

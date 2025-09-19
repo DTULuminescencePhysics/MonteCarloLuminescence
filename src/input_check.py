@@ -95,6 +95,17 @@ def check_inputs(cfg: DictConfig, err: ErrorOutputHandler):
     err.checkpoint()
     err.clear_errors()
 
+    if cfg.physics.E_cb is None:
+        if cfg.physics.D0 is None:
+            ther_type = "Thermal"
+        else:
+            ther_type = "ThermalD"
+    else:
+        if cfg.physics.D0 is None:
+            ther_type = "ThermalC"
+        else:
+            ther_type = "ThermalCD"
+
     phys_in = {
         "E_loc": cfg.physics.E_loc,
         "alpha": cfg.physics.alpha,
@@ -110,6 +121,7 @@ def check_inputs(cfg: DictConfig, err: ErrorOutputHandler):
     }
 
     mc_in = {
+        "type": ther_type,
         "duration": cfg.mc.duration,
         "n_el": cfg.mc.n_el, 
         "n_tr": cfg.mc.n_tr,
@@ -119,6 +131,6 @@ def check_inputs(cfg: DictConfig, err: ErrorOutputHandler):
         "w": cfg.mc.w,
         "l": cfg.mc.l,
     }
-
+    err.output("Input check complete")
     return phys_in, mc_in 
 

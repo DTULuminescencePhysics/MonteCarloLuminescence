@@ -1,23 +1,18 @@
-from dataclasses import dataclass, field
-
 import numpy as np
-from classes.constants import mp
+from dataclasses import dataclass, field
 from scipy.spatial.distance import cdist
 from scipy.optimize import linear_sum_assignment
+from src.classes.electron_traps import _electraps
+from src.classes.constants import mp
+
 
 @dataclass
-class box:
+class box(_electraps):
     Height: float = field(default=50*mp.ang)
     Width: float = field(default=50*mp.ang)
     Length: float = field(default=50*mp.ang)
     boundary_factor: float = field(default=1.5)
-    n_el : int = field(init=False, repr=False) # Number of electrons
-    n_trap : int = field(init=False, repr=False) # Number of electron traps
-
-    electrons : np.ndarray = field(init=False, repr=False) # Store of electron coordinates
-    traps     : np.ndarray = field(init=False, repr=False) # Store of trap coordinates
-    distances : np.ndarray = field(init=False, repr=False) # Matrix of all distances between electrons and traps
-    r         : np.ndarray = field(init=False, repr=False) # Store of the nearest neighbour distances in same order as electrons
+    
 
     @property
     def dims(self):
