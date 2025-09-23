@@ -2,10 +2,12 @@ import sys
 import numpy as np
 from dataclasses import dataclass, field
 from joblib import Parallel, delayed
+from multiprocessing import Pool
+import time as tttt
 from typing import Type
 from src.errors import ErrorOutputHandler
 from src.classes.physics import _thermal, Thermal, ThermalConductionBand, ThermalDose, ThermalConductionDose
-from classes.crystal import box
+from src.classes.crystal import box
 
 from src.filesystem import output_monte_carlo_results
 @dataclass(kw_only=True)
@@ -21,8 +23,8 @@ class MCBase(box):
     _lifetime: np.ndarray = field(init=False)
 
     def __post_init__(self):
-        self.max_steps = int(self.duration/self.dt_cap +1)*5
         super().__post_init__() 
+        self.max_steps = int(self.duration/self.dt_cap +1)*5
         if self.Height is None or self.Width is None or self.Length is None:
             self.Height = self.Width = self.Length = np.cbrt(self.initial_el/self.rho)
 
@@ -69,14 +71,26 @@ class MCBase(box):
             self.timestep(dt)
             if (self.max_steps - i < 2):
                 to_append = np.zeros((3,self.max_steps))
-                store = np.vstack(store,to_append)
+                store = np.hstack(store,to_append)
                
             self.store[0,i] = self.time
             self.store[1,i] =  self.n_el
             self.store[2,i] = self.n_trap
             i +=1
         
-        output_monte_carlo_results(rep,store[:,0:i],err)
+        output_monte_carlo_results(rep,self.store[:,0:i],err)
+        return 0
+
+    def run_all(self,reps: int, err: ErrorOutputHandler,time=0):
+       
+       
+        start_time = tttt.perf_counter()
+        for i in range(0,reps):
+            self.run_simulation(i,err)
+        finish_time = tttt.perf_counter()
+        print("Program finished in {} seconds".format(finish_time-start_time))
+
+        # Parallel(n_jobs=-1)(delayed(MonteCarlo.run_simulation)(i,err) for i in range(mc_in.reps))
 
 Physics: dict[str, Type[_thermal]] = {
     "Thermal":   Thermal,
@@ -88,7 +102,7 @@ Physics: dict[str, Type[_thermal]] = {
 def make_mc_class(thermal_kind: str, name: str | None = None):
     phys = Physics[thermal_kind]
     cls_name = name or f"MC+{thermal_kind.capitalize()}"
-    cls = type(cls_name,(phys,MCBase),{})
+    cls = type(cls_name,(MCBase,phys),{})
     cls = dataclass(kw_only=True)(cls)
     return cls 
 
@@ -98,34 +112,34 @@ def make_mc_instance(thermal_kind: str, **kwargs):
     
 
 def run_monte_carlo_simulation(phys_in : dict, mc_in: dict, err: ErrorOutputHandler):
-    input1 = {"E_loc": 0.8, 
-             "s":1e10, 
-             "rho":8e-4, 
-             "factor":1e5, 
-             "z":1.8, 
-             "b":1e10,
-             "c1":"black",
-             "c2":"orange"
-             }
-    input2 = {"E_loc": 0.8, 
-             "s":1e10, 
-             "rho":3e-4, 
-             "factor":1e4, 
-             "z":1.8, 
-             "b":1e10,
-             "c1":"blue",
-             "c2":"pink"}
-    input3 = {"E_loc": 1.2, 
-             "s":1e12, 
-             "rho":3e-4, 
-             "factor":2e6, 
-             "z":1.8, 
-             "b":1e12,
-             "c1":"green",
-             "c2":"grey"}
+    # input1 = {"E_loc": 0.8, 
+    #          "s":1e10, 
+    #          "rho":8e-4, 
+    #          "factor":1e5, 
+    #          "z":1.8, 
+    #          "b":1e10,
+    #          "c1":"black",
+    #          "c2":"orange"
+    #          }
+    # input2 = {"E_loc": 0.8, 
+    #          "s":1e10, 
+    #          "rho":3e-4, 
+    #          "factor":1e4, 
+    #          "z":1.8, 
+    #          "b":1e10,
+    #          "c1":"blue",
+    #          "c2":"pink"}
+    # input3 = {"E_loc": 1.2, 
+    #          "s":1e12, 
+    #          "rho":3e-4, 
+    #          "factor":2e6, 
+    #          "z":1.8, 
+    #          "b":1e12,
+    #          "c1":"green",
+    #          "c2":"grey"}
 
-    inputs = input1
-    if mc_in.type ==  "Thermal":
+    # inputs = input1
+    if mc_in.therm_type ==  "Thermal":
         MC = make_mc_class("Thermal")
         MonteCarlo = MC(duration=mc_in.duration,dt_cap=mc_in.max_dt,
                 initial_el=mc_in.n_el,initial_tr=mc_in.n_tr,
@@ -133,7 +147,7 @@ def run_monte_carlo_simulation(phys_in : dict, mc_in: dict, err: ErrorOutputHand
                 E_loc=phys_in.E_loc,alpha=phys_in.alpha,
                 b=phys_in.b, s=phys_in.s, T_init=phys_in.T_init,
                 dT=phys_in.dT,rho=phys_in.rho,urho=phys_in.urho)
-    elif mc_in.type == "ThermalC":
+    elif mc_in.therm_type == "ThermalC":
         MC = make_mc_class("ThermalC")
         MonteCarlo = MC(duration=mc_in.duration,dt_cap=mc_in.max_dt,
                 initial_el=mc_in.n_el,initial_tr=mc_in.n_tr,
@@ -141,7 +155,7 @@ def run_monte_carlo_simulation(phys_in : dict, mc_in: dict, err: ErrorOutputHand
                 E_loc=phys_in.E_loc,E_cb=phys_in.E_cb, alpha=phys_in.alpha,
                 b=phys_in.b, s=phys_in.s, T_init=phys_in.T_init,
                 dT=phys_in.dT,rho=phys_in.rho,urho=phys_in.urho)
-    elif mc_in.type == "ThermalD":
+    elif mc_in.therm_type == "ThermalD":
         MC = make_mc_class("ThermalD")
         MonteCarlo = MC(duration=mc_in.duration,dt_cap=mc_in.max_dt,
                 initial_el=mc_in.n_el,initial_tr=mc_in.n_tr,
@@ -150,7 +164,7 @@ def run_monte_carlo_simulation(phys_in : dict, mc_in: dict, err: ErrorOutputHand
                 D0=phys_in.D0, D_dot=phys_in.D_dot,
                 b=phys_in.b, s=phys_in.s, T_init=phys_in.T_init,
                 dT=phys_in.dT,rho=phys_in.rho,urho=phys_in.urho)
-    elif mc_in.type == "ThermalCD":
+    elif mc_in.therm_type == "ThermalCD":
         MC = make_mc_class("ThermalCD")
         MonteCarlo = MC(duration=mc_in.duration,dt_cap=mc_in.max_dt,
                 initial_el=mc_in.n_el,initial_tr=mc_in.n_tr,
@@ -164,6 +178,6 @@ def run_monte_carlo_simulation(phys_in : dict, mc_in: dict, err: ErrorOutputHand
 
     err.checkpoint()
 
-    Parallel(n_jobs=-1)(delayed(MonteCarlo.run_simulation)(i,err) for i in range(mc_in.reps))
-   
+    MonteCarlo.run_all(mc_in.reps,err)
     
+    return MonteCarlo

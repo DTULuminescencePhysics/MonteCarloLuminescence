@@ -3,6 +3,8 @@ from omegaconf import DictConfig
 from src.errors import ErrorOutputHandler
 from src.filesystem import CONFIG_DIR
 from src.input_check import check_inputs
+from src.classes.monte_carlo import run_monte_carlo_simulation
+from src.process_plot import process_data,plot_data
 import logging
 
 
@@ -13,7 +15,7 @@ def main(cfg: DictConfig):
 
     phys_in, mc_in = check_inputs(cfg, err)
     
-    print(phys_in)
+    mc = run_monte_carlo_simulation(phys_in,mc_in,err)
 
-
-
+    process_data(mc)
+    plot_data()

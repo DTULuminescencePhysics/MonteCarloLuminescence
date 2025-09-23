@@ -1,6 +1,7 @@
 from __future__ import annotations
 from src.errors import ErrorOutputHandler
 from omegaconf import DictConfig, OmegaConf
+from src.classes.dot_dict import ddict
 
 def number_check(val, name: str, err: ErrorOutputHandler):
     if not isinstance(val,(int,float)):
@@ -106,7 +107,7 @@ def check_inputs(cfg: DictConfig, err: ErrorOutputHandler):
         else:
             ther_type = "ThermalCD"
 
-    phys_in = {
+    phys_in = ddict({
         "E_loc": cfg.physics.E_loc,
         "alpha": cfg.physics.alpha,
         "b": cfg.physics.b,
@@ -114,14 +115,14 @@ def check_inputs(cfg: DictConfig, err: ErrorOutputHandler):
         "E_cb": cfg.physics.E_cb,
         "D0": cfg.physics.D0,
         "D_dot": cfg.physics.D_dot,
-        "T_init": cfg.mc.T_init,
+        "T_init": (cfg.mc.T_init+273.15),
         "dT": cfg.mc.T_rate,
         "rho": cfg.physics.rho,
         "urho": cfg.physics.urho
-    }
+    })
 
-    mc_in = {
-        "type": ther_type,
+    mc_in = ddict({
+        "therm_type": ther_type,
         "duration": cfg.mc.duration,
         "n_el": cfg.mc.n_el, 
         "n_tr": cfg.mc.n_tr,
@@ -130,7 +131,7 @@ def check_inputs(cfg: DictConfig, err: ErrorOutputHandler):
         "h": cfg.mc.h,
         "w": cfg.mc.w,
         "l": cfg.mc.l,
-    }
+    })
     err.output("Input check complete")
     return phys_in, mc_in 
 

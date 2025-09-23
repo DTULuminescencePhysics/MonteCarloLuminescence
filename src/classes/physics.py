@@ -1,7 +1,7 @@
 import numpy as np
 from dataclasses import dataclass, field
 from src.classes.electron_traps import _electraps
-from classes.constants import cnst
+from src.classes.constants import cnst
 
 
 @dataclass(kw_only=True)
@@ -89,6 +89,10 @@ class _thermal(_bs,_temp,_density,_electraps):
     @property
     def p(self):
         return np.exp(-self.E_loc/(cnst.k_b_ev*self.T))
+    
+    def p_array(self,T):
+        return np.exp(-self.E_loc/(cnst.k_b_ev*T))
+
     
     @property
     def tunn_decay(self):
