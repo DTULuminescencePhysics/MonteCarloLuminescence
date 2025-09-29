@@ -2,6 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import glob
+import os, csv
 
 def build_step_series(time_file,elec_file, trp_file, t_grid):
         p = np.searchsorted(t_grid,time_file)
@@ -18,70 +19,225 @@ def build_step_series(time_file,elec_file, trp_file, t_grid):
         # lum[p] = 0
         return el,tr, lum
 
-def process_data(MonteCarlo):
-   
-    raw_list = glob.glob("*.npy")
+def process_data(MonteCarlo, float_dtype=np.float32, processed_csv="processed.csv",
+                 averaged_csv="Averaged_data.csv", memmap_file="all_data.npy"):
+    """
+    Minimizes RAM usage by:
+      - building a disk-backed memmap for per-file series
+      - computing aggregates in one pass with running accumulators
+      - streaming CSV writes without creating large DataFrames in memory
+    """
+
+    # -------------------------
+    # 1) Discover inputs + union time grid
+    # -------------------------
+    # raw_list = sorted(glob.glob("*.npy"))
+    raw_list = sorted(glob.glob("*.bin"))
+    if not raw_list:
+        raise FileNotFoundError("No .npy files found in current directory.")
+
+    # Read first row (time) from each file via mmap (cheap) and union them
     raw_time = []
-
-    for file in raw_list:
-        data = np.load(file)
-        first = data[0,:]
-        raw_time.append(first)
-
-    all_time = np.unique(np.concatenate([t for t in raw_time]))
-    all_data = np.zeros(((len(raw_list)*3)+2,len(all_time)))
-    all_data[0,:] = all_time
-    j = 2
-    
-    
     for fp in raw_list:
-        a = np.load(fp, mmap_mode="r")  
-  
-        if a.shape[0] != 3:
+        # a = np.memmap(fp, dtype=np.float64, mode="r")
+        a = np.memmap(fp, dtype=np.float64, mode="r").reshape(-1, 3).T
+        # a = np.load(fp, mmap_mode="r")
+        if a.ndim != 2 or a.shape[0] != 3:
             raise ValueError(f"{fp} expected shape (3, n); got {a.shape}")
+        raw_time.append(np.asarray(a[0], dtype=float_dtype))
 
-        t_file = np.asarray(a[0], dtype=float)
-        el_file = np.asarray(a[1], dtype=float)
-        tr_file = np.asarray(a[2], dtype=float)
+    all_time = np.unique(np.concatenate(raw_time))
+    all_time = np.asarray(all_time, dtype=float_dtype)
+
+    # Temperature from MonteCarlo (vectorized), as float_dtype (doesn't need double)
+    temperature = np.asarray(MonteCarlo.T_init + all_time * MonteCarlo.dT, dtype=float_dtype)
+
+    # -------------------------
+    # 2) Create an on-disk memmap for per-file series
+    #    Layout matches your original all_data:
+    #    rows = 2 + 3*len(files)  (Time, Temperature, then triplets per file)
+    #    cols = len(all_time)
+    # -------------------------
+    n_files = len(raw_list)
+    n_rows = 2 + 3 * n_files
+    n_cols = all_time.shape[0]
+
+    # 'w+' creates/overwrites the file
+    all_data = np.lib.format.open_memmap(memmap_file, mode="w+", dtype=float_dtype, shape=(n_rows, n_cols))
+    all_data[0, :] = all_time
+    all_data[1, :] = temperature
+
+    # Running accumulators for averages/sums (avoid storing all columns in RAM)
+    elec_sum = np.zeros(n_cols, dtype=np.float64)  # keep sum at higher precision
+    trap_sum = np.zeros(n_cols, dtype=np.float64)
+    lum_sum  = np.zeros(n_cols, dtype=np.float64)
+
+    j = 2
+    for fp in raw_list:
+        # a = np.load(fp, mmap_mode="r")
+        # a = np.memmap(fp, dtype=np.float64, mode="r")
+        a = np.memmap(fp, dtype=np.float64, mode="r").reshape(-1, 3).T
+        t_file = np.asarray(a[0], dtype=float_dtype)
+        el_file = np.asarray(a[1], dtype=float_dtype)
+        tr_file = np.asarray(a[2], dtype=float_dtype)
 
         el_series, tr_series, lum_series = build_step_series(t_file, el_file, tr_file, all_time)
 
-        all_data[j, :] = el_series
-        all_data[j + 1, :] = tr_series
-        all_data[j + 2, :] = lum_series
+        # Write columns for this file directly to disk-backed memmap
+        all_data[j,   :] = el_series
+        all_data[j+1, :] = tr_series
+        all_data[j+2, :] = lum_series
+
+        # Update running sums for later averages (double precision to reduce drift)
+        elec_sum += el_series.astype(np.float64)
+        trap_sum += tr_series.astype(np.float64)
+        lum_sum  += lum_series.astype(np.float64)
 
         j += 3
 
+    header = ["Time", "Temperature"]
+    for i in range(n_files):
+        header += [f"Electrons_{i+1}", f"Traps_{i+1}", f"Lum_{i+1}"]
 
-    all_data[1,:] = MonteCarlo.T_init + all_data[0,:]*MonteCarlo.dT
+    with open(processed_csv, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        for i in range(n_cols):
+            row = [all_data[0, i], all_data[1, i]]
+            for base in range(2, n_rows, 3):
+                row.append(all_data[base,   i])  # Electrons_k
+                row.append(all_data[base+1, i])  # Traps_k
+                row.append(all_data[base+2, i])  # Lum_k
+            w.writerow(row)
+
+   
+    p_vec = MonteCarlo.p_array(temperature)
+
+    # Averages/sums across files
+    # n = float(n_files)
+    # electrons_avg = (elec_sum / n).astype(float_dtype)
+    # traps_avg     = (trap_sum / n).astype(float_dtype)
+    electrons_avg = elec_sum.astype(float_dtype)
+    traps_avg     = trap_sum.astype(float_dtype)
+    lum_total     = lum_sum.astype(float_dtype)
+
+    # Derived quantities
+    # n_g = <Electrons_Avg> / (p + 1)
+    # n_e = <Electrons_Avg> * p / (p + 1)
+    denom = (p_vec + 1.0).astype(np.float64)
+    n_g = (electrons_avg.astype(np.float64) / denom).astype(float_dtype)
+    n_e = (electrons_avg.astype(np.float64) * (p_vec.astype(np.float64) / denom)).astype(float_dtype)
+
+    # Temperature to Celsius for output
+    temp_c = (temperature - np.array(273.15, dtype=float_dtype)).astype(float_dtype)
+
+    # Write averaged CSV streamingly
+    with open(averaged_csv, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["Time", "Temperature", "p", "Electrons_Avg", "Traps_Avg", "Lum_sum", "n$_g$", "n$_e$"])
+        for i in range(n_cols):
+            w.writerow([
+                all_time[i],
+                temp_c[i],
+                p_vec[i],
+                electrons_avg[i],
+                traps_avg[i],
+                lum_total[i],
+                n_g[i],
+                n_e[i],
+            ])
+
+    # -------------------------
+    # 6) Optional cleanup of raw .npy files
+    # -------------------------
+    for fp in raw_list:
+        try:
+            os.remove(fp)
+        except OSError:
+            pass
+
+    # Return paths for convenience
+    # return {"processed_csv": processed_csv, "averaged_csv": averaged_csv, "memmap_file": memmap_file}
+
+
+# def process_data(MonteCarlo):
+   
+#     raw_list = glob.glob("*.npy")
+#     raw_time = []
+#     float_dtype = np.float64
+#     for file in raw_list:
+#         data = np.load(file,mmap_mode="r")
+#         raw_time.append(np.asarray(a[0], dtype=float_dtype))
+
+#     all_time = np.unique(np.concatenate([t for t in raw_time]))
+#     all_data = np.zeros(((len(raw_list)*3)+2,len(all_time)))
+#     all_data[0,:] = all_time
+#     j = 2
     
-    df = pd.DataFrame(all_data.T)
-    columns = ["Time","Temperature"]
-    for i in range(len(raw_list)):
-        columns.append(f"Electrons_{i+1}")
-        columns.append(f"Traps_{i+1}")
-        columns.append(f"Lum_{i+1}")
+    
+#     for fp in raw_list:
+#         a = np.load(fp, mmap_mode="r")  
+  
+#         if a.shape[0] != 3:
+#             raise ValueError(f"{fp} expected shape (3, n); got {a.shape}")
 
-    df.columns = columns
-    df.to_csv("processed.csv")
+#         t_file = np.asarray(a[0], dtype=float)
+#         el_file = np.asarray(a[1], dtype=float)
+#         tr_file = np.asarray(a[2], dtype=float)
 
-    av_df = df[["Time","Temperature"]].copy()
-    av_df["p"] = MonteCarlo.p_array(av_df["Temperature"])
+#         el_series, tr_series, lum_series = build_step_series(t_file, el_file, tr_file, all_time)
 
-    elec_cols = df.filter(like="Electrons_")
-    av_df["Electrons_Avg"] = elec_cols.mean(axis=1)
-    tr_cols = df.filter(like="Traps_")
-    av_df["Traps_Avg"] = tr_cols.mean(axis=1)
-    lum_cols = df.filter(like="Lum_")
-    av_df["Lum_sum"] = lum_cols.sum(axis=1)
-    av_df["n$_g$"] = av_df["Electrons_Avg"]/(av_df["p"]+1)
-    av_df["n$_e$"] = av_df["Electrons_Avg"]*av_df["p"]/(av_df["p"]+1)
-    av_df["Temperature"] -= 273.15
+#         all_data[j, :] = el_series
+#         all_data[j + 1, :] = tr_series
+#         all_data[j + 2, :] = lum_series
 
-    av_df.to_csv("Averaged_data.csv")
-    return 
+#         j += 3
 
 
+#     all_data[1,:] = MonteCarlo.T_init + all_data[0,:]*MonteCarlo.dT
+    
+#     df = pd.DataFrame(all_data.T)
+#     columns = ["Time","Temperature"]
+#     for i in range(len(raw_list)):
+#         columns.append(f"Electrons_{i+1}")
+#         columns.append(f"Traps_{i+1}")
+#         columns.append(f"Lum_{i+1}")
+
+#     df.columns = columns
+#     df.to_csv("processed.csv")
+#     for file in raw_list:
+#         os.remove(file)
+#     av_df = df[["Time","Temperature"]].copy()
+#     av_df["p"] = MonteCarlo.p_array(av_df["Temperature"])
+
+#     elec_cols = df.filter(like="Electrons_")
+#     av_df["Electrons_Avg"] = elec_cols.mean(axis=1)
+#     tr_cols = df.filter(like="Traps_")
+#     av_df["Traps_Avg"] = tr_cols.mean(axis=1)
+#     lum_cols = df.filter(like="Lum_")
+#     av_df["Lum_sum"] = lum_cols.sum(axis=1)
+#     av_df["n$_g$"] = av_df["Electrons_Avg"]/(av_df["p"]+1)
+#     av_df["n$_e$"] = av_df["Electrons_Avg"]*av_df["p"]/(av_df["p"]+1)
+#     av_df["Temperature"] -= 273.15
+
+#     av_df.to_csv("Averaged_data.csv")
+#     return 
+
+def load_for_populations(path):
+    use = ["Temperature", "n$_g$", "n$_e$"]
+    return pd.read_csv(
+        path, usecols=use,
+        dtype={c: "float32" for c in use},
+        engine="c", memory_map=True
+    )
+
+def load_for_lum(path):
+    use = ["Temperature", "Lum_sum"]
+    return pd.read_csv(
+        path, usecols=use,
+        dtype={c: "float32" for c in use},
+        engine="c", memory_map=True
+    )
 def running_mean(a: np.ndarray, k: int = 5) -> np.ndarray:
         kernel = np.ones(k) / k
         return np.convolve(a, kernel, "valid")
@@ -97,9 +253,10 @@ def hist_and_smooth(t_axis, events, bin_width=1.0, win_deg=50.0):
     return running_mean(hist, k=k)
 
 def plot_populations(data):
+    data_pop = load_for_populations("Averaged_data.csv")
     plt.close()
-    plt.plot(data["Temperature"], data["n$_g$"], color="black", lw=2, label="n$_g$")
-    plt.plot(data["Temperature"], data["n$_e$"], color="black", lw=2, label="n$_e$")
+    plt.plot(data_pop["Temperature"], data_pop["n$_g$"], color="black", lw=2, label="n$_g$")
+    plt.plot(data_pop["Temperature"], data_pop["n$_e$"], color="black", lw=2, label="n$_e$")
     plt.xlabel("Temperature")
     plt.ylabel("Electrons")
     plt.legend()
@@ -109,8 +266,8 @@ def plot_smooth(data):
     for i in range(25,125,25):
         smooth = hist_and_smooth(data["Temperature"], data["Lum_sum"],win_deg=i)
         plt.plot(np.arange(len(smooth)), smooth,label=f"{i}")
-    plt.legend()
-    plt.show()
+    # plt.legend()
+    # plt.show()
 
 def plot_running_mean(data,window=10):
     rm = data["Lum_sum"].rolling(window=window, center=True).mean()
@@ -144,7 +301,7 @@ def norm_smoothing(data,bandwidth=25.0):
 def parametric_smoothing(data):
     import statsmodels.api as sm 
     frac = 0.1
-    for i in range(1,6):
+    for i in range(1,3):
         frac = i*0.1
         lowess = sm.nonparametric.lowess
         smoothed_loess = lowess(data["Lum_sum"], data["Temperature"], frac=frac)
@@ -152,16 +309,17 @@ def parametric_smoothing(data):
 
 def plot_data():
 
-    data = pd.read_csv("Averaged_data.csv")
+    # data = pd.read_csv("Averaged_data.csv")
 
     # plot_populations(data)
     # plot_smooth(data)
     # plt.close()
     # plot_running_mean(data)
-
-    window_smoothing(data)
-    norm_smoothing(data)
-    parametric_smoothing(data)
+    data = load_for_lum("Averaged_data.csv")
+    plot_smooth(data)
+    # window_smoothing(data)
+    # norm_smoothing(data)
+    # parametric_smoothing(data)
 
 
     # plt.xlabel("Temperature")
@@ -174,6 +332,7 @@ def plot_data():
     plt.xlabel("Temperature")
     plt.ylabel("Luminesence")
     plt.legend()
-    plt.show()
+    plt.savefig("example.png")
+    # plt.show()
 
 

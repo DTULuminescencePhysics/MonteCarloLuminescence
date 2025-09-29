@@ -6,7 +6,7 @@ from src.classes.electron_traps import _electraps
 from src.classes.constants import mp
 
 
-@dataclass
+@dataclass(kw_only=True)
 class box(_electraps):
     Height: float = field(default=50*mp.ang)
     Width: float = field(default=50*mp.ang)
@@ -77,23 +77,100 @@ class box(_electraps):
         self.n_el +=1 
         self.n_trap +=1
 
-    def remove_electron(self,elec_i):
-        """Removes a single electron and hole to the crystal"""
-        # Get the index of the trap that's nearest neighbour is electron
-        # indexed, elec_i    
-        trap_i = self.t_index[elec_i]
-        # Remove electron and trap indexed at ne and nt respectively 
-        self.electrons = np.delete(self.electrons,elec_i, axis=0)
-        self.traps = np.delete(self.traps,trap_i, axis=0)
-        # Delete row and column from the distances matrix
-        self.distances = np.delete(self.distances,elec_i,axis=0)
-        self.distances = np.delete(self.distances,trap_i,axis=1)
-        # Delete the nearest neighbour distances for ne and nt
-        self.r = np.delete(self.r,elec_i)
-        self.t_index[self.t_index > elec_i] -= 1
-        # self.recalculate_nearest_neighbour()
-        self.n_el -=1 
-        self.n_trap -=1
+    def remove_electrons(self, elec_idx):
+        """
+        Remove multiple electrons (and their paired traps) given by indices in `elec_idx`.
+        Mirrors the single-removal behavior but batch-optimized and RAM-friendly.
+        Assumes:
+        - self.t_index[e] gives the trap index paired to electron e
+        - self.electrons shape: (n_el, ...)
+        - self.traps     shape: (n_trap, ...)
+        - self.distances shape: (n_el, n_trap)
+        - self.r         shape: (n_el,)
+        """
+        import numpy as np
+
+        # --- sanitize indices ---
+        if np.isscalar(elec_idx):
+            elec_idx = np.array([int(elec_idx)], dtype=int)
+        else:
+            elec_idx = np.asarray(elec_idx, dtype=int).ravel()
+
+        if elec_idx.size == 0:
+            return
+
+        n_el_before  = self.electrons.shape[0]
+        n_tr_before  = self.traps.shape[0]
+
+        # clip invalid indices (optional: raise instead)
+        if np.any((elec_idx < 0) | (elec_idx >= n_el_before)):
+            raise IndexError("Some electron indices are out of bounds.")
+
+        # unique, sorted (so masks are deterministic)
+        elec_idx = np.unique(elec_idx)
+
+        # traps paired with those electrons
+        traps_idx = np.unique(self.t_index[elec_idx])
+
+        # --- build keep masks ---
+        keep_e = np.ones(n_el_before,  dtype=bool)
+        keep_t = np.ones(n_tr_before,  dtype=bool)
+        keep_e[elec_idx] = False
+        keep_t[traps_idx] = False
+
+        # --- apply removals (rows/cols) ---
+        # electrons & r
+        self.electrons = self.electrons[keep_e, :]
+        self.r         = self.r[keep_e]
+
+        # traps
+        self.traps     = self.traps[keep_t, :]
+
+        # distances: drop removed electron rows and trap columns
+        self.distances = self.distances[keep_e, :][:, keep_t]
+
+        # --- update t_index for remaining electrons ---
+        # 1) drop entries for removed electrons
+        t_index_kept = self.t_index[keep_e]
+
+        # 2) remap old trap indices -> new trap indices after column deletions
+        #    (no NN recompute; just reindexing)
+        old_to_new = np.full(n_tr_before, -1, dtype=int)
+        old_to_new[np.nonzero(keep_t)[0]] = np.arange(keep_t.sum(), dtype=int)
+
+        new_t_index = old_to_new[t_index_kept]   # removed-trap refs become -1
+
+        self.t_index = new_t_index
+
+        # If you want to mimic the original "no recompute" exactly,
+        # you can leave -1s as-is. Otherwise, you might trigger a recompute:
+        # if (new_t_index < 0).any():
+        #     self.recalculate_nearest_neighbour()
+
+        # --- counts ---
+        removed_el   = np.count_nonzero(~keep_e)
+        removed_trap = np.count_nonzero(~keep_t)
+        self.n_el   -= removed_el
+        self.n_trap -= removed_trap
+
+
+    # def remove_electron(self,elec_i):
+    #     """Removes a single electron and hole to the crystal"""
+    #     # Get the index of the trap that's nearest neighbour is electron
+    #     # indexed, elec_i    
+    #     trap_i = self.t_index[elec_i]
+    #     # Remove electron and trap indexed at ne and nt respectively 
+    #     self.electrons = np.delete(self.electrons,elec_i, axis=0)
+    #     self.traps = np.delete(self.traps,trap_i, axis=0)
+    #     # Delete row and column from the distances matrix
+    #     self.distances = np.delete(self.distances,elec_i,axis=0)
+    #     self.distances = np.delete(self.distances,trap_i,axis=1)
+    #     # Delete the nearest neighbour distances for ne and nt
+    #     self.r = np.delete(self.r,elec_i)
+    #     self.t_index[self.t_index > elec_i] -= 1
+    #     # self.recalculate_nearest_neighbour()
+    #     self.n_el -=1 
+    #     self.n_trap -=1
 
     def recalculate_nearest_neighbour(self):
         """Finds a new set of nearest neighbour distances and stores the 

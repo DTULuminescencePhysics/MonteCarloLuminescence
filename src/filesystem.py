@@ -49,12 +49,13 @@ def make_results_folder(name,err):
 
     err.error_check()
 
-def output_monte_carlo_results(rep,output,err):
+def output_monte_carlo_results(rep,output):#,err):
     filename  =f"rep_{rep}.npy"
     try:
         npsave(filename,output)
-    except Exception as e:
-        err.error(e,additional=f"Error writing Monte Carlo Repetition, {rep} output file",fatal=False)
+        return 0
+    except:
+        return 1
 
 
 
