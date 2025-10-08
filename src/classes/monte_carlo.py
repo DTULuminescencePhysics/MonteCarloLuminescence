@@ -27,8 +27,6 @@ class MCBase(box):
         self.max_steps = int(self.duration/self.dt_cap +1)*5
         if self.Height is None or self.Width is None or self.Length is None:
             self.Height = self.Width = self.Length = np.cbrt(self.initial_el/self.rho)
-            print(self.Height)
-            exit()
 
     @property
     def ur(self):
@@ -60,25 +58,28 @@ class MCBase(box):
         self.set_start(time)
         i = 1 
         path = f"rep_{rep}.bin"
+        step = 10 #self.dt_cap
         with open(path, "wb") as f:
             while self.time < self.duration: 
-                # recomb_tim, recomb_index = self.find_next_recombination() 
-                # dt = min(recomb_tim,self.fill,self.dt_cap)
-                dt = min(self.fill,self.dt_cap)
-                if dt == self.fill:
-                    self.add_electron()
-                else:
-                    lives = self._recomb_wait - dt 
-                    remov = np.where(lives<1)
-                    # for r in remov:
-                    self.remove_electrons(remov)
-
-                # if dt == recomb_tim:
-                #     self.remove_electron(recomb_index)
-                # elif dt == self.fill:
+                recomb_tim, recomb_index = self.find_next_recombination() 
+                dt = min(recomb_tim,self.fill,self.dt_cap)
+                # dt = min(self.fill,step)
+               
+                # if dt == self.fill:
                 #     self.add_electron()
-                # elif dt == self.dt_cap:
-                #     pass 
+                #     step = 10 - dt #self.dt_cap - dt
+                # else:
+                #     lives = self._recomb_wait - dt 
+                #     remov = np.where(lives<1)
+                #     # for r in remov:
+                #     self.remove_electrons(remov)
+                #     step =  10 #self.dt_cap
+                if dt == recomb_tim:
+                    self.remove_electrons(recomb_index)
+                elif dt == self.fill:
+                    self.add_electron()
+                elif dt == self.dt_cap:
+                    pass 
 
                 self.timestep(dt)
                 self.store[0,i] = self.time
@@ -101,7 +102,7 @@ class MCBase(box):
        
         start_time = tttt.perf_counter()
         if parl:
-            Parallel(n_jobs=-1)(delayed(self.run_simulation)(i) for i in range(reps))
+            Parallel(n_jobs=4)(delayed(self.run_simulation)(i) for i in range(reps))
         else: 
             code = []; additional = []
             for i in range(0,reps):

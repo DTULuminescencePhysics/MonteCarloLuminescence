@@ -4,7 +4,7 @@ b        : 1e10
 s        : 1e10
 alpha    : null 
 E_cb     : null
-D0       : null
-D_dot    : null
+D0       : 3
+D_dot    : 0.092
 rho      : null
-urho     : 1e-3
+urho     : 8e-4

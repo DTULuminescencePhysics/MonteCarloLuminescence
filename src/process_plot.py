@@ -4,6 +4,44 @@ import numpy as np
 import glob
 import os, csv
 
+def plot_crystal(trap_coords: np.ndarray, hole_location: np.ndarray, nearest: np.ndarray, N: int, nearest_no=3):
+    fig = plt.figure(figsize=(8,8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    ax.scatter(trap_coords[:,0], trap_coords[:,1], trap_coords[:,2], c='blue', label='Traps')
+    ax.scatter(hole_location[:,0], hole_location[:,1], hole_location[:,2], c='red', label='List2')
+    
+    for i in range(N):
+        hole = hole_location[nearest[i,0]]
+        if np.all(hole == trap_coords[i,:]):
+            ax.scatter(trap_coords[i,0], trap_coords[i,1], trap_coords[i,2], c='green', label='Traps')
+            continue
+        xs = [trap_coords[i,0], hole[0]]
+        ys = [trap_coords[i,1], hole[1]]
+        zs = [trap_coords[i,2], hole[2]]
+        ax.plot(xs, ys, zs, 'k--')
+    
+    if nearest_no > 1:
+        for i in range(N):
+            hole = hole_location[nearest[i,1]]
+            xs = [trap_coords[i,0], hole[0]]
+            ys = [trap_coords[i,1], hole[1]]
+            zs = [trap_coords[i,2], hole[2]]
+            ax.plot(xs, ys, zs, ls='--',color="green") 
+    
+    if nearest_no > 2:
+        for i in range(N):
+            hole = hole_location[nearest[i,2]]
+            xs = [trap_coords[i,0], hole[0]]
+            ys = [trap_coords[i,1], hole[1]]
+            zs = [trap_coords[i,2], hole[2]]
+            ax.plot(xs, ys, zs, ls='--',color="pink")
+
+    plt.show()
+
+
+
+
 def build_step_series(time_file,elec_file, trp_file, t_grid):
         p = np.searchsorted(t_grid,time_file)
         # if not np.all(t_grid[p] == t_file):
@@ -223,14 +261,20 @@ def process_data(MonteCarlo, float_dtype=np.float32, processed_csv="processed.cs
 #     av_df.to_csv("Averaged_data.csv")
 #     return 
 
-def load_for_populations(path):
-    use = ["Temperature", "n$_g$", "n$_e$"]
+def load_for_populations(path,temp_time):
+    use = [temp_time, "n$_g$", "n$_e$"]
     return pd.read_csv(
         path, usecols=use,
         dtype={c: "float32" for c in use},
         engine="c", memory_map=True
     )
-
+def load_for_totals(path,temp_time):
+    use = [temp_time, "Electrons_Avg", "Traps_Avg"]
+    return pd.read_csv(
+        path, usecols=use,
+        dtype={c: "float32" for c in use},
+        engine="c", memory_map=True
+    )
 def load_for_lum(path):
     use = ["Temperature", "Lum_sum"]
     return pd.read_csv(
@@ -252,15 +296,39 @@ def hist_and_smooth(t_axis, events, bin_width=1.0, win_deg=50.0):
     k = max(1, int(win_deg / bin_width))
     return running_mean(hist, k=k)
 
-def plot_populations(data):
-    data_pop = load_for_populations("Averaged_data.csv")
-    plt.close()
+def plot_populations():
+    print("here")
+    data_pop = load_for_populations("Averaged_data.csv","Temperature")
     plt.plot(data_pop["Temperature"], data_pop["n$_g$"], color="black", lw=2, label="n$_g$")
     plt.plot(data_pop["Temperature"], data_pop["n$_e$"], color="black", lw=2, label="n$_e$")
+    plt.plot(data_pop["Temperature"],data_pop["n$_e$"]/data_pop["n$_g$"])
     plt.xlabel("Temperature")
     plt.ylabel("Electrons")
     plt.legend()
-    plt.show()
+    plt.savefig("populations.png")
+    # plt.show()
+
+def plot_ratios():
+    data_pop = load_for_totals("Averaged_data.csv","Time")
+    # plt.plot(data_pop["Time"], data_pop["Electrons_Avg"], color="black", lw=2, label="n$_g$")
+    # plt.plot(data_pop["Time"], data_pop["Traps_Avg"], color="blue", lw=2, label="n$_e$")
+    data_pop["ratio"] = (data_pop["Traps_Avg"]-data_pop["Electrons_Avg"])/data_pop["Traps_Avg"]
+   
+    data_pop["ratio"] = data_pop["ratio"].replace([np.inf, -np.inf], np.nan)  # protect against 0 traps
+    data_pop["ratio_ma"] = data_pop["ratio"].rolling(window=100, min_periods=1, center=True).mean() 
+    plt.plot(data_pop["Time"],data_pop["ratio"],color="green",label="ratio")
+    plt.plot(data_pop["Time"],data_pop["ratio_ma"],color="black",label="smooth")
+
+    # for i in range(1,5):
+    #     smooth = hist_and_smooth(data_pop["Time"],ratio,bin_width=0.5,win_deg=1)
+    #     plt.plot(np.arange(len(smooth)), smooth,label=f"{i}")
+    plt.xlabel("Time")
+    plt.ylabel("Electrons")
+    plt.legend()
+    plt.savefig("ratio.png")
+    # plt.show()
+
+
 
 def plot_smooth(data):
     for i in range(25,125,25):
@@ -311,7 +379,8 @@ def plot_data():
 
     # data = pd.read_csv("Averaged_data.csv")
 
-    # plot_populations(data)
+    # plot_populations()
+    plot_ratios()
     # plot_smooth(data)
     # plt.close()
     # plot_running_mean(data)

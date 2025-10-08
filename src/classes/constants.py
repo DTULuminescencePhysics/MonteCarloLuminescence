@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 
-
 @dataclass
 class MetricPrefixes:
     G : float = 1e9    # Giga
@@ -38,7 +37,6 @@ class MetricPrefixes:
 
 mp = MetricPrefixes()
 
-
 @dataclass(frozen=True)
 class physical_constants:
     k_b: float = 1.380649e-23  # Boltzmann constant in J/K (kg·m²/s²·K)
@@ -52,7 +50,11 @@ class physical_constants:
     R: float = 8.314462618  # Gas constant in J/(mol·K)
     epsilon_0: float = 8.854187817e-12  # Vacuum permittivity in F/m 
     ev_to_j: float = 1.602176634e-19  # Conversion factor from eV to J
-    
+    hour_to_s: int = 3600
+    day_to_s: float = 86400 
+    year_to_s: float = 31556952
+    Ma_to_d: float = 31556952e6
+
 cnst = physical_constants()
 
 

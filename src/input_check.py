@@ -97,6 +97,7 @@ def check_inputs(cfg: DictConfig, err: ErrorOutputHandler):
     err.clear_errors()
 
     if cfg.physics.E_cb is None:
+        print(cfg.physics.E_cb,cfg.physics.D0)
         if cfg.physics.D0 is None:
             ther_type = "Thermal"
         else:

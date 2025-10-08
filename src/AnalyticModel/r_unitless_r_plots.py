@@ -115,8 +115,28 @@ def random_sampling():
     distances1 = test_crystal.nearest_neighbours()
     nearest_neighbour_histogram(distances1)
 
+def probability_plot_real():
+    rhos = [1.74E+24,1.42E+24,6.75E+23,6.82E+23,2.16E+24,1.15E+24,
+            7.14E+23,6.08E+23,1.72E+24,9.39E+23,7.36E+23,4.81E+23,
+            1.06E+24,6.51E+23,4.43E+23,2.56E+23]
+    cell_length = 20*mp.n
+    r = np.linspace(0.1*mp.n,cell_length,1000000)
+    line_type=["solid","dashed","dotted","dashdot"]
+    for i in range(len(rhos)):
+        rho1 = rhos[i]
+        y = probability_function(r, rho1)
+        plt.plot(r,y,label=f"$ρ={rho1}$",linestyle=line_type[i%4])
+    plt.title('Nearest Neighbour Probability Distribution')
+    plt.xlabel('Distance r (m)')
+    plt.ylabel('Probability Density p(r) (m⁻¹)')
+    plt.legend()
+    # plt.xscale('log')
+    # plt.xlim(1,1000)
+    # plt.ylim(0,0.020)
+    plt.show()
 
-
+def main2():
+    probability_plot_real()
 
 def main():
     start =0
@@ -124,8 +144,8 @@ def main():
     r = np.linspace(start,end,1000000)
     rho = 1e20
     random_sampling()
-    # probability_plot(r,rho)
-    # unitless_probability_plot(r,rho)
+    probability_plot(r,rho)
+    unitless_probability_plot(r,rho)
 
 
 if __name__ == "__main__":

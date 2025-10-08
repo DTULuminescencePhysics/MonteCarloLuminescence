@@ -1,14 +1,23 @@
 name     : mc # Name of the experiment
 exp_typ  : TL      # Type of experiment
-T_init   : 0       # Initial temperature in celsius 
-T_end    : 800    # Final temperature in celsius
-T_rate   : 5       # Heating rate
-duration : null    # Simulation time in seconds
-max_dt   : 0.5       # Maximum time step
-n_el     : 1e9     # Initial number of free electrons 
-n_tr     : 1e9     # Initial number of electron traps
-reps     : 2      # Number of Monte Carlo simulations to repeat
+time_unit: s       # unit of time s -- sections, y -- years, Ma -- mega-annum i.e. 1000000 years
+duration : null    # Simulation time in specified units
+max_dt   : 0.5       # Maximum time step in specified time units 
+n_el     : 0     # Initial number of free electrons 
+n_tr     : 1e2     # Initial number of electron traps
+reps     : 1000      # Number of Monte Carlo simulations to repeat
 l        : null    # Length of test crystal
 w        : null    # Width of test crystal
 h        : null    # Height of test crystal
-      
+
+ 
+Temperature:
+  T_type: constant # constant; linear; step; steps; lineardrops; linearsteps; exponetial
+  T0: 150 # Initial temperature, always required in celsius
+  times: [0.1] # times steps occur
+  dT_step: [20] # size(s) of step(s) down either
+  dT: [5] # linear rate of change(s). If using linearsteps one more gradient than number of steps must be given
+  T_inf: 0 # Minimum temperature if using exponential cooling
+  k: 10 # Exponential factor in T(t) = T_inf + (T0 - T_inf) * exp(-k t)
+  T_end: 800 # Final temperature, if required in celsius 
+  No_steps: 1 # Number of temperature step events
