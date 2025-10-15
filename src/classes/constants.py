@@ -50,11 +50,8 @@ class physical_constants:
     R: float = 8.314462618  # Gas constant in J/(mol·K)
     epsilon_0: float = 8.854187817e-12  # Vacuum permittivity in F/m 
     ev_to_j: float = 1.602176634e-19  # Conversion factor from eV to J
-    hour_to_s: int = 3600
-    day_to_s: float = 86400 
-    year_to_s: float = 31556952
-    Ma_to_d: float = 31556952e6
+   
 
 cnst = physical_constants()
 
-
+time_to_seconds = {"m": 60, "h": 3600, "d": 86400, "d": 31556952, "Ma":31556952e6}

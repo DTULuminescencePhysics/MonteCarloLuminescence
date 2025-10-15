@@ -1,10 +1,10 @@
-name     : Example # Name of the experiment
 E_loc    : 0.8 
 b        : 1e10
-s        : 1e10
 alpha    : null 
 E_cb     : null
-D0       : 3
-D_dot    : 0.092
+s        : 1e10
 rho      : null
 urho     : 8e-4
+D0       : 3
+D_dot    : 0.092
+

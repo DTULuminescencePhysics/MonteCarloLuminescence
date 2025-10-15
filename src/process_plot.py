@@ -40,8 +40,6 @@ def plot_crystal(trap_coords: np.ndarray, hole_location: np.ndarray, nearest: np
     plt.show()
 
 
-
-
 def build_step_series(time_file,elec_file, trp_file, t_grid):
         p = np.searchsorted(t_grid,time_file)
         # if not np.all(t_grid[p] == t_file):
@@ -374,6 +372,20 @@ def parametric_smoothing(data):
         lowess = sm.nonparametric.lowess
         smoothed_loess = lowess(data["Lum_sum"], data["Temperature"], frac=frac)
         plt.plot(smoothed_loess[:,0], smoothed_loess[:,1], label=f"LOESS (frac={frac})")
+
+def plot_ratio(out):
+
+    plt.plot(out[0,:],out[2,:])
+    # L = out[3:,:].mean(axis=0)
+    # smooth = hist_and_smooth(out[1,:],L)
+    # plt.plot(np.arange(len(smooth)),smooth)
+    # summed = np.sum(out[2:,:],axis=0)
+    # plt.plot(out[0,:],summed)
+    # for i in range(2,out.shape[0]): 
+    #     plt.plot(out[0,:],out[i,:],label=f"run no. {i-1}")
+    # plt.legend()
+    plt.show()
+
 
 def plot_data():
 

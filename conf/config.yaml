@@ -1,12 +1,13 @@
 defaults: 
   - _self_
-  - physics: phys_crib_dose
-  - mc: monte_carlo_dose
+  - physics: phys_crib
+  - mc: monte_carlo_crib
   - override hydra/job_logging: custom
   - override hydra/hydra_logging: disabled
 
 setup:
-  project: "${mc.name}_${mc.exp_typ}_${physics.name}"
+  physics_name: Example
+  project: "${mc.name}_${mc.exp_typ}_${setup.physics_name}"
   seed: 1
 
 hydra:
