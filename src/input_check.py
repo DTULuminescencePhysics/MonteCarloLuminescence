@@ -1,7 +1,7 @@
 from __future__ import annotations
 from src.errors import ErrorOutputHandler
 from omegaconf import DictConfig, OmegaConf
-from src.classes.dot_dict import ddict
+from to_del.dot_dict import ddict
 
 def number_check(val, name: str, err: ErrorOutputHandler):
     if not isinstance(val,(int,float)):

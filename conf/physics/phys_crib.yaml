@@ -1,4 +1,6 @@
-uc_h    : 9e-10 
+uc_h     : 9e-10    # Unit cell height (m)
+uc_w     : 1e-10    # Unit cell width (m)
+uc_l     : 1e-10    # Unit cell length (m)
 E_loc    : 0.8 
 b        : 1e10
 alpha    : null 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+from src.AnalyticModel.r_unitless_r_plots import main, main2
 from src.AnalyticModel.kinetic_model import KineticModel
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -154,3 +156,5 @@ def paper_examples():
 
 if __name__ == "__main__":
     paper_examples()
+    main()
+    main2()
