@@ -24,7 +24,7 @@ class _temp(_time, TimeTempProfile):
    
     kind:    str              = field(default='constant') 
     T0:      float            = field(default=0) 
-    celsius: bool             = field(default=True)
+    celius: bool             = field(default=True)
     duration:float            = field(default=100)
     times:   ArrayLike | None = field(default=None) 
     dT_step: ArrayLike | None = field(default=None) 
@@ -38,14 +38,14 @@ class _temp(_time, TimeTempProfile):
     def __post_init__(self) -> None:
         """  Intialise the TimeTempProfile """
         # super().__post_init__()
-        self.unit_celcius_checker()
+        self.unit_celsius_checker()
        
         TimeTempProfile.__init__(self,**vars(self))
         self.T = self(self.time)
      
         super().__post_init__()
     
-    def unit_celcius_checker(self) -> None:
+    def unit_celsius_checker(self) -> None:
         if self.unit != 's': 
             if self.times is not None:
                 self.times *= time_to_seconds[self.unit]
@@ -67,7 +67,7 @@ class _temp(_time, TimeTempProfile):
             if hasattr(self,k):
                 setattr(self,k,v)
         
-        self.unit_celcius_checker()
+        self.unit_celsius_checker()
         TimeTempProfile.__init__(self,**vars(self))
         self.T = self(self.time)
 

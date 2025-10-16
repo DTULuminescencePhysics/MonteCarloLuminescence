@@ -82,7 +82,6 @@ def save_data(out: np.memmap, file_name="MC_results.csv") -> None:
     np.savetxt(file_name, out[0:6,:].T, delimiter=",", header=",".join(header))
 
 def plot_command(x: np.ndarray, y: np.ndarray, ax, colour: str = "black", label: str | None = None) -> None:
-    
     ax.plot(x,y, color=colour, label = label)
 
 def plot_time_label(ax, unit: str = "s") -> None:
@@ -103,23 +102,18 @@ def ratio_vs(ratio: np.ndarray, temp: np.ndarray, ax, colour: str = "black"):
     ax.plot(ratio,temp, color=colour)
 
 def time_sequence(input_temps, unit):
-    if unit == 'm':
-        return input_temps/time_to_seconds['m']
-    elif unit == 'h':
-        return input_temps/time_to_seconds['h']
-    elif unit == 'd':
-        return input_temps/time_to_seconds['d']
-    elif unit == 'y':
-        return input_temps/time_to_seconds['y']
-    elif unit == 'Ma':
-        to_return = input_temps/time_to_seconds['Ma']
-        return (to_return[:]+to_return[-1])
-    else:
+    if unit != 's':
+        return input_temps/time_to_seconds[unit]
+    else: 
         return input_temps
+    
 
+def plot_forward_results(input: str |  np.memmap, Time: str = 's', T_type: str = 'constant') -> None:
+    if isinstance(input, str): 
+        data = np.loadtxt(input, delimiter=",", skiprows=1)
+    else: 
+        data = input
 
-def plot_forward_results(file_name: str = "MC_results.csv", Time: str = 's', T_type: str = 'constant') -> None:
-    data = np.loadtxt(file_name, delimiter=",", skiprows=1)
     times = time_sequence(data[:,0], Time)
     mpl.rcParams['font.family']='DejaVu Sans'
     plt.rcParams['font.size']=18
@@ -273,7 +267,7 @@ def plot_forward_results(file_name: str = "MC_results.csv", Time: str = 's', T_t
 #     n_g = (electrons_avg.astype(np.float64) / denom).astype(float_dtype)
 #     n_e = (electrons_avg.astype(np.float64) * (p_vec.astype(np.float64) / denom)).astype(float_dtype)
 
-#     # Temperature to Celsius for output
+#     # Temperature to celsius for output
 #     temp_c = (temperature - np.array(273.15, dtype=float_dtype)).astype(float_dtype)
 
 #     # Write averaged CSV streamingly

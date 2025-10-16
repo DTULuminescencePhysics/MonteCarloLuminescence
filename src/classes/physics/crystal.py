@@ -90,8 +90,9 @@ class Box(_temp,_ThermalParameters):
                   f"{temp}")
         
         return string
+    
     @classmethod
-    def from_config(cls, cfg: DictConfig) -> "Box":
+    def from_config(cls, cfg: DictConfig, T_override: dict | None = None) -> "Box":
         """Create a ``Box`` instance from a Hydra ``DictConfig`` object."""
         if not isinstance(cfg, DictConfig):
             raise TypeError(f"Expected DictConfig, received {type(cfg).__name__}")
@@ -101,8 +102,11 @@ class Box(_temp,_ThermalParameters):
             raise ValueError("Resolved configuration must be a mapping")
 
         physics_cfg = resolved.get("physics", {})
-        temp_cfg = resolved.get("temp",{})
         box_cfg = resolved.get("box", {})
+        if T_override is None:
+            temp_cfg = resolved.get("temp",{})
+        else: 
+            temp_cfg = T_override
 
         init_fields = {f.name for f in fields(cls) if f.init}
         array_fields = {"times", "dT_step", "dT", "T_inf", "k"}
@@ -177,7 +181,7 @@ class Box(_temp,_ThermalParameters):
         will be a user set value plus the current simulation number"""
         self.rng = np.random.default_rng(seed=seed)
 
-    def lattice_setup(self,seed:int, t_cnt: float, h_cnt: float, t:int = 0) -> None:
+    def lattice_setup(self,seed:int, t_cnt: float, h_cnt: float, t:float = 0.0) -> None:
         """Function that generates the trape and hole locations
         and then creates a distance matrix to store them in."""
         self.set_random_generator(seed)
@@ -408,7 +412,7 @@ class Box(_temp,_ThermalParameters):
 
       
 
-    def initial_times(self,t=0) -> None:
+    def initial_times(self, t: float = 0.0) -> None:
         """Generates the initial fill and fade times"""
         self.time=t
         self.T = self(self.time)
