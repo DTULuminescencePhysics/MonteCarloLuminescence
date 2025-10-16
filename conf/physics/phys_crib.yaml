@@ -1,6 +1,8 @@
 uc_h     : 9e-10    # Unit cell height (m)
 uc_w     : 1e-10    # Unit cell width (m)
 uc_l     : 1e-10    # Unit cell length (m)
+dimension : null    # Approximate dimension of test crystal to be used null uses default 7.5nm 
+
 E_loc    : 0.8 
 b        : 1e10
 alpha    : null 

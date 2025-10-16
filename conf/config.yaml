@@ -2,6 +2,7 @@ defaults:
   - _self_
   - physics: phys_crib
   - mc: monte_carlo_crib
+  - temp: temp_crib
   - override hydra/job_logging: custom
   - override hydra/hydra_logging: disabled
 

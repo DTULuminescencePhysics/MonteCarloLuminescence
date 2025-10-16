@@ -101,8 +101,7 @@ class Box(_temp,_ThermalParameters):
             raise ValueError("Resolved configuration must be a mapping")
 
         physics_cfg = resolved.get("physics", {})
-        mc_cfg = resolved.get("mc", {})
-        temp_cfg = mc_cfg.get("Temperature", {}) if isinstance(mc_cfg, dict) else {}
+        temp_cfg = resolved.get("temp",{})
         box_cfg = resolved.get("box", {})
 
         init_fields = {f.name for f in fields(cls) if f.init}

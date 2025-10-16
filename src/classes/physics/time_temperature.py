@@ -22,9 +22,10 @@ class _time:
 class _temp(_time, TimeTempProfile):
     """Private temperature class that is built as a function of time"""
    
-    kind:    str    = field(default='constant') 
-    T0:      float  = field(default=0) 
-    celsius: bool             = field(default=True) 
+    kind:    str              = field(default='constant') 
+    T0:      float            = field(default=0) 
+    celsius: bool             = field(default=True)
+    duration:float            = field(default=100)
     times:   ArrayLike | None = field(default=None) 
     dT_step: ArrayLike | None = field(default=None) 
     dT:      ArrayLike | None = field(default=None) 
@@ -48,6 +49,7 @@ class _temp(_time, TimeTempProfile):
         if self.unit != 's': 
             if self.times is not None:
                 self.times *= time_to_seconds[self.unit]
+                self.duration *=time_to_seconds[self.unit]
             if self.dT is not None:
                 self.dT /= time_to_seconds[self.unit]
         if self.celsius:
