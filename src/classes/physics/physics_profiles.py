@@ -3,7 +3,7 @@ from typing import Callable
 import numpy as np 
 
 from src.classes.physics.system_physics import CrystalPhysics
-from src.helper_functions import ArrayLike, _as_1d, _return_like_input
+from src.helper_functions import ArrayLike, _return_like_input
 from src.classes.constants import cnst
 
 
@@ -17,9 +17,7 @@ def build_fill_dose(D0: float) -> Callable[[ArrayLike, ArrayLike, ArrayLike], Ar
             out = np.array(1e-20)
         else: 
             out = np.array(D0/(diff*D_dot))
-        # diff = N-e
-        # out = np.where(diff > 0, (D0/(diff*D_dot)),1e-20)
-
+        
         return _return_like_input(N,out)
     return f
 

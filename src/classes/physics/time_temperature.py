@@ -36,6 +36,15 @@ class _temp(_time, TimeTempProfile):
     
     def __post_init__(self) -> None:
         """  Intialise the TimeTempProfile """
+        # super().__post_init__()
+        self.unit_celcius_checker()
+       
+        TimeTempProfile.__init__(self,**vars(self))
+        self.T = self(self.time)
+     
+        super().__post_init__()
+    
+    def unit_celcius_checker(self) -> None:
         if self.unit != 's': 
             if self.times is not None:
                 self.times *= time_to_seconds[self.unit]
@@ -49,12 +58,17 @@ class _temp(_time, TimeTempProfile):
                 self.T_inf += 273.15
 
 
+    def set_temperature_profile(self, kind: str, **kwargs) -> None:
+        """Sets a new TimeTempProfile"""
+        self.kind = kind 
+        for k, v in kwargs.items():
+            if hasattr(self,k):
+                setattr(self,k,v)
+        
+        self.unit_celcius_checker()
         TimeTempProfile.__init__(self,**vars(self))
         self.T = self(self.time)
-        try:
-            super().__post_init__()
-        except AttributeError:
-            pass
+
     
     def timestep(self, dt) -> None:
         """Moves time forward by dt and updates the 

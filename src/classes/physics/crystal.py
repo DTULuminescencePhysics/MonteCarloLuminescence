@@ -51,6 +51,45 @@ class Box(_temp,_ThermalParameters):
     event_bool: bool = field(init=False,default=False)
     rng: np.random.Generator = field(init=False)
 
+    def __repr__(self):
+        if self.kind == "constant":
+            temp = f"at a constant temperature of : {self.T0} (K)\n"
+        elif self.kind == "linear":
+            temp = (f"with a linear temperature profile starting at : {self.T0} (K) \n"
+                       f"and increasing at a rate of : {self.dT} (K/s)\n") 
+        elif self.kind == "step":
+            temp = (f"with a step temperature profile starting at : {self.T0}"
+                  f"and a step of {self.dT_step} : \n")
+        elif self.kind == "steps":
+            temp = (f"with a multiple step temperature profile starting at : {self.T0} (K) \n"
+                       f"with steps of : {self.dT_step} (K) at times : {self.times} (s)\n")
+        elif self.kind == "linearsteps":
+            temp = (f"with a multiple linear step temperature profile starting at : {self.T0} (K) \n"
+                       f"with steps of : {self.dT_step} (K) at times : {self.times} (s) \n"
+                       f"and linear rates of : {self.dT} (K/s)\n")
+        elif self.kind == "exponential":
+            temp = (f"with an exponential temperature profile starting at : {self.T0} (K) \n"
+                       f"and approaching {self.T_inf} (K) with a rate constant of : {self.k} (s^-1)\n")
+        elif self.kind == "lineardrops":
+            temp = (f"with a linear drop temperature profile starting at : {self.T0} (K) \n"
+                       f"with drops of : {self.dT_step} (K) at times : {self.times} (s) \n"
+                       f"and linear rates of : {self.dT} (K/s)\n")
+        string = ("Crystal Information: \n"
+                  f"Unit cell dimensions (h,w,l) : {self.unit_cell_dims} (m)\n"
+                  f"represented by an array of (h,w,l) : ({self.h[1]},{self.w[1]},{self.l[1]})\n"
+                  f"with a total volume of : {self.volume[1]} (m^3)\n"
+                  f"containing {self.N} traps and {self.HN} holes\n"
+                  f"with a density of : {self.rho} (m^-3) or {self.urho} (unitless)\n"
+                  f"The ground state to excited state energy gap is : {self.E_loc} (eV)\n"
+                  f"and the conduction band gap is : {self.E_cb} (eV).\n"
+                  f"Tunnelling frequency is : {self.b} (s^-1)\n"
+                  f"and the tunneling rate constant is : {self.alpha} (m^-1).\n"
+                  f"The escape frequecy is : {self.s} (s^-1).\n"
+                  f"The crystal is dosed at rate of : {self.D_dot} (Gy/s) \n"
+                  f"with a characteristic dose of : {self.D0} (Gy)\n"
+                  f"{temp}")
+        
+        return string
     @classmethod
     def from_config(cls, cfg: DictConfig) -> "Box":
         """Create a ``Box`` instance from a Hydra ``DictConfig`` object."""
