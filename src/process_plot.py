@@ -95,6 +95,7 @@ def plot_time_label(ax, unit: str = "s") -> None:
          ax.set_xlabel("Time (year)")
     elif unit == 'Ma':
         ax.set_xlabel("Time (Ma)")
+        ax.invert_xaxis()
     else:
         ax.set_xlabel("Time (s)")
  
@@ -103,7 +104,12 @@ def ratio_vs(ratio: np.ndarray, temp: np.ndarray, ax, colour: str = "black"):
 
 def time_sequence(input_temps, unit):
     if unit != 's':
-        return input_temps/time_to_seconds[unit]
+        if unit == 'Ma':
+            temp = input_temps/time_to_seconds[unit]
+            last = temp[-1]
+            return (temp-last)*-1
+        else:
+            return (input_temps/time_to_seconds[unit])
     else: 
         return input_temps
     

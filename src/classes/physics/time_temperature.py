@@ -24,7 +24,7 @@ class _temp(_time, TimeTempProfile):
    
     kind:    str              = field(default='constant') 
     T0:      float            = field(default=0) 
-    celius: bool             = field(default=True)
+    celsius: bool             = field(default=True)
     duration:float            = field(default=100)
     times:   ArrayLike | None = field(default=None) 
     dT_step: ArrayLike | None = field(default=None) 

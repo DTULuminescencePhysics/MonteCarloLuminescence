@@ -16,6 +16,7 @@ def build_fill_dose(D0: float) -> Callable[[ArrayLike, ArrayLike, ArrayLike], Ar
         if diff <= 0:
             out = np.array(1e-20)
         else: 
+            # out = np.array((D_dot/D0)*(1-e/N))
             out = np.array(D0/(diff*D_dot))
         
         return _return_like_input(N,out)
@@ -43,7 +44,16 @@ def build_fade_therm_tun_deloc(E_loc:float, b: float, alpha: float, E_cb: float,
     Ebk = E_cb/cnst.k_b_ev
     def f(T: ArrayLike, r: ArrayLike) -> ArrayLike:
         out = 1/(b*np.exp((-alpha*r)-(Ek/T)))+(s*np.exp(-(Ebk/T)))
+
         return _return_like_input(r,out)
     return f
 
-   
+@CrystalPhysics.register_fade("GE_king_2016")
+def build_fade_therm_tun_band(E_loc:float, b: float, alpha: float, E_cb: float, s: float)-> Callable[[ArrayLike, ArrayLike], ArrayLike]:
+    E = E_loc - E_cb
+    def f(T: ArrayLike, r: ArrayLike) -> ArrayLike:
+        
+        out = 1/(b*np.exp((-alpha*r)))+(s*np.exp(-(E/T)))
+        return _return_like_input(r,out)
+        
+    return f

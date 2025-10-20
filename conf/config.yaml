@@ -1,8 +1,8 @@
 defaults: 
   - _self_
-  - physics: phys_crib
+  - physics: phys_King_etal_2016_k_23_50
   - mc: monte_carlo_crib
-  - temp: temp_crib
+  - temp: temp_King_etal_2016_v
   - override hydra/job_logging: custom
   - override hydra/hydra_logging: disabled
 

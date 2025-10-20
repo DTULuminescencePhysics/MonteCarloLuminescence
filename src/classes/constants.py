@@ -55,4 +55,4 @@ class physical_constants:
 
 cnst = physical_constants()
 
-time_to_seconds = {"m": 60, "h": 3600, "d": 86400, "d": 31556952, "Ma":31556952e6}
+time_to_seconds = {"m": 60, "h": 3600, "d": 86400, "y": 31556952, "Ma":31556952e6}

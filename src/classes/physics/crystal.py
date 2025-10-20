@@ -201,7 +201,12 @@ class Box(_temp,_ThermalParameters):
         hole_location = np.unravel_index(location,pad_lattice.shape)
         hole_location = np.column_stack(hole_location)
 
-        self.nearest = self.topk_manhattan(trap_coords,hole_location)
+        if self.HN > 10:
+            nn= int(self.HN/2)
+        else:
+            nn = self.HN
+
+        self.nearest = self.topk_manhattan(trap_coords,hole_location,nn)
         traps, holes =  self.set_hole_trap_precise_locations()
 
         self.create_distance_matrix(trap_coords,hole_location,traps,holes)
@@ -363,7 +368,10 @@ class Box(_temp,_ThermalParameters):
             return
         avail = np.flatnonzero(self.occ_trap)
         t_index = avail[self.fade_index]
-        h_index = int(np.where(self.dist[t_index,:]==self.d[self.fade_index])[0])
+        idx_array = np.where(self.dist[t_index,:]==self.d[self.fade_index])[0]
+        if idx_array.size == 0:
+            raise ValueError("No match found for fade_index")
+        h_index = int(idx_array[0])
         self.occ_trap[t_index] = 0 
         self.occ_hole[h_index] = 0
         self.define_new_d()
