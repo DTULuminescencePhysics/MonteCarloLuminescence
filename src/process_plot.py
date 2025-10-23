@@ -136,6 +136,7 @@ def plot_forward_results(input: str |  np.memmap, Time: str = 's', T_type: str =
     plot_command(times,data[:,2],ax,"black")
     plot_time_label(ax, Time)
     ax.set_ylabel("n/N Trap ratio")
+    # ax.set_ylim(0,1)
     plt.savefig("Time_filling_ratio.png",dpi=300, transparent=False,bbox_inches='tight')
 
     if T_type != 'constant':

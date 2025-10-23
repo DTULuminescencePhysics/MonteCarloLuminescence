@@ -11,13 +11,15 @@ from src.classes.constants import cnst
 
 @CrystalPhysics.register_fill("dose")
 def build_fill_dose(D0: float) -> Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]:
+    """Dosing equation from A.Larsen et al. Radiation Measurements 44 (2009) 467-471
+    which is equivalent to the dosing equation from 
+    G.E. King et al.  Quaternary Geochronology 33 (2016) 76-87 if N is fixed"""
     def f(N: ArrayLike, e: ArrayLike, D_dot: ArrayLike) -> ArrayLike:
         diff = N-e
         if diff <= 0:
-            out = np.array(1e-20)
+            return -1e20
         else: 
-            # out = np.array((D_dot/D0)*(1-e/N))
-            out = np.array(D0/(diff*D_dot))
+            out = np.array((D0/D_dot)*(1/(diff)))
         
         return _return_like_input(N,out)
     return f
@@ -25,7 +27,7 @@ def build_fill_dose(D0: float) -> Callable[[ArrayLike, ArrayLike, ArrayLike], Ar
 @CrystalPhysics.register_fill("none")
 def build_fill_none() -> Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]:
     def f(N: ArrayLike, e: ArrayLike, D_dot) -> ArrayLike:
-        return 1e20
+        return -1e20
     return f
 
 # Fading registry 
@@ -34,26 +36,30 @@ def build_fill_none() -> Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]:
 def build_fade_therm_tun(E_loc:float, b: float, alpha: float)-> Callable[[ArrayLike, ArrayLike], ArrayLike]:
     Ek = E_loc/cnst.k_b_ev
     def f(T: ArrayLike, r: ArrayLike) -> ArrayLike:
-        out = 1/(b*np.exp((-alpha*r)-(Ek/T)))
+        out = 1/(b * np.exp(-E_loc / (cnst.k_b_ev * T) - alpha * r))
+        # out = 1/(b*np.exp((-alpha*r)-(Ek/T)))
         return _return_like_input(r,out)
     return f
 
 @CrystalPhysics.register_fade("therm_tunnel_delocaise")
 def build_fade_therm_tun_deloc(E_loc:float, b: float, alpha: float, E_cb: float, s: float)-> Callable[[ArrayLike, ArrayLike], ArrayLike]:
-    Ek = E_loc/cnst.k_b_ev
-    Ebk = E_cb/cnst.k_b_ev
+
     def f(T: ArrayLike, r: ArrayLike) -> ArrayLike:
-        out = 1/(b*np.exp((-alpha*r)-(Ek/T)))+(s*np.exp(-(Ebk/T)))
+        term1 = (b * np.exp(-E_loc / (cnst.k_b_ev * T) - alpha * r))
+        term2 = s * np.exp(-E_cb / (cnst.k_b_ev * T))
+        out = 1/(term1 + term2)
 
         return _return_like_input(r,out)
     return f
 
 @CrystalPhysics.register_fade("GE_king_2016")
 def build_fade_therm_tun_band(E_loc:float, b: float, alpha: float, E_cb: float, s: float)-> Callable[[ArrayLike, ArrayLike], ArrayLike]:
-    E = E_loc - E_cb
     def f(T: ArrayLike, r: ArrayLike) -> ArrayLike:
-        
-        out = 1/(b*np.exp((-alpha*r)))+(s*np.exp(-(E/T)))
+        term1 = (b * np.exp(- alpha * r))
+        term2 = (s * np.exp(-(E_loc - E_cb) / (cnst.k_b_ev * T)))
+        out = 1/(term1 + term2)
+
+      
         return _return_like_input(r,out)
         
     return f

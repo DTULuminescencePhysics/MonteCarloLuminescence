@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Any
 from dataclasses import dataclass, field
 from src.classes.constants import time_to_seconds
 from src.helper_functions import ArrayLike
@@ -42,7 +42,7 @@ class _temp(_time, TimeTempProfile):
        
         TimeTempProfile.__init__(self,**vars(self))
         self.T = self(self.time)
-     
+
         super().__post_init__()
     
     def unit_celsius_checker(self) -> None:
@@ -54,16 +54,15 @@ class _temp(_time, TimeTempProfile):
                 self.dT /= time_to_seconds[self.unit]
         if self.celsius:
             self.T0 = self.T0+273.15
-            if self.dT_step is not None:
-                self.dT_step += 273.15
+            # if self.dT_step is not None:
+            #     self.dT_step += 273.15
             if self.T_inf is not None:
                 self.T_inf += 273.15
 
-
-    def set_temperature_profile(self, kind: str, **kwargs) -> None:
+    def set_temperature_profile(self, kind: str, T_profile: dict) -> None:
         """Sets a new TimeTempProfile"""
         self.kind = kind 
-        for k, v in kwargs.items():
+        for k, v in T_profile.items():
             if hasattr(self,k):
                 setattr(self,k,v)
         

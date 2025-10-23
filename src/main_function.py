@@ -4,7 +4,7 @@ from omegaconf import DictConfig
 from src.errors import ErrorOutputHandler
 from src.filesystem import CONFIG_DIR
 from src.classes.monte_carlo import MCBase
-
+from src.classes.RJMCMC import ReverseJmpMCMC
 # from src.input_check import check_inputs
 
 import logging
@@ -16,11 +16,12 @@ def main(cfg: DictConfig):
     err = next(h for h in root.handlers if isinstance(h, ErrorOutputHandler))
     
     err.output("Setting up simulation crystal...")
-    # crystal = Box.from_config(cfg) 
     MC = MCBase.from_config(cfg)
     err.output("Crystal setup complete.")
     err.output(MC.crystal.__repr__())
-    
     MC.full_monte_carlo_simulation(err)
+   
+ 
+    # rjmcmc = ReverseJmpMCMC.from_config(val,50,cfg)
 
 
