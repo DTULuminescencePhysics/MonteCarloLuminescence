@@ -130,7 +130,7 @@ def plot_forward_results(input: str |  np.memmap, Time: str = 's', T_type: str =
     plot_time_label(ax, Time)
     ax.set_ylabel("Temperature (C)")
     plt.savefig("Temperature_Profile.png",dpi=300, transparent=False,bbox_inches='tight')
-
+    plt.close()
     fig=plt.figure(figsize=(3.37,5.055))
     ax=fig.add_axes([0.,0.,2.,1.])
     plot_command(times,data[:,2],ax,"black")
@@ -138,6 +138,7 @@ def plot_forward_results(input: str |  np.memmap, Time: str = 's', T_type: str =
     ax.set_ylabel("n/N Trap ratio")
     # ax.set_ylim(0,1)
     plt.savefig("Time_filling_ratio.png",dpi=300, transparent=False,bbox_inches='tight')
+    plt.close()
 
     if T_type != 'constant':
         fig=plt.figure(figsize=(3.37,5.055))
@@ -146,6 +147,7 @@ def plot_forward_results(input: str |  np.memmap, Time: str = 's', T_type: str =
         ax.set_xlabel("Temperature (C)")
         ax.set_ylabel("n/N Trap ratio")
         plt.savefig("Temp_filling_ratio.png",dpi=300, transparent=False,bbox_inches='tight')
+        plt.close()
 
 
 

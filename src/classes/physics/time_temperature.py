@@ -48,16 +48,14 @@ class _temp(_time, TimeTempProfile):
     def unit_celsius_checker(self) -> None:
         if self.unit != 's': 
             if self.times is not None:
-                self.times *= time_to_seconds[self.unit]
-                self.duration *=time_to_seconds[self.unit]
+                self.times = self.times * time_to_seconds[self.unit]
+                self.duration = self.duration *time_to_seconds[self.unit]
             if self.dT is not None:
-                self.dT /= time_to_seconds[self.unit]
+                self.dT = self.dT / time_to_seconds[self.unit]
         if self.celsius:
             self.T0 = self.T0+273.15
-            # if self.dT_step is not None:
-            #     self.dT_step += 273.15
             if self.T_inf is not None:
-                self.T_inf += 273.15
+                self.T_inf = self.T_inf + 273.15
 
     def set_temperature_profile(self, kind: str, T_profile: dict) -> None:
         """Sets a new TimeTempProfile"""

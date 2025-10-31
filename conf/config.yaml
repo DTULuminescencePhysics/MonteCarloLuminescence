@@ -2,7 +2,7 @@ defaults:
   - _self_
   - physics:  phys_King_etal_2016_k_23_50 #phys_harris_lab_TL
   - mc: monte_carlo_crib
-  - temp: temp_King_etal_2016_vi #temp_constant_T
+  - temp: temp_King_etal_2016_ii #temp_constant_T
   - override hydra/job_logging: custom
   - override hydra/hydra_logging: disabled
 

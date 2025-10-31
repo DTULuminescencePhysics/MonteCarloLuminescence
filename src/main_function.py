@@ -20,8 +20,12 @@ def main(cfg: DictConfig):
     err.output("Crystal setup complete.")
     err.output(MC.crystal.__repr__())
     MC.full_monte_carlo_simulation(err)
+    
+    import numpy as np 
+    val = np.loadtxt("MC_results.csv", delimiter=",", skiprows=1)
+    val[:,1] = val[:,2]
+    val = val[:,0:2]
    
- 
-    # rjmcmc = ReverseJmpMCMC.from_config(val,50,cfg)
-
+    rjmcmc = ReverseJmpMCMC.from_config(val,1000,cfg)
+    rjmcmc.rjmcmc_temperature(err)
 
