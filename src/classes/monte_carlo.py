@@ -9,7 +9,7 @@ from src.classes.constants import cnst
 
 from src.errors import ErrorOutputHandler
 from src.classes.physics.crystal import Box
-from src.process_plot import clean_up_results, save_data
+from src.process_plot import clean_up_results
 from src.process_plot import plot_forward_results
 
 
@@ -23,9 +23,9 @@ class MCBase:
     max_dt: float = field(default=1)
     max_dt_time_chk: float = field(init=False)
     max_dt_cnt: int = 0
-    max_length: int = field(default=10000000)
+    max_length: int = field(default=50000)
     data_path: str = field(default="sim_prelim_results.dat")
-    result_csv_path: str = field(default="MC_results.csv")
+    result_csv_path: str = field(default="MC_results")
     results: np.memmap = field(init=False) 
 
 
@@ -62,14 +62,14 @@ class MCBase:
             self.max_dt =  self.crystal.duration*10
             self.max_dt_time_chk = self.crystal.duration*10
         elif self.crystal.kind in {"step","steps"}:
-            self.max_dt = self.crystal.times[0]/100
+            self.max_dt = self.crystal.times[0]/5000
             self.max_dt_time_chk = self.crystal.times[0]
         elif self.crystal.kind == "linear" :
             self.max_dt = 1/self.crystal.dT
             self.max_dt_time_chk = 1e50
         elif self.crystal.kind == "linearsteps":
             if self.crystal.dT[0] == 0: 
-                self.max_dt = self.crystal.times[0]/100
+                self.max_dt = self.crystal.times[0]/5000
             else:
                 self.max_dt = 1/self.crystal.dT[0]
             self.max_dt_time_chk = self.crystal.times[0]
@@ -162,7 +162,7 @@ class MCBase:
     def monte_carlo_loop(self, t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None) -> None:
         for i in range(self.repetion):
             self.single_experiment_run(i, t, t_pcnt, h_pcnt)
-            # print(f"Rep {i+1} of {self.repetion} completed")
+            print(f"Rep {i+1} of {self.repetion} completed")
 
     def full_monte_carlo_simulation(self, err: ErrorOutputHandler):
         """Runs the monte carlo simulation in the forward direction"""
@@ -179,21 +179,17 @@ class MCBase:
         err.output("Monte Carlo simulation complete, cleaning up results...")
         err.output("To be placed in file: sim_results.dat")
 
-        data_path = "sim_results.dat"
-        out = clean_up_results(self.results, data_path)
-        out[1,:] = self.crystal.Tat(out[0,:])
-        p = np.exp(-self.crystal.E_loc/(cnst.k_b_ev*out[1,:]))
-        out[3, :] = 1/(p+1)
-        out[4, :] = p/(p+1)
-        if self.crystal.celsius:
-            out[1,:] -= 273.15
-        out.flush()
-        os.remove(data_path)
+        ratio_file, lum_file = clean_up_results(self.results, self.result_csv_path,self.crystal)
+       
         del self.results
 
-        save_data(out, file_name=self.result_csv_path)
         err.output("Results cleaned and saved.")
-        plot_forward_results(out.T, self.crystal.unit, self.crystal.kind)
+
+        plot_forward_results(ratio_file, lum_file, self.crystal.unit, self.crystal.kind)
+
+        if os.path.exists(self.data_path):
+            os.remove(self.data_path)
+
 
     def RJMCMC_initialise(self): 
         if os.path.exists(self.data_path):

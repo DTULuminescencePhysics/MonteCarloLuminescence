@@ -13,3 +13,4 @@ urho      : 4.677351413e-6
 D0        : 653 #Gy
 D_dot     : 6.1 # 7.00 Gy ka-1 
 Dd_unit   : Ka 
+phys_type : king

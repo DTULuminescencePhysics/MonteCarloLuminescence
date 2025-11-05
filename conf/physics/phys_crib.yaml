@@ -12,4 +12,5 @@ rho      : null
 urho     : 8e-4
 D0       : 3
 D_dot    : 0.092
-
+Dd_unit   : s 
+phys_type : none

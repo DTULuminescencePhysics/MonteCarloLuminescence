@@ -1,12 +1,23 @@
 from __future__ import annotations
-import pandas as pd 
+import os
+import numpy as np
+from math import ceil
+from typing import Tuple
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
+from scipy.signal import savgol_filter,lfilter 
 from src.classes.constants import time_to_seconds
-import numpy as np
-import glob
-import os, csv
+
+mpl.rcParams['font.family']='DejaVu Sans'
+plt.rcParams['font.size']=18
+plt.rcParams['axes.linewidth']=2
+
+
+
+colors = ['g','b','k','c','m','y','r']
+lines  = ['-','--','-.',':']
+
 
 def plot_crystal(trap_coords: np.ndarray, hole_location: np.ndarray, nearest: np.ndarray, N: int, nearest_no=3):
     fig = plt.figure(figsize=(8,8))
@@ -43,9 +54,41 @@ def plot_crystal(trap_coords: np.ndarray, hole_location: np.ndarray, nearest: np
 
     plt.show()
 
-def clean_up_results(results, output_file_name) -> np.memmap:
+def closest_divisor(N: int) -> int:
+    """Finds the closest divisor to split the available MC
+    runs into"""
+    if N == 0: 
+        return 0 
+    
+    if N <101:
+        di = 10 
+    else: 
+        di = ceil(N/10)
+    
+    candidates = range (1, N+1) 
+    divisors = [x for x in candidates if N % x == 0]
+
+    x_best = min(divisors, key=lambda x: abs(x-di))
+    return x_best
+
+def time_sequence(input_temps, unit):
+    if unit != 's':
+        if unit == 'Ma':
+            temp = input_temps/time_to_seconds[unit]
+            last = temp[-1]
+            return (((temp-last)*-1))
+        else:
+            return (input_temps/time_to_seconds[unit])
+    else: 
+        return input_temps
+
+def clean_up_results(results, output_file_name, crystal):
     S, C, L = results.shape
+    
     assert C == 3
+
+    ratio_file = output_file_name+"_ratio.csv"
+    lum_file = output_file_name+"_lum.csv"
 
     valid_mask = ~np.isnan(results[:, 0, :])
     lengths = valid_mask.sum(axis=1)
@@ -54,32 +97,53 @@ def clean_up_results(results, output_file_name) -> np.memmap:
     time_union = np.unique(np.concatenate(times_list))
 
     del times_list
- 
-    if os.path.exists(output_file_name):
-        os.remove(output_file_name)
-    # time, temp, ratio, ng, ne, lum, lums.....
-    out = np.memmap(output_file_name, dtype=np.float32, mode='w+', shape=(S+6, time_union.size))
-    out[:, :] = 0
-    out[0, :] = time_union
-    out.flush()
+     
+    divisor = closest_divisor(S)
+    additional = S/divisor -1 
+  
+    ratio_results = np.zeros((int(3+additional), time_union.size))
+    ratio_results[0,:] = time_union
+    cnt = 0
+    header = [f"Time (s)", "Temperature (C)"]
     for i in range(S):
-        out[2, :] += np.interp(time_union, results[i,0, :lengths[i]], results[i,1,:lengths[i]])
+        ratio_results[2+cnt,:]+= np.interp(time_union, results[i,0, :lengths[i]], results[i,1,:lengths[i]])
+        if (i+1) % divisor == 0 and i !=0:
+            if i < S-1:
+                ratio_results[2+cnt+1,:]+= ratio_results[2+cnt,:]
+            ratio_results[2+cnt,:] /=i+1
+            cnt +=1
+            header.append(f"n/N (avg {i+1} reps)")
+
+    ratio_results[1,:] = crystal.Tat(ratio_results[0,:])
+    ratio_results[1,:] -= 273.15
+
+    if os.path.exists(ratio_file):
+        os.remove(ratio_file)
+    np.savetxt(ratio_file, ratio_results.T, delimiter=",", header=",".join(header))
+    
+    cnt = 0 
+    lum_results = np.zeros((int(3+additional), time_union.size))
+    lum_results[0:2,:] = ratio_results[0:2,:]
+    del ratio_results
+    header = [f"Time (s)", "Temperature (C)"]
+    for i in range(S):
+        zeros = np.zeros(time_union.size)
         temp = results[i,0,:lengths[i]]
         mask = np.isin(time_union, temp[results[i,2,:lengths[i]]==1])
-        out[6+i,mask] = 1
-        out[5,:]+= out[6+i,:]
-        out.flush()
-    
-    out[2, :] /= S
-    out[5, :] /= S
-    out.flush()
-    return out
+        zeros[mask] = 1
+        lum_results[2+cnt,:]+= zeros
+        if (i+1) % divisor == 0 and i !=0:
+            if i < S-1:
+                lum_results[2+cnt+1,:]+= lum_results[2+cnt,:]
+                header.append(f"Lum (avg {i+1} reps)")
+            cnt+=1 
+   
+    if os.path.exists(lum_file):
+        os.remove(lum_file)
+    np.savetxt(lum_file, lum_results.T, delimiter=",", header=",".join(header))
+    del lum_results
+    return ratio_file, lum_file
 
-def save_data(out: np.memmap, file_name="MC_results.csv") -> None: 
-    header = ["Time", "Temperature", "n/N", f"n$_g$", f"n$_e$", "Lum"]
-    # for i in range(6,out.shape[0]):
-    #     header.append(f"Lum_{i-5}")
-    np.savetxt(file_name, out[0:6,:].T, delimiter=",", header=",".join(header))
 
 def plot_command(x: np.ndarray, y: np.ndarray, ax, colour: str = "black", label: str | None = None) -> None:
     ax.plot(x,y, color=colour, label = label)
@@ -99,433 +163,192 @@ def plot_time_label(ax, unit: str = "s") -> None:
     else:
         ax.set_xlabel("Time (s)")
  
-def ratio_vs(ratio: np.ndarray, temp: np.ndarray, ax, colour: str = "black"):
-    ax.plot(ratio,temp, color=colour)
+def ratio_vs(x: np.ndarray, ratio: np.ndarray, ax, colour: str = "black", 
+             line: str = 'solid',label: str | None = None, alpha:float=1.0):
+    ax.plot(x,ratio, color=colour, label = label, ls = line, alpha=alpha)
 
-def time_sequence(input_temps, unit):
-    if unit != 's':
-        if unit == 'Ma':
-            temp = input_temps/time_to_seconds[unit]
-            last = temp[-1]
-            return (temp-last)*-1
+
+def plot_forward_ratio(file_name:str, data: np.ndarray, times: np.ndarray, T_unit:str, headers = None):
+    fig=plt.figure(figsize=(3.37,5.055))
+    ax=fig.add_axes((0.,0.,2.,1.))
+    for i in range(data.shape[1]):
+        if headers is not None:
+            h = headers[i]
         else:
-            return (input_temps/time_to_seconds[unit])
-    else: 
-        return input_temps
+            h = None
+        ratio_vs(times,data[:,i],ax,colors[i%7],lines[i%4],h)
     
-
-def plot_forward_results(input: str |  np.memmap, Time: str = 's', T_type: str = 'constant') -> None:
-    if isinstance(input, str): 
-        data = np.loadtxt(input, delimiter=",", skiprows=1)
-    else: 
-        data = input
-
-    times = time_sequence(data[:,0], Time)
-    mpl.rcParams['font.family']='DejaVu Sans'
-    plt.rcParams['font.size']=18
-    plt.rcParams['axes.linewidth']=2
-    fig=plt.figure(figsize=(3.37,5.055))
-    ax=fig.add_axes([0.,0.,2.,1.])
-    plot_command(times, data[:,1], ax, "black")
-    plot_time_label(ax, Time)
-    ax.set_ylabel("Temperature (C)")
-    plt.savefig("Temperature_Profile.png",dpi=300, transparent=False,bbox_inches='tight')
-    plt.close()
-    fig=plt.figure(figsize=(3.37,5.055))
-    ax=fig.add_axes([0.,0.,2.,1.])
-    plot_command(times,data[:,2],ax,"black")
-    plot_time_label(ax, Time)
+    plot_time_label(ax, T_unit)
     ax.set_ylabel("n/N Trap ratio")
-    # ax.set_ylim(0,1)
-    plt.savefig("Time_filling_ratio.png",dpi=300, transparent=False,bbox_inches='tight')
+    if headers is not None:
+        ax.legend()
+    plt.savefig(file_name,dpi=300, transparent=False,bbox_inches='tight')
     plt.close()
+
+def plot_forward_ratio_T(file_name:str, data: np.ndarray, temp: np.ndarray, headers = None):
+    fig=plt.figure(figsize=(3.37,5.055))
+    ax=fig.add_axes((0.,0.,2.,1.))
+    for i in range(data.shape[1]):
+        if headers is not None:
+            h = headers[i]
+        else:
+            h = None
+        ratio_vs(temp,data[:,i],ax,colors[i%7],lines[i%4],h)
+
+    ax.set_xlabel("Temperature (C)")
+    ax.set_ylabel("n/N Trap ratio")
+    ax.legend()
+    plt.savefig(file_name,dpi=300, transparent=False,bbox_inches='tight')
+    plt.close()
+
+def plot_T_profile(file_name:str, temp: np.ndarray, times: np.ndarray, T_unit:str): 
+    fig=plt.figure(figsize=(3.37,5.055))
+    ax=fig.add_axes((0.,0.,2.,1.))
+    ax.plot(times,temp, color='black')
+    plot_time_label(ax, T_unit)
+    ax.set_ylabel("Temperature (C)")
+    plt.savefig(file_name,dpi=300, transparent=False,bbox_inches='tight')
+    plt.close()
+
+def plot_forward_results(ratio_file: str, lum_file:str, T_unit: str = 's', T_type: str = 'constant') -> None:
+   
+    data = np.loadtxt(ratio_file, delimiter=",")
+    times = time_sequence(data[:,0], T_unit)
+
+    f = open(ratio_file)
+    header = f.readline()
+    header_names = header.split(',')[2:]
+    f.close()
+
+    plot_forward_ratio("Time_filling_ratio.png",data[:,2:],times, T_unit,header_names)
+    plot_T_profile("Temperature_Profile.png",data[:,1],times,T_unit)
 
     if T_type != 'constant':
-        fig=plt.figure(figsize=(3.37,5.055))
-        ax=fig.add_axes([0.,0.,2.,1.])
-        plot_command(data[:,1],data[:,2],ax,"black")
-        ax.set_xlabel("Temperature (C)")
-        ax.set_ylabel("n/N Trap ratio")
-        plt.savefig("Temp_filling_ratio.png",dpi=300, transparent=False,bbox_inches='tight')
-        plt.close()
-
-
-
-
-# def build_step_series(time_file,elec_file, trp_file, t_grid):
-#         p = np.searchsorted(t_grid,time_file)
-#         # if not np.all(t_grid[p] == t_file):
-#     #     raise ValueError("File times must exactly match a subset of all_time.")
-#         m=t_grid.size
-#         starts = np.concatenate(([0],p[1:],[m]))
-#         counts = np.diff(starts)
-#         el = np.repeat(elec_file,counts)
-#         tr = np.repeat(trp_file,counts)
-#         lum_b = np.concatenate(([False],el[1:]<el[:-1]))
-#         lum = lum_b.astype(int)
-#         # lum = np.ones(m,dtype=int)
-#         # lum[p] = 0
-#         return el,tr, lum
-
-# def process_data(MonteCarlo, float_dtype=np.float32, processed_csv="processed.csv",
-#                  averaged_csv="Averaged_data.csv", memmap_file="all_data.npy"):
-#     """
-#     Minimizes RAM usage by:
-#       - building a disk-backed memmap for per-file series
-#       - computing aggregates in one pass with running accumulators
-#       - streaming CSV writes without creating large DataFrames in memory
-#     """
-
-#     # -------------------------
-#     # 1) Discover inputs + union time grid
-#     # -------------------------
-#     # raw_list = sorted(glob.glob("*.npy"))
-#     raw_list = sorted(glob.glob("*.bin"))
-#     if not raw_list:
-#         raise FileNotFoundError("No .npy files found in current directory.")
-
-#     # Read first row (time) from each file via mmap (cheap) and union them
-#     raw_time = []
-#     for fp in raw_list:
-#         # a = np.memmap(fp, dtype=np.float64, mode="r")
-#         a = np.memmap(fp, dtype=np.float64, mode="r").reshape(-1, 3).T
-#         # a = np.load(fp, mmap_mode="r")
-#         if a.ndim != 2 or a.shape[0] != 3:
-#             raise ValueError(f"{fp} expected shape (3, n); got {a.shape}")
-#         raw_time.append(np.asarray(a[0], dtype=float_dtype))
-
-#     all_time = np.unique(np.concatenate(raw_time))
-#     all_time = np.asarray(all_time, dtype=float_dtype)
-
-#     # Temperature from MonteCarlo (vectorized), as float_dtype (doesn't need double)
-#     temperature = np.asarray(MonteCarlo.T_init + all_time * MonteCarlo.dT, dtype=float_dtype)
-
-#     # -------------------------
-#     # 2) Create an on-disk memmap for per-file series
-#     #    Layout matches your original all_data:
-#     #    rows = 2 + 3*len(files)  (Time, Temperature, then triplets per file)
-#     #    cols = len(all_time)
-#     # -------------------------
-#     n_files = len(raw_list)
-#     n_rows = 2 + 3 * n_files
-#     n_cols = all_time.shape[0]
-
-#     # 'w+' creates/overwrites the file
-#     all_data = np.lib.format.open_memmap(memmap_file, mode="w+", dtype=float_dtype, shape=(n_rows, n_cols))
-#     all_data[0, :] = all_time
-#     all_data[1, :] = temperature
-
-#     # Running accumulators for averages/sums (avoid storing all columns in RAM)
-#     elec_sum = np.zeros(n_cols, dtype=np.float64)  # keep sum at higher precision
-#     trap_sum = np.zeros(n_cols, dtype=np.float64)
-#     lum_sum  = np.zeros(n_cols, dtype=np.float64)
-
-#     j = 2
-#     for fp in raw_list:
-#         # a = np.load(fp, mmap_mode="r")
-#         # a = np.memmap(fp, dtype=np.float64, mode="r")
-#         a = np.memmap(fp, dtype=np.float64, mode="r").reshape(-1, 3).T
-#         t_file = np.asarray(a[0], dtype=float_dtype)
-#         el_file = np.asarray(a[1], dtype=float_dtype)
-#         tr_file = np.asarray(a[2], dtype=float_dtype)
-
-#         el_series, tr_series, lum_series = build_step_series(t_file, el_file, tr_file, all_time)
-
-#         # Write columns for this file directly to disk-backed memmap
-#         all_data[j,   :] = el_series
-#         all_data[j+1, :] = tr_series
-#         all_data[j+2, :] = lum_series
-
-#         # Update running sums for later averages (double precision to reduce drift)
-#         elec_sum += el_series.astype(np.float64)
-#         trap_sum += tr_series.astype(np.float64)
-#         lum_sum  += lum_series.astype(np.float64)
-
-#         j += 3
-
-#     header = ["Time", "Temperature"]
-#     for i in range(n_files):
-#         header += [f"Electrons_{i+1}", f"Traps_{i+1}", f"Lum_{i+1}"]
-
-#     with open(processed_csv, "w", newline="") as f:
-#         w = csv.writer(f)
-#         w.writerow(header)
-#         for i in range(n_cols):
-#             row = [all_data[0, i], all_data[1, i]]
-#             for base in range(2, n_rows, 3):
-#                 row.append(all_data[base,   i])  # Electrons_k
-#                 row.append(all_data[base+1, i])  # Traps_k
-#                 row.append(all_data[base+2, i])  # Lum_k
-#             w.writerow(row)
-
-   
-#     p_vec = MonteCarlo.p_array(temperature)
-
-#     # Averages/sums across files
-#     # n = float(n_files)
-#     # electrons_avg = (elec_sum / n).astype(float_dtype)
-#     # traps_avg     = (trap_sum / n).astype(float_dtype)
-#     electrons_avg = elec_sum.astype(float_dtype)
-#     traps_avg     = trap_sum.astype(float_dtype)
-#     lum_total     = lum_sum.astype(float_dtype)
-
-#     # Derived quantities
-#     # n_g = <Electrons_Avg> / (p + 1)
-#     # n_e = <Electrons_Avg> * p / (p + 1)
-#     denom = (p_vec + 1.0).astype(np.float64)
-#     n_g = (electrons_avg.astype(np.float64) / denom).astype(float_dtype)
-#     n_e = (electrons_avg.astype(np.float64) * (p_vec.astype(np.float64) / denom)).astype(float_dtype)
-
-#     # Temperature to celsius for output
-#     temp_c = (temperature - np.array(273.15, dtype=float_dtype)).astype(float_dtype)
-
-#     # Write averaged CSV streamingly
-#     with open(averaged_csv, "w", newline="") as f:
-#         w = csv.writer(f)
-#         w.writerow(["Time", "Temperature", "p", "Electrons_Avg", "Traps_Avg", "Lum_sum", "n$_g$", "n$_e$"])
-#         for i in range(n_cols):
-#             w.writerow([
-#                 all_time[i],
-#                 temp_c[i],
-#                 p_vec[i],
-#                 electrons_avg[i],
-#                 traps_avg[i],
-#                 lum_total[i],
-#                 n_g[i],
-#                 n_e[i],
-#             ])
-
-#     # -------------------------
-#     # 6) Optional cleanup of raw .npy files
-#     # -------------------------
-#     for fp in raw_list:
-#         try:
-#             os.remove(fp)
-#         except OSError:
-#             pass
-
-#     # Return paths for convenience
-#     # return {"processed_csv": processed_csv, "averaged_csv": averaged_csv, "memmap_file": memmap_file}
-
-
-# # def process_data(MonteCarlo):
-   
-# #     raw_list = glob.glob("*.npy")
-# #     raw_time = []
-# #     float_dtype = np.float64
-# #     for file in raw_list:
-# #         data = np.load(file,mmap_mode="r")
-# #         raw_time.append(np.asarray(a[0], dtype=float_dtype))
-
-# #     all_time = np.unique(np.concatenate([t for t in raw_time]))
-# #     all_data = np.zeros(((len(raw_list)*3)+2,len(all_time)))
-# #     all_data[0,:] = all_time
-# #     j = 2
+        plot_forward_ratio_T("Time_filling_ratio_T.png",data[:,2:],data[:,1],header_names)
+ 
+def plot_analtyical_results(analytic_file: str, T_unit: str = 's'): 
     
-    
-# #     for fp in raw_list:
-# #         a = np.load(fp, mmap_mode="r")  
+    data = np.loadtxt(analytic_file, delimiter=",")
+    times = time_sequence(data[:,0], T_unit)
   
-# #         if a.shape[0] != 3:
-# #             raise ValueError(f"{fp} expected shape (3, n); got {a.shape}")
+    plot_forward_ratio("Analytical_Time_filling_ratio.png",data[:,1:],times,T_unit)
+  
+def plot_analytic_comp_MC(analytic_file: str, MC_file: str, T_unit: str = 's'):
 
-# #         t_file = np.asarray(a[0], dtype=float)
-# #         el_file = np.asarray(a[1], dtype=float)
-# #         tr_file = np.asarray(a[2], dtype=float)
+    A_data = np.loadtxt(analytic_file, delimiter=",")
+    MC_data = np.loadtxt(MC_file, delimiter=",")
 
-# #         el_series, tr_series, lum_series = build_step_series(t_file, el_file, tr_file, all_time)
+    a_times = time_sequence(A_data[:,0], T_unit)
+    mc_times = time_sequence(MC_data[:,0], T_unit)
 
-# #         all_data[j, :] = el_series
-# #         all_data[j + 1, :] = tr_series
-# #         all_data[j + 2, :] = lum_series
+    fig=plt.figure(figsize=(3.37,5.055))
+    ax=fig.add_axes((0.,0.,2.,1.))
 
-# #         j += 3
+    ratio_vs(a_times,A_data[:,-1],ax,colors[0],lines[0],"Analytic",alpha=0.25)
+    ratio_vs(mc_times,MC_data[:,-1],ax,colors[1],lines[0],"MC")
+    plot_time_label(ax, T_unit)
+    ax.set_ylabel("n/N Trap ratio")
+    ax.legend()
+    plt.savefig("MC_vs_Analytic_result.png",dpi=300, transparent=False,bbox_inches='tight')
+    plt.close()
 
 
-# #     all_data[1,:] = MonteCarlo.T_init + all_data[0,:]*MonteCarlo.dT
+def running_mean(y: np.ndarray, k: int = 5, x: np.ndarray | None = None) -> np.ndarray | Tuple[np.ndarray,np.ndarray]:
+    ret = np.cumsum(y, dtype=float)
+    ret[k:] = ret[k:] - ret[:-k]
+    y_smooth = ret[k-1:] /k 
+    if x is None:
+        return y_smooth
+
+    x_smooth = (x[:len(x)-k+1] + x[k-1:]) / 2 
+
+    return y_smooth, x_smooth
+
+
+def smoothed_with_running_mean(ax, x: np.ndarray ,y: np.ndarray , k: int = 5):
+    """Adds raw data and Running mean smoothing to a plot"""
+   
+    rmy, rmx = running_mean(y, k, x)
+
+    ratio_vs(rmx,rmy,ax,colors[2],lines[0],f"Running Mean, k={k}")
+    ratio_vs(x,y,ax,colors[0],lines[0],"Raw data",alpha=0.5)
+
     
-# #     df = pd.DataFrame(all_data.T)
-# #     columns = ["Time","Temperature"]
-# #     for i in range(len(raw_list)):
-# #         columns.append(f"Electrons_{i+1}")
-# #         columns.append(f"Traps_{i+1}")
-# #         columns.append(f"Lum_{i+1}")
-
-# #     df.columns = columns
-# #     df.to_csv("processed.csv")
-# #     for file in raw_list:
-# #         os.remove(file)
-# #     av_df = df[["Time","Temperature"]].copy()
-# #     av_df["p"] = MonteCarlo.p_array(av_df["Temperature"])
-
-# #     elec_cols = df.filter(like="Electrons_")
-# #     av_df["Electrons_Avg"] = elec_cols.mean(axis=1)
-# #     tr_cols = df.filter(like="Traps_")
-# #     av_df["Traps_Avg"] = tr_cols.mean(axis=1)
-# #     lum_cols = df.filter(like="Lum_")
-# #     av_df["Lum_sum"] = lum_cols.sum(axis=1)
-# #     av_df["n$_g$"] = av_df["Electrons_Avg"]/(av_df["p"]+1)
-# #     av_df["n$_e$"] = av_df["Electrons_Avg"]*av_df["p"]/(av_df["p"]+1)
-# #     av_df["Temperature"] -= 273.15
-
-# #     av_df.to_csv("Averaged_data.csv")
-# #     return 
-
-# def load_for_populations(path,temp_time):
-#     use = [temp_time, "n$_g$", "n$_e$"]
-#     return pd.read_csv(
-#         path, usecols=use,
-#         dtype={c: "float32" for c in use},
-#         engine="c", memory_map=True
-#     )
-# def load_for_totals(path,temp_time):
-#     use = [temp_time, "Electrons_Avg", "Traps_Avg"]
-#     return pd.read_csv(
-#         path, usecols=use,
-#         dtype={c: "float32" for c in use},
-#         engine="c", memory_map=True
-#     )
-# def load_for_lum(path):
-#     use = ["Temperature", "Lum_sum"]
-#     return pd.read_csv(
-#         path, usecols=use,
-#         dtype={c: "float32" for c in use},
-#         engine="c", memory_map=True
-#     )
-# def running_mean(a: np.ndarray, k: int = 5) -> np.ndarray:
-#         kernel = np.ones(k) / k
-#         return np.convolve(a, kernel, "valid")
-
-# def hist_and_smooth(t_axis, events, bin_width=1.0, win_deg=50.0):
-#     # 1) histogram into integer‑°C bins
-#     bins  = np.arange(0, t_axis.max() + bin_width, bin_width)
-#     hist, _ = np.histogram(t_axis, bins=bins, weights=events)
-#     # 2) convert to intensity per °C
-#     hist = hist / bin_width
-#     # 3) boxcar smooth over *win_deg* °C
-#     k = max(1, int(win_deg / bin_width))
-#     return running_mean(hist, k=k)
-
-# def plot_populations():
-#     print("here")
-#     data_pop = load_for_populations("Averaged_data.csv","Temperature")
-#     plt.plot(data_pop["Temperature"], data_pop["n$_g$"], color="black", lw=2, label="n$_g$")
-#     plt.plot(data_pop["Temperature"], data_pop["n$_e$"], color="black", lw=2, label="n$_e$")
-#     plt.plot(data_pop["Temperature"],data_pop["n$_e$"]/data_pop["n$_g$"])
-#     plt.xlabel("Temperature")
-#     plt.ylabel("Electrons")
-#     plt.legend()
-#     plt.savefig("populations.png")
-#     # plt.show()
-
-# def plot_ratios():
-#     data_pop = load_for_totals("Averaged_data.csv","Time")
-#     # plt.plot(data_pop["Time"], data_pop["Electrons_Avg"], color="black", lw=2, label="n$_g$")
-#     # plt.plot(data_pop["Time"], data_pop["Traps_Avg"], color="blue", lw=2, label="n$_e$")
-#     data_pop["ratio"] = (data_pop["Traps_Avg"]-data_pop["Electrons_Avg"])/data_pop["Traps_Avg"]
+def smoothed_with_savgol(ax, x: np.ndarray ,y: np.ndarray , win: int = 50, pol: int =3):
+    """Adds raw data and Savitzky-Golay Filter smoothing to a plot"""
    
-#     data_pop["ratio"] = data_pop["ratio"].replace([np.inf, -np.inf], np.nan)  # protect against 0 traps
-#     data_pop["ratio_ma"] = data_pop["ratio"].rolling(window=100, min_periods=1, center=True).mean() 
-#     plt.plot(data_pop["Time"],data_pop["ratio"],color="green",label="ratio")
-#     plt.plot(data_pop["Time"],data_pop["ratio_ma"],color="black",label="smooth")
+    sg = savgol_filter(y, win, pol)
 
-#     # for i in range(1,5):
-#     #     smooth = hist_and_smooth(data_pop["Time"],ratio,bin_width=0.5,win_deg=1)
-#     #     plt.plot(np.arange(len(smooth)), smooth,label=f"{i}")
-#     plt.xlabel("Time")
-#     plt.ylabel("Electrons")
-#     plt.legend()
-#     plt.savefig("ratio.png")
-#     # plt.show()
+    ratio_vs(x,sg,ax,colors[2],lines[0],f" Savitzky-Golay Filter, window={win}, order={pol}")
+    ratio_vs(x,y,ax,colors[0],lines[0],"Raw data",alpha=0.5)
 
 
-
-# def plot_smooth(data):
-#     for i in range(25,125,25):
-#         smooth = hist_and_smooth(data["Temperature"], data["Lum_sum"],win_deg=i)
-#         plt.plot(np.arange(len(smooth)), smooth,label=f"{i}")
-#     # plt.legend()
-#     # plt.show()
-
-# def plot_running_mean(data,window=10):
-#     rm = data["Lum_sum"].rolling(window=window, center=True).mean()
-#     plt.plot(data["Temperature"], data["Lum_sum"], 'o', color="red", lw=2, label="Lum")
-#     plt.plot(data["Temperature"],rm, 'o', color="black", lw=2, label="RM")
-
-# def window_smoothing(data,window=50,):
-#     half_window = window / 2
-#     r_mean = []
-#     temperature = data["Temperature"]
-#     for t in data["Temperature"]:
-#         mask = (temperature >= t - half_window) & (temperature <= t + half_window)
-#         r_mean.append(np.mean(data["Lum_sum"][mask]))
-
-#     r_mean = np.array(r_mean)
-#     plt.plot(data["Temperature"], r_mean, color="black", lw=2, label="window")
-
-# def norm_smoothing(data,bandwidth=25.0):
-#     temperature = data["Temperature"]
-#      # # Define a grid of temperatures for smoothing
-#     temp_grid = np.linspace(min(data["Temperature"]), max(data["Temperature"]), 1601)
-#     # Bandwidth (controls smoothness, like "window size")
-#     from scipy.stats import norm 
-#     smoothed = []
-#     for t in temp_grid:
-#         weights = norm.pdf(temperature, loc=t, scale=bandwidth)
-#         smoothed.append(np.sum(weights * data["Lum_sum"]) / np.sum(weights))
-#     smoothed = np.array(smoothed)
-#     plt.plot(temp_grid, smoothed, lw=2, label="norm")
-
-# def parametric_smoothing(data):
-#     import statsmodels.api as sm 
-#     frac = 0.1
-#     for i in range(1,3):
-#         frac = i*0.1
-#         lowess = sm.nonparametric.lowess
-#         smoothed_loess = lowess(data["Lum_sum"], data["Temperature"], frac=frac)
-#         plt.plot(smoothed_loess[:,0], smoothed_loess[:,1], label=f"LOESS (frac={frac})")
-
-# def plot_ratio(out):
-
-#     plt.plot(out[0,:],out[2,:])
-#     # L = out[3:,:].mean(axis=0)
-#     # smooth = hist_and_smooth(out[1,:],L)
-#     # plt.plot(np.arange(len(smooth)),smooth)
-#     # summed = np.sum(out[2:,:],axis=0)
-#     # plt.plot(out[0,:],summed)
-#     # for i in range(2,out.shape[0]): 
-#     #     plt.plot(out[0,:],out[i,:],label=f"run no. {i-1}")
-#     # plt.legend()
-#     plt.show()
+def smoothed_with_lfilter(ax, x: np.ndarray ,y: np.ndarray, fs: float = 1000.0, fc: float = 30.0, order: int = 4):
+    """Adds raw data and Savitzky-Golay Filter smoothing to a plot"""
+    # from scipy.signal import butter, sosfilt, sosfiltfilt
+    # sos = butter(order, fc, btype="low", fs=fs, output="sos")
+    # y_causal = sosfilt(sos, x)
+    # # Zero-phase (forward/backward) filtering — no phase shift, similar to filtfilt
+    # y_zerophase = sosfiltfilt(sos, x)
 
 
-# def plot_data():
-
-#     # data = pd.read_csv("Averaged_data.csv")
-
-#     # plot_populations()
-#     plot_ratios()
-#     # plot_smooth(data)
-#     # plt.close()
-#     # plot_running_mean(data)
-#     data = load_for_lum("Averaged_data.csv")
-#     plot_smooth(data)
-#     # window_smoothing(data)
-#     # norm_smoothing(data)
-#     # parametric_smoothing(data)
+    b = [1.0/fc]*int(fc)
+    y_lf = lfilter(b,order,y)
+    ratio_vs(x,y_lf,ax,colors[4],lines[0],"lf")
+    ratio_vs(x,y,ax,colors[0],lines[0],"Raw data",alpha=0.5)
 
 
-#     # plt.xlabel("Temperature")
-#     # plt.ylabel("Luminesence")
-#     # plt.legend()
-#     # plt.show()
-#     # plt.close()
+def base_smoothing(filename:str, x: np.ndarray ,y: np.ndarray, S_type:str, T_unit:str = "s", y_label:str ="n/N Trap ratio", 
+                   k:int=5, win:int=50, pol:int=3, fs: float = 1000.0, fc: float = 30.0, order: int = 4): 
+    fig=plt.figure(figsize=(3.37,5.055))
+    ax=fig.add_axes((0.,0.,2.,1.))
+
+    if S_type == 'rm':
+        smoothed_with_running_mean(ax, x, y, k)
+    elif S_type == 'sg':
+        smoothed_with_savgol(ax, x, y, win, pol)
+    elif S_type == 'lf':
+        smoothed_with_lfilter(ax, x, y, fs, fc, order)
+    
+    plot_time_label(ax,T_unit)
+    ax.set_ylabel(y_label)
+    ax.legend()
+    plt.savefig(filename,dpi=300, transparent=False,bbox_inches='tight')
+    plt.close()
+
+
+def comp_smooth(MC_file: str, T_unit: str = 's'):
+
+    MC_data = np.loadtxt(MC_file, delimiter=",")
+    time = time_sequence(MC_data[:,0], T_unit)
+    data = MC_data[:,-1]
+
+    base_smoothing("Running_mean_smooth2000.png",time,data, "rm", T_unit=T_unit,k=2000)
+    base_smoothing("lfilter1000_1.png",time,data, "lf", T_unit=T_unit, fc=1000, order=1)
+    base_smoothing("lfilter2000_1.png",time,data, "lf", T_unit=T_unit, fc=2000, order=1)
+
+ 
+def plot_analytic_comp_MC_smoothed(analytic_file: str, MC_file: str, T_unit: str = 's'):
+    
+
+    A_data = np.loadtxt(analytic_file, delimiter=",")
+    MC_data = np.loadtxt(MC_file, delimiter=",")
+    
+    a_times = time_sequence(A_data[:,0], T_unit)
+    mc_times = time_sequence(MC_data[:,0], T_unit)
+
+    fig=plt.figure(figsize=(3.37,5.055))
+    ax=fig.add_axes((0.,0.,2.,1.))
+
+    smoothed_with_running_mean(ax, mc_times, MC_data[:,-1], 2000)
+    ratio_vs(a_times,A_data[:,-1],ax,"m",lines[1],"Analytic",alpha=0.25)
+
    
-
-#     plt.xlabel("Temperature")
-#     plt.ylabel("Luminesence")
-#     plt.legend()
-#     plt.savefig("example.png")
-#     # plt.show()
+    plot_time_label(ax, T_unit)
+    ax.set_ylabel("n/N Trap ratio")
+   
+    ax.legend()
+    plt.savefig("MC_vs_Analytic_smooth_result.png",dpi=300, transparent=False,bbox_inches='tight')
+    plt.close()
 
 

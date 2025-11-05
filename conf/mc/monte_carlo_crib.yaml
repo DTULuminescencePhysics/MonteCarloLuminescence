@@ -3,7 +3,7 @@ exp_typ   : TL      # Type of experiment
 max_dt    : 0.5       # Maximum time step in specified time units 
 t_pcnt    : 0      # Ratio of filled electrons traps
 h_pcnt    : 0     # Ratio of recombination holes that are unfilled
-reps      : 20      # Number of Monte Carlo simulations to repeat
+reps      : 30      # Number of Monte Carlo simulations to repeat
 
 
  

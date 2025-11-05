@@ -133,6 +133,12 @@ class Box(_temp,_ThermalParameters):
         self.l= np.zeros(2) 
         self.set_dimensions()
         self.NumberofTraps()
+        to_add = 1.5e-8
+        while self.N < 100: 
+            self.dimension += to_add
+            self.set_dimensions()
+            self.NumberofTraps()
+            to_add -= 1e-10
         self.NumberofHoles()
 
 
@@ -207,10 +213,10 @@ class Box(_temp,_ThermalParameters):
         # hole_location = np.unravel_index(location,pad_lattice.shape)
         # hole_location = np.column_stack(hole_location)
 
-        if self.HN > 10:
-            nn= int(self.HN/2)
-        else:
-            nn = self.HN
+        # if self.HN > 10:
+        #     nn= int(self.HN/2)
+        # else:
+        nn = self.HN
 
         
         # self.nearest = self.topk_manhattan(trap_coords,hole_location,nn)
@@ -412,12 +418,12 @@ class Box(_temp,_ThermalParameters):
         Temperature if needed. If the temperature has not changed
         the lifetimes are simply reduced by dt"""
         super().timestep(dt)
-        if self.T_chng or self.event_bool:
-            self.recalc_times()
-            self.random_fill_fade()
-        else:
-            self.fill -= dt
-            self.fade -= dt
+        # if self.T_chng or self.event_bool:
+        self.recalc_times()
+        self.random_fill_fade()
+        # else:
+        #     self.fill -= dt
+        #     self.fade -= dt
         
         self.random_fill_fade()
 
@@ -425,6 +431,7 @@ class Box(_temp,_ThermalParameters):
         """Recalcualtes the lifetimes and fill times"""
         self._filltime = self._fill(self.N, self.t_cnt, self.D_dot)
         self._lifetimes = self._fade(self.T,self.d)
+      
 
     def random_fill_fade(self) -> None:
         """Generates new random fill and fade times"""
