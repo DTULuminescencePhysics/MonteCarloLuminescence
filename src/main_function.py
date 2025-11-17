@@ -26,6 +26,7 @@ def main(cfg: DictConfig):
     comp_smooth("MC_results_ratio.csv",MC.crystal.unit)
 
     AC = analytical_crystal.from_config(cfg)
+    err.output(AC.__repr__())
     AC.get_analytical_solution()
 
     plot_analytic_comp_MC("Analytical_results.csv","MC_results_ratio.csv",MC.crystal.unit)

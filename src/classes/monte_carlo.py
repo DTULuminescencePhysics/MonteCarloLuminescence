@@ -62,14 +62,14 @@ class MCBase:
             self.max_dt =  self.crystal.duration*10
             self.max_dt_time_chk = self.crystal.duration*10
         elif self.crystal.kind in {"step","steps"}:
-            self.max_dt = self.crystal.times[0]/5000
+            self.max_dt = self.crystal.times[0]#/5000
             self.max_dt_time_chk = self.crystal.times[0]
         elif self.crystal.kind == "linear" :
             self.max_dt = 1/self.crystal.dT
             self.max_dt_time_chk = 1e50
         elif self.crystal.kind == "linearsteps":
             if self.crystal.dT[0] == 0: 
-                self.max_dt = self.crystal.times[0]/5000
+                self.max_dt = self.crystal.times[0]#/5000
             else:
                 self.max_dt = 1/self.crystal.dT[0]
             self.max_dt_time_chk = self.crystal.times[0]
@@ -79,17 +79,17 @@ class MCBase:
             return
         self.max_dt_cnt+=1
         if self.crystal.kind == "constant" :
-            self.max_dt =  self.crystal.duration/100
+            self.max_dt =  self.crystal.duration#/100
             self.max_dt_time_chk = self.crystal.duration*10
         elif self.crystal.kind == "step":
-            self.max_dt =  self.crystal.duration/100
+            self.max_dt =  self.crystal.duration#/100
             self.max_dt_time_chk = self.crystal.duration*10
         elif self.crystal.kind == "steps":
             if self.max_dt_cnt == self.crystal.times.size:
-                self.max_dt =  self.crystal.duration/100
+                self.max_dt =  self.crystal.duration#/100
                 self.max_dt_time_chk = self.crystal.duration*10
             else:
-                self.max_dt = (self.crystal.times[self.max_dt_cnt]-self.crystal.times[self.max_dt_cnt-1])/100
+                self.max_dt = (self.crystal.times[self.max_dt_cnt]-self.crystal.times[self.max_dt_cnt-1])#/100
                 self.max_dt_time_chk = self.crystal.times[self.max_dt_cnt]
         elif self.crystal.kind == "linear" :
             self.max_dt = 1/self.crystal.dT
@@ -104,7 +104,7 @@ class MCBase:
                 
 
             if self.crystal.dT[self.max_dt_cnt] == 0: 
-                self.max_dt = (max_time-self.crystal.times[self.max_dt_cnt-1])/100
+                self.max_dt = (max_time-self.crystal.times[self.max_dt_cnt-1])#/100
             else:
                 self.max_dt = 1/self.crystal.dT[self.max_dt_cnt]
 

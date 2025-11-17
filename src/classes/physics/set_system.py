@@ -48,6 +48,7 @@ class _ThermalParameters(CrystalPhysics):
             fade_kind = "GE_king_2016_ratio"
         elif self.phys_type == "ratio":
             fade_kind = "therm_tunnel_delocaise_ratio"
+            fade_kind = "therm_tunnel_delocaise_ratio" if self.E_cb is not None else "therm_tunnel_ratio"
         else:
             fade_kind = "therm_tunnel_delocaise" if self.E_cb is not None else "therm_tunnel"
 

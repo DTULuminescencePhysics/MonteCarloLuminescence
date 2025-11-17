@@ -193,8 +193,24 @@ class Box(_temp,_ThermalParameters):
         self.set_random_generator(seed)
 
         size = np.array((self.dimension,self.dimension,self.dimension))
-        hole_coords = self.rng.random((self.HN,3))*size*1.5
-        trap_coords = (self.rng.random((self.N,3))*size)+(self.dimension*0.25) 
+        # hole_coords = np.zeros((self.HN,3))
+        # hole_coords[0:self.N,:] = (self.rng.random((self.N,3))*size)+(self.dimension*0.25) 
+        # cnt = self.N 
+        # cnt2 = 100000
+        # rands = self.rng.random(cnt2)*self.dimension*1.5
+        # valid = rands[(rands<self.dimension*0.25)|(rands>self.dimension*1.25)]
+        # i = 0
+        # while cnt < self.HN:
+        #     if i+3 > valid.size: 
+        #         rands = self.rng.random(cnt2)*self.dimension*1.5
+        #         valid = rands[(rands<self.dimension*0.25)|(rands>self.dimension*1.25)]
+        #         i = 0
+        #     hole_coords[cnt,:] = valid[i:i+3]
+        #     cnt +=1 
+        #     i+=3
+
+        hole_coords = (self.rng.random((self.HN*3,3))*size*1.5)      
+        trap_coords = (self.rng.random((self.N*2,3))*size)+(self.dimension*0.25) 
 
         # lattice = np.zeros((self.h[0],self.w[0],self.l[0]),dtype=np.uint8)
         # location = self.rng.choice(lattice.size,size=self.N,replace=False)
@@ -231,21 +247,21 @@ class Box(_temp,_ThermalParameters):
 
         # self.trap_coords = self.xyz_coords_to_flat(trap_coords, self.h[1], self.w[1], self.l[1])
         # self.hole_coords = self.xyz_coords_to_flat(hole_location, self.h[1], self.w[1], self.l[1])
-        self.occ_trap = np.zeros(self.N,dtype=np.uint8)
-        self.occ_hole = np.zeros(self.HN,dtype=np.uint8)
+        self.occ_trap = np.zeros(self.N*2,dtype=np.uint8)
+        self.occ_hole = np.zeros(self.HN*3,dtype=np.uint8)
+        # self.occ_hole[self.N:] =1 
         self.t_cnt = int(t_cnt*self.N)
         self.h_cnt = int(h_cnt*self.HN)
-       
-       
+   
         if self.t_cnt > 0:
             if self.t_cnt == self.N:
                 self.occ_trap[:] = 1
-                hole_tot = 0
+                hole_tot = np.flatnonzero(self.occ_hole).size
                 if self.h_cnt == self.HN:
                     self.occ_hole[:] = 1
                     hole_tot = self.h_cnt
             else:
-                hole_tot = 0 
+                hole_tot = np.flatnonzero(self.occ_hole).size 
                 for _ in range(self.t_cnt):
                     avail = np.flatnonzero(self.occ_trap==0)
                     t_index = self.rng.choice(avail)
@@ -271,26 +287,15 @@ class Box(_temp,_ThermalParameters):
             if self.h_cnt == self.HN:
                 self.occ_hole[:] = 1
             else:
-                hole_tot = 0 
+                hole_tot = np.flatnonzero(self.occ_hole).size 
                 while hole_tot < self.h_cnt:
                     avail2 = np.flatnonzero(self.occ_hole==0)
                     h_index = self.rng.choice(avail2)
                     self.occ_hole[h_index] = 1
                     hole_tot += 1
         
-        # import matplotlib.pyplot as plt
+        self.h_cnt = np.flatnonzero(self.occ_hole).size
         self.define_new_d()
-        # plt.hist(self.d, bins='auto', edgecolor='blue')
-        # def probability_function(x,rho):
-        #     return np.exp((-4*np.pi*rho*np.power(x,3))/3)*(4*np.pi*rho*np.power(x,2))
-        
-        # r = np.linspace(0,100*mp.ang,1000000)
-        # y = probability_function(r,self.rho)
-     
-      
-        # plt.plot(r,y)
-        # plt.show()
-        # exit()
         self.initial_times(t=t)
 
     def float64_to_int32(self,points) -> np.ndarray:
@@ -355,7 +360,21 @@ class Box(_temp,_ThermalParameters):
         e = trap_coords[:,None,:]
         h = hole_coords[None,:,:]
         self.dist = np.linalg.norm(e-h,axis=2)
-
+       
+        # m = self.dist.mean()
+        # s = self.dist.std()
+        # self.trial= np.max(np.min(self.dist,axis=1)) + s
+        # r = 1e-9
+        # p = np.exp((-4*np.pi*self.rho*np.power(r,3))/3)*(4*np.pi*self.rho*np.power(r,2))
+        # while p > 5:
+        #     r *=10
+        #     p = np.exp((-4*np.pi*self.rho*np.power(r,3))/3)*(4*np.pi*self.rho*np.power(r,2))
+        #     print(p,r)
+       
+        # print(m,s)
+        # print(np.max(np.min(self.dist,axis=1)))
+        
+        
     # def distance_from_store(self) -> None:
     #     trap_coords = self.flat_to_xyz_coords(self.trap_coords, self.h[1], self.w[1], self.l[1])
     #     hole_coords = self.flat_to_xyz_coords(self.hole_coords, self.h[1], self.w[1], self.l[1])
@@ -366,9 +385,19 @@ class Box(_temp,_ThermalParameters):
     def define_new_d(self):
         """Creates a mask to only consider available holes and traps
         then creates the array of minimum distances"""
-        mask = np.ones_like(self.dist,dtype=bool)
-        mask[np.ix_(np.flatnonzero(self.occ_trap),np.flatnonzero(self.occ_hole))]=False
-        self.d = np.ma.array(self.dist,mask=mask).min(axis=1).compressed()
+        row_m = self.occ_trap.astype(bool)
+        col_m = self.occ_hole.astype(bool)
+        full = self.dist[row_m][:,col_m]
+        self.d = full
+        if full.size == 0: 
+            self.d = np.zeros(0)
+            return
+        self.d = full.min(axis=1)
+
+        # mask = np.ones_like(self.dist,dtype=bool)
+        # mask[np.ix_(np.flatnonzero(self.occ_trap),np.flatnonzero(self.occ_hole))]=False
+        # self.d = np.ma.array(self.dist,mask=mask)#.compressed()
+        # self.d = np.ma.array(self.dist,mask=mask).min(axis=1).compressed()
 
     def trap_new_electron(self):
         """Function that randomly chooses a new electron trap.
@@ -382,7 +411,6 @@ class Box(_temp,_ThermalParameters):
         if len(nn) > 0 : 
             h_index = nn[0]
         else:
-        # if self.h_cnt < self.HN:
             avail = np.flatnonzero(self.occ_hole==0)
             h_index = self.rng.choice(avail)
             
@@ -401,12 +429,22 @@ class Box(_temp,_ThermalParameters):
         find the corresponding hole index. These are then both removed"""
         if self.t_cnt <= 0:
             return
+      
         avail = np.flatnonzero(self.occ_trap)
         t_index = avail[self.fade_index]
+        avail = np.flatnonzero(self.occ_hole)
+        h_index = avail[self.h_index]
         idx_array = np.where(self.dist[t_index,:]==self.d[self.fade_index])[0]
         if idx_array.size == 0:
             raise ValueError("No match found for fade_index")
         h_index = int(idx_array[0])
+       
+        # self.occ_trap = np.delete(self.occ_trap,t_index)
+        # self.occ_hole = np.delete(self.occ_hole,h_index)
+        # self.dist = np.delete(self.dist,t_index,0)
+        # self.dist = np.delete(self.dist,h_index,1)
+        # self.nearest[self.nearest == h_index] = -1
+
         self.occ_trap[t_index] = 0 
         self.occ_hole[h_index] = 0
         self.define_new_d()
@@ -436,15 +474,27 @@ class Box(_temp,_ThermalParameters):
     def random_fill_fade(self) -> None:
         """Generates new random fill and fade times"""
         self.fill = self.rng.exponential(self._filltime) if self._filltime > 0 else 1e20
+        # self.fade = np.min(self.rng.exponential(self._lifetimes)) if self._lifetimes > 0 else 1e20
+        
         if self.t_cnt == 0 :
             self.fade = 1e20
         elif self.t_cnt == 1:
+            # if self.d >self.trial:
+            #     self.fade = 1e20
+            # else:
             f = self.rng.exponential(self._lifetimes)
             self.fade_index = 0
+            self.h_index = 0
         else: 
             f = self.rng.exponential(self._lifetimes)
+            # f[self.d > self.trial] = 1e20
             self.fade = np.min(f)
+            # row_idx, col_idx = np.unravel_index(np.argmin(f), f.shape) 
+            # self.fade_index = int(row_idx)
+            # self.h_index = int(col_idx) 
+           
             self.fade_index = int(np.argmin(f)) 
+            # print(self.fade_index)
 
         # if self._lifetimes
         # self.fade = self.rng.exponential(self._lifetimes) if self._lifetimes > 0 
