@@ -132,32 +132,20 @@ class Box(_temp,_ThermalParameters):
         self.w= np.zeros(2)
         self.l= np.zeros(2) 
         self.set_dimensions()
+      
+    def set_dimensions(self) -> None:
+        """Set the dimensions of the box"""
+
+        self.volume = np.array((self.dimension**3,(self.dimension*1.5)**3))
         self.NumberofTraps()
         to_add = 1.5e-8
         while self.N < 100: 
             self.dimension += to_add
-            self.set_dimensions()
+            self.volume = np.array((self.dimension**3,(self.dimension*1.5)**3))
             self.NumberofTraps()
             to_add -= 1e-10
+
         self.NumberofHoles()
-
-
-    def set_dimensions(self) -> None:
-        """Set the dimensions of the box"""
-        # self.h[:] = ceil(self.dimension/self.unit_cell_dims[0])
-        # self.w[:] = ceil(self.dimension/self.unit_cell_dims[1])
-        # self.l[:] = ceil(self.dimension/self.unit_cell_dims[2])
-        # self.h_pad = ceil((0.5*self.h[0])/2.)
-        # self.w_pad = ceil((0.5*self.w[0])/2.)
-        # self.l_pad = ceil((0.5*self.l[0])/2.)
-        # self.h[1] += 2*self.h_pad
-        # self.w[1] += 2*self.w_pad
-        # self.l[1] += 2*self.l_pad
-        # self.h = self.h.astype(np.uint32)
-        # self.w = self.w.astype(np.uint32)
-        # self.l = self.l.astype(np.uint32)
-        self.volume = np.array((self.dimension**3,(self.dimension*1.5)**3))
-        # self.volume = (self.h*self.unit_cell_dims[0])*(self.w*self.unit_cell_dims[1])*(self.l*self.unit_cell_dims[2])
         
     def NumberofTraps(self)-> None:        
         """Returns the number of traps to generate"""
@@ -193,63 +181,23 @@ class Box(_temp,_ThermalParameters):
         self.set_random_generator(seed)
 
         size = np.array((self.dimension,self.dimension,self.dimension))
-        # hole_coords = np.zeros((self.HN,3))
-        # hole_coords[0:self.N,:] = (self.rng.random((self.N,3))*size)+(self.dimension*0.25) 
-        # cnt = self.N 
-        # cnt2 = 100000
-        # rands = self.rng.random(cnt2)*self.dimension*1.5
-        # valid = rands[(rands<self.dimension*0.25)|(rands>self.dimension*1.25)]
-        # i = 0
-        # while cnt < self.HN:
-        #     if i+3 > valid.size: 
-        #         rands = self.rng.random(cnt2)*self.dimension*1.5
-        #         valid = rands[(rands<self.dimension*0.25)|(rands>self.dimension*1.25)]
-        #         i = 0
-        #     hole_coords[cnt,:] = valid[i:i+3]
-        #     cnt +=1 
-        #     i+=3
+      
 
-        hole_coords = (self.rng.random((self.HN*3,3))*size*1.5)      
-        trap_coords = (self.rng.random((self.N*2,3))*size)+(self.dimension*0.25) 
+        hole_coords = (self.rng.random((self.HN,3))*size*1.5)      
+        trap_coords = (self.rng.random((self.N,3))*size)+(self.dimension*0.25) 
 
-        # lattice = np.zeros((self.h[0],self.w[0],self.l[0]),dtype=np.uint8)
-        # location = self.rng.choice(lattice.size,size=self.N,replace=False)
-        # coords = np.unravel_index(location,lattice.shape)
-        # lattice[coords] = 1
-        
-        # pad_lattice = np.pad(lattice,pad_width=((self.h_pad,self.h_pad),
-        #                                         (self.w_pad,self.w_pad),
-        #                                         (self.l_pad,self.l_pad)),
-        #                      mode='constant',constant_values=0)
-        # trap_coords = np.argwhere(pad_lattice == 1)
-
-        
-        # location = self.rng.choice(pad_lattice.size,size=self.HN,replace=False)
-       
-        # hole_location = np.unravel_index(location,pad_lattice.shape)
-        # hole_location = np.column_stack(hole_location)
 
         # if self.HN > 10:
         #     nn= int(self.HN/2)
         # else:
         nn = self.HN
 
-        
-        # self.nearest = self.topk_manhattan(trap_coords,hole_location,nn)
-        # traps, holes =  self.set_hole_trap_precise_locations()
-
-        # self.create_distance_matrix(trap_coords,hole_location,traps,holes)
         self.create_distance_matrix(trap_coords,hole_coords)
         self.nearest = np.argsort(self.dist,axis=1)[:,:nn]
       
-        # self.precise_trap = self.float64_to_int32(traps)
-        # self.precise_hole = self.float64_to_int32(holes)
+        self.occ_trap = np.zeros(self.N,dtype=np.uint8)
+        self.occ_hole = np.zeros(self.HN,dtype=np.uint8)
 
-        # self.trap_coords = self.xyz_coords_to_flat(trap_coords, self.h[1], self.w[1], self.l[1])
-        # self.hole_coords = self.xyz_coords_to_flat(hole_location, self.h[1], self.w[1], self.l[1])
-        self.occ_trap = np.zeros(self.N*2,dtype=np.uint8)
-        self.occ_hole = np.zeros(self.HN*3,dtype=np.uint8)
-        # self.occ_hole[self.N:] =1 
         self.t_cnt = int(t_cnt*self.N)
         self.h_cnt = int(h_cnt*self.HN)
    
@@ -361,6 +309,7 @@ class Box(_temp,_ThermalParameters):
         h = hole_coords[None,:,:]
         self.dist = np.linalg.norm(e-h,axis=2)
        
+
         # m = self.dist.mean()
         # s = self.dist.std()
         # self.trial= np.max(np.min(self.dist,axis=1)) + s
@@ -420,8 +369,8 @@ class Box(_temp,_ThermalParameters):
         self.occ_trap[t_index] = 1 
         self.define_new_d()
         self.t_cnt += 1 
-       
 
+      
     def remove_electron(self):
         """Function to remove an electron-hole pair.
         The index of the electron-hole pair is stored in self.fade_index 
@@ -439,12 +388,6 @@ class Box(_temp,_ThermalParameters):
             raise ValueError("No match found for fade_index")
         h_index = int(idx_array[0])
        
-        # self.occ_trap = np.delete(self.occ_trap,t_index)
-        # self.occ_hole = np.delete(self.occ_hole,h_index)
-        # self.dist = np.delete(self.dist,t_index,0)
-        # self.dist = np.delete(self.dist,h_index,1)
-        # self.nearest[self.nearest == h_index] = -1
-
         self.occ_trap[t_index] = 0 
         self.occ_hole[h_index] = 0
         self.define_new_d()
@@ -456,14 +399,14 @@ class Box(_temp,_ThermalParameters):
         Temperature if needed. If the temperature has not changed
         the lifetimes are simply reduced by dt"""
         super().timestep(dt)
-        # if self.T_chng or self.event_bool:
-        self.recalc_times()
-        self.random_fill_fade()
-        # else:
-        #     self.fill -= dt
-        #     self.fade -= dt
+        if self.T_chng or self.event_bool:
+            self.recalc_times()
+            self.random_fill_fade()
+        else:
+            self.fill -= dt
+            self.fade -= dt
         
-        self.random_fill_fade()
+        # self.random_fill_fade()
 
     def recalc_times(self):
         """Recalcualtes the lifetimes and fill times"""
@@ -473,45 +416,24 @@ class Box(_temp,_ThermalParameters):
 
     def random_fill_fade(self) -> None:
         """Generates new random fill and fade times"""
-        self.fill = self.rng.exponential(self._filltime) if self._filltime > 0 else 1e20
-        # self.fade = np.min(self.rng.exponential(self._lifetimes)) if self._lifetimes > 0 else 1e20
-        
+        if self.h_cnt < self.HN:
+            self.fill = self.rng.exponential(self._filltime) 
+        else: 
+            self.fill = 1e20
+      
         if self.t_cnt == 0 :
             self.fade = 1e20
         elif self.t_cnt == 1:
-            # if self.d >self.trial:
-            #     self.fade = 1e20
-            # else:
             f = self.rng.exponential(self._lifetimes)
             self.fade_index = 0
             self.h_index = 0
         else: 
             f = self.rng.exponential(self._lifetimes)
-            # f[self.d > self.trial] = 1e20
             self.fade = np.min(f)
-            # row_idx, col_idx = np.unravel_index(np.argmin(f), f.shape) 
-            # self.fade_index = int(row_idx)
-            # self.h_index = int(col_idx) 
-           
             self.fade_index = int(np.argmin(f)) 
-            # print(self.fade_index)
+          
 
-        # if self._lifetimes
-        # self.fade = self.rng.exponential(self._lifetimes) if self._lifetimes > 0 
-        # if self.t_cnt > 0:
-        #     f = self.rng.exponential(self._lifetimes)
-        #     self.fade = np.min(f)
-        #     self.fade_index = int(np.argmin(f))
-        #     if self.t_cnt >= self.N or self._filltime < 0:
-        #         self.fill = 1e20
-        #     else:
-        #         self.fill = self.rng.exponential(self._filltime)
-        # else:
-            # if self._filltime > 0:
-            # self.fill = self.rng.exponential(self._filltime)
-            # self.fade = 1e20
      
-
     def initial_times(self, t: float = 0.0) -> None:
         """Generates the initial fill and fade times"""
         self.time=t

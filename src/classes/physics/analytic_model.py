@@ -19,10 +19,10 @@ class analytical_crystal(_temp,_ThermalParameters):
     ur_weights: np.ndarray = field(init=False)
     time_steps: np.ndarray = field(init=False)
     ratio: float = field(default=0.0)
-
+    phys_type: str   | None = field(default=None)
 
     @classmethod
-    def from_config(cls, cfg: DictConfig, T_override: dict | None = None) -> "analytical_crystal":
+    def from_config(cls, cfg: DictConfig, T_override: dict | None = None, unitless: bool = False) -> "analytical_crystal":
         """Create a ``analytical_crystal`` instance from a Hydra ``DictConfig`` object."""
         if not isinstance(cfg, DictConfig):
             raise TypeError(f"Expected DictConfig, received {type(cfg).__name__}")
@@ -42,6 +42,7 @@ class analytical_crystal(_temp,_ThermalParameters):
         array_fields = {"times", "dT_step", "dT", "T_inf", "k"}
 
         kwargs: Dict[str, Any] = {}
+        kwargs['unitless'] = unitless
         for section in (physics_cfg, temp_cfg, box_cfg, resolved):
             if not isinstance(section, dict):
                 continue
@@ -55,13 +56,17 @@ class analytical_crystal(_temp,_ThermalParameters):
         return cls(**kwargs)
     
     def __post_init__(self):
-        if self.phys_type == "king":
-            self.phys_type = "king_ratio"
-        else:
-            self.phys_type = "ratio"
-        # self.unitless = True
+        if self.phys_type is None:
+            self.phys_type = ""
+
+        if self.unitless:
+            self.phys_type += "_unitless" 
+        else: 
+            self.phys_type += "_unit"
+        
         if self.unitless:
             self.ur = np.linspace(0,2,10000)
+            
         super().__post_init__()
         if not self.unitless:
             end = 2/(np.cbrt((4*np.pi*self.rho)/3))
@@ -110,15 +115,13 @@ class analytical_crystal(_temp,_ThermalParameters):
     def set_ur_values(self):
         """Generates N unitless values of r and sets 
         the initial population weighting"""
-        # self.ur /= 
-        
+    
         self.ur_weights = self.Pr(self.ur)
-        # if not self.unitless:
-        #     self.ur_weights *= 10000
+   
 
     def Pr(self, r):
         """Probability density function for nearest neighbour distance r (in m)"""
-        #
+        
         if self.unitless:
             return 3*np.power(r,2)*np.exp(-np.power(r,3))
         else:
@@ -135,13 +138,10 @@ class analytical_crystal(_temp,_ThermalParameters):
             ratio = vars[0] 
             T = self.Tat(t)
 
-            
-            fill = (self.D_dot/self.D0)*(1-ratio)
-            term1 = (self.b * np.exp(-(1/np.cbrt(self.urho)) * ur))*ratio
-            term2 = (self.s * np.exp(-(self.E_loc - self.E_cb) / (cnst.k_b_ev * T)))*ratio
-            fade = (term1 + term2)
-            # fade = self._fade(T,ur)*ratio
-            
+            fill = self._fill(ratio,self.D0,self.D_dot)
+            fade = self._fade(T,ur)*ratio
+
+        
             dn_dt = fill-fade
            
             
@@ -155,8 +155,7 @@ class analytical_crystal(_temp,_ThermalParameters):
             nN = vars[0] 
             T = self.Tat(t)
 
-            fill = (self.D_dot/self.D0)*(1-nN)
-            
+            fill = self._fill(nN,self.D0,self.D_dot)
             fade = self._fade(T,r)*nN
             dn_dt = fill-fade
            
@@ -165,14 +164,12 @@ class analytical_crystal(_temp,_ThermalParameters):
        
         results = np.zeros((self.time_steps.size))
         cnt = 0
-        # self.ur_weights /= self.ur_weights.sum()
-
         for i in range(len(self.ur)):
             if self.ur_weights[i] <=0:
                 continue
             r = self.ur[i]
 
-            cnt+=1 
+          
             if self.unitless:
                 solution = solve_ivp(unitless_model, (0, self.duration), [0], args=(r,), t_eval=self.time_steps, method = 'Radau',dense_output=True)
                 res=  (solution.y[0]*self.ur_weights[i])
@@ -181,17 +178,14 @@ class analytical_crystal(_temp,_ThermalParameters):
                 res= solution.y[0]*self.ur_weights[i]
             
             try:
-                results += res
-               
+                results += res     
+                cnt += self.ur_weights[i]
             except:
-                y = interp1d(solution.t, res, kind='linear', fill_value="extrapolate")
-                res = y(self.time_steps)
-                results += res
+                print(f'error with length {r} with weight {self.ur_weights[i]}')
+               
         
-        if self.unitless:
-            results /= cnt
-        else:
-            results /=np.sum(self.ur_weights)
+        results /=cnt
+      
 
         np.savetxt("Analytical_results.csv",np.column_stack((self.time_steps,results)), delimiter=",", header="Time, n/N (Analytic)")
         plot_analtyical_results("Analytical_results.csv", self.unit)

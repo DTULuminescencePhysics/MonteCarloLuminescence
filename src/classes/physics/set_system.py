@@ -19,7 +19,7 @@ class _ThermalParameters(CrystalPhysics):
     D0:      float | None = field(default=None) # Characteristic does
     D_dot:   float | None = field(default=None) # Radition per time unit
     Dd_unit: str = field(default='s') # Units of Radiation s : Gy/s; ka : Gy/Ka etc.
-    phys_type: str   | None = field(default=None) # Kind of fading model
+    phys_type: str   = field(default="") # Kind of fading model
 
 
     def __post_init__(self):
@@ -41,19 +41,22 @@ class _ThermalParameters(CrystalPhysics):
     def set_fill_and_fade(self):
         """Function that returns the fade and fill kinds that can be passed to the CrystalPhysics
         intializer."""
-            
-        if self.phys_type == "king":
+        
+        if self.phys_type.find("king") > 0:
             fade_kind = "GE_king_2016"
-        elif self.phys_type == "king_ratio":
-            fade_kind = "GE_king_2016_ratio"
-        elif self.phys_type == "ratio":
-            fade_kind = "therm_tunnel_delocaise_ratio"
-            fade_kind = "therm_tunnel_delocaise_ratio" if self.E_cb is not None else "therm_tunnel_ratio"
+        else: 
+            fade_kind = "therm_tunnel_delocalise" if self.E_cb is not None else "therm_tunnel"
+        
+        if self.phys_type.find("unitless") > 0:
+            fade_kind += "_unitless"
+            fill_kind = "dose_ratio" if self.D0 is not None else "none"
+        elif  self.phys_type.find("unit") > 0:
+            fade_kind += "_unit"
+            fill_kind = "dose_ratio" if self.D0 is not None else "none"
         else:
-            fade_kind = "therm_tunnel_delocaise" if self.E_cb is not None else "therm_tunnel"
+            fill_kind = "dose" if self.D0 is not None else "none"
 
-        fill_kind = "dose" if self.D0 is not None else "none"
-
+        print(fill_kind,fade_kind)
         return fill_kind, fade_kind
     
     def set_alpha(self):
