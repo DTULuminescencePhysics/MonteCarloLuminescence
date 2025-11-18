@@ -3,14 +3,11 @@ import os
 import numpy as np
 from dataclasses import dataclass, field
 from joblib import Parallel, delayed
-# from multiprocessing import Pool
 from omegaconf import DictConfig
 from src.classes.constants import cnst  
 
 from src.errors import ErrorOutputHandler
 from src.classes.physics.crystal import Box
-from src.process_plot import clean_up_results
-from src.process_plot import plot_forward_results
 
 
 @dataclass
@@ -32,11 +29,7 @@ class MCBase:
     @classmethod
     def from_config(cls, cfg: DictConfig) -> "MCBase":
         crs = Box.from_config(cfg)
-        # if cfg.mc.max_dt is None:
-        #     mdt = 1000
-        # else: 
-        #     mdt = cfg.mc.max_dt 
-
+    
         return cls(cfg.mc.reps, cfg.setup.seed, cfg.mc.t_pcnt, 
                    cfg.mc.h_pcnt, crs)
     
@@ -62,14 +55,14 @@ class MCBase:
             self.max_dt =  self.crystal.duration*10
             self.max_dt_time_chk = self.crystal.duration*10
         elif self.crystal.kind in {"step","steps"}:
-            self.max_dt = self.crystal.times[0]#/5000
+            self.max_dt = self.crystal.times[0]
             self.max_dt_time_chk = self.crystal.times[0]
         elif self.crystal.kind == "linear" :
             self.max_dt = 1/self.crystal.dT
             self.max_dt_time_chk = 1e50
         elif self.crystal.kind == "linearsteps":
             if self.crystal.dT[0] == 0: 
-                self.max_dt = self.crystal.times[0]#/5000
+                self.max_dt = self.crystal.times[0]
             else:
                 self.max_dt = 1/self.crystal.dT[0]
             self.max_dt_time_chk = self.crystal.times[0]
@@ -79,14 +72,14 @@ class MCBase:
             return
         self.max_dt_cnt+=1
         if self.crystal.kind == "constant" :
-            self.max_dt =  self.crystal.duration#/100
+            self.max_dt =  self.crystal.duration
             self.max_dt_time_chk = self.crystal.duration*10
         elif self.crystal.kind == "step":
-            self.max_dt =  self.crystal.duration#/100
+            self.max_dt =  self.crystal.duration
             self.max_dt_time_chk = self.crystal.duration*10
         elif self.crystal.kind == "steps":
             if self.max_dt_cnt == self.crystal.times.size:
-                self.max_dt =  self.crystal.duration#/100
+                self.max_dt =  self.crystal.duration
                 self.max_dt_time_chk = self.crystal.duration*10
             else:
                 self.max_dt = (self.crystal.times[self.max_dt_cnt]-self.crystal.times[self.max_dt_cnt-1])#/100
@@ -104,7 +97,7 @@ class MCBase:
                 
 
             if self.crystal.dT[self.max_dt_cnt] == 0: 
-                self.max_dt = (max_time-self.crystal.times[self.max_dt_cnt-1])#/100
+                self.max_dt = (max_time-self.crystal.times[self.max_dt_cnt-1])
             else:
                 self.max_dt = 1/self.crystal.dT[self.max_dt_cnt]
 
@@ -179,14 +172,13 @@ class MCBase:
         err.output("Monte Carlo simulation complete, cleaning up results...")
         err.output("To be placed in file: sim_results.dat")
 
-        ratio_file, lum_file = clean_up_results(self.results, self.result_csv_path,self.crystal)
        
-        del self.results
-
-        err.output("Results cleaned and saved.")
-
-        plot_forward_results(ratio_file, lum_file, self.crystal.unit, self.crystal.kind)
-
+    def clean_up(self):
+        try:
+            del self.results
+        except:
+            pass
+        
         if os.path.exists(self.data_path):
             os.remove(self.data_path)
 
@@ -227,3 +219,6 @@ class MCBase:
        
 
         return time_union, ratio
+    
+
+

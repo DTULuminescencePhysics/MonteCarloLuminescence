@@ -56,7 +56,6 @@ class _ThermalParameters(CrystalPhysics):
         else:
             fill_kind = "dose" if self.D0 is not None else "none"
 
-        print(fill_kind,fade_kind)
         return fill_kind, fade_kind
     
     def set_alpha(self):

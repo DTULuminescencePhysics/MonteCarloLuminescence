@@ -225,15 +225,59 @@ def plot_forward_results(ratio_file: str, lum_file:str, T_unit: str = 's', T_typ
 
     if T_type != 'constant':
         plot_forward_ratio_T("Time_filling_ratio_T.png",data[:,2:],data[:,1],header_names)
- 
+
+def plot_forward_multi_experiment(ratio_files: list[str],file_name: str,T_unit: str = 's') -> None:
+    fig=plt.figure(figsize=(3.37,5.055))
+    ax=fig.add_axes((0.,0.,2.,1.))
+    j=0
+    for i in range(len(ratio_files)):
+        if( i > 0 and i%7 == 0):
+            j = ((j+1)%4) 
+      
+        file = ratio_files[i]
+        data = np.loadtxt(file, delimiter=",")
+        times = time_sequence(data[:,0], T_unit)
+        ratio_vs(times,data[:,-1],ax,colors[i%7],lines[j],f"Experiment no.{i+1}")
+
+
+    plot_time_label(ax, T_unit)
+    ax.set_ylabel("n/N Trap ratio") 
+  
+    ax.legend()
+    plt.savefig(file_name,dpi=300, transparent=False,bbox_inches='tight')
+    plt.close()
+
+
 def plot_analtyical_results(analytic_file: str, T_unit: str = 's'): 
     
-    data = np.loadtxt(analytic_file, delimiter=",")
+    data = np.loadtxt(f"{analytic_file}.csv", delimiter=",")
     times = time_sequence(data[:,0], T_unit)
   
-    plot_forward_ratio("Analytical_Time_filling_ratio.png",data[:,1:],times,T_unit)
+    plot_forward_ratio(f"{analytic_file}.png",data[:,1:],times,T_unit)
+
+def plot_forward_multi_analytical_experiment(ratio_files: list[str],file_name: str,T_unit: str = 's') -> None:
+    fig=plt.figure(figsize=(3.37,5.055))
+    ax=fig.add_axes((0.,0.,2.,1.))
+    j=0
+    for i in range(len(ratio_files)):
+        if( i > 0 and i%7 == 0):
+            j = ((j+1)%4) 
+      
+        file = ratio_files[i]
+        data = np.loadtxt(file, delimiter=",")
+        times = time_sequence(data[:,0], T_unit)
+        ratio_vs(times,data[:,1:],ax,colors[i%7],lines[j],f"Experiment no.{i+1}")
+
+
+    plot_time_label(ax, T_unit)
+    ax.set_ylabel("n/N Trap ratio") 
   
-def plot_analytic_comp_MC(analytic_file: str, MC_file: str, T_unit: str = 's'):
+    ax.legend()
+    plt.savefig(file_name,dpi=300, transparent=False,bbox_inches='tight')
+    plt.close()
+
+
+def plot_analytic_comp_MC_single(analytic_file: str, MC_file: str, T_unit: str = 's'):
 
     A_data = np.loadtxt(analytic_file, delimiter=",")
     MC_data = np.loadtxt(MC_file, delimiter=",")
@@ -252,6 +296,43 @@ def plot_analytic_comp_MC(analytic_file: str, MC_file: str, T_unit: str = 's'):
     plt.savefig("MC_vs_Analytic_result.png",dpi=300, transparent=False,bbox_inches='tight')
     plt.close()
 
+def plot_analytic_comp_MC_multi(analytic_file: list[str], MC_file: list[str], T_unit: str = 's'):
+    fig=plt.figure(figsize=(3.37,5.055))
+    ax=fig.add_axes((0.,0.,2.,1.))
+    
+    j=0
+    for i in range(len(MC_file)):
+        if( i > 0 and i%7 == 0):
+            j = ((j+1)%4) 
+      
+        file = MC_file[i]
+        data = np.loadtxt(file, delimiter=",")
+        times = time_sequence(data[:,0], T_unit)
+        ratio_vs(times,data[:,-1],ax,colors[i%7],lines[j],f"MC Experiment no.{i+1}")
+
+    j=2
+    for i in range(len(analytic_file)):
+        if( i > 0 and i%7 == 0):
+            j = ((j+1)%4) 
+      
+        file = analytic_file[i]
+        data = np.loadtxt(file, delimiter=",")
+        times = time_sequence(data[:,0], T_unit)
+        ratio_vs(times,data[:,1:],ax,colors[i%7],lines[j],f"Analytic Experiment no.{i+1}",alpha=0.5)
+
+    plot_time_label(ax, T_unit)
+    ax.set_ylabel("n/N Trap ratio")
+    ax.legend()
+    plt.savefig("MC_vs_Analytic_result.png",dpi=300, transparent=False,bbox_inches='tight')
+    plt.close()
+
+
+def plot_analytic_comp_MC(run_num: int, analytic_file: str|list[str], MC_file: str|list[str], T_unit: str = 's'):
+
+    if run_num == 1 and isinstance(analytic_file,str) and isinstance(MC_file,str):
+        plot_analytic_comp_MC_single(analytic_file,MC_file,T_unit)
+    elif isinstance(analytic_file,list) and isinstance(MC_file,list):
+        plot_analytic_comp_MC_multi(analytic_file,MC_file,T_unit)
 
 def running_mean(y: np.ndarray, k: int = 5, x: np.ndarray | None = None) -> np.ndarray | Tuple[np.ndarray,np.ndarray]:
     ret = np.cumsum(y, dtype=float)

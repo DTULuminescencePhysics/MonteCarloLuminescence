@@ -79,7 +79,6 @@ class _temp(_time, TimeTempProfile):
         self.T = temp
 
   
-    
     def Tat(self,time: ArrayLike) -> ArrayLike:
         """Calculates the temperature for a given time(s)"""
         return self(time)
@@ -87,28 +86,3 @@ class _temp(_time, TimeTempProfile):
 
 
 
-
-
-
-
-
-# T0=150
-# p1 = TimeTempProfile("constant", T0=10,  times=[0.1,0.3], dT_step=[20,50], dT=[200,50],k=10,T_inf=None)
-# p2 = TimeTempProfile("step", T0=T0, times=0.2, dT_step=20,k=10,T_inf=None)
-# p3 = TimeTempProfile("linear", T0=T0, dT=300,k=10,T_inf=None)
-# p7 = TimeTempProfile("steps", T0=T0, times=[0.01,0.1,0.2,0.3], dT_step=[20,20,20,20])
-# p4 = TimeTempProfile("linearsteps", T0=T0, times=[0.01,0.1,0.2,0.3], dT_step=[20,30,20,20], dT=[10,50,60,40,100])
-# p5 = TimeTempProfile("exponential", T0=T0, T_inf=10, k=10)
-# p6 = TimeTempProfile("lineardrops", T0=T0, times=[0.1,0.3], dT_step=[20,50], dT=[200,50])
-
-# t = np.linspace(0, 0.5, 1001)
-
-# plt.plot(t,p1(t),label='constant')
-# plt.plot(t,p2(t),label='step')
-# plt.plot(t,p3(t),label='linear')
-# plt.plot(t,p4(t),label='linearsteps')
-# plt.plot(t,p5(t),label='exponential')
-# plt.plot(t,p6(t),label='lineardrops')
-# plt.plot(t,p7(t),label='steps')
-# plt.legend()
-# plt.show()
