@@ -139,7 +139,7 @@ class Box(_temp,_ThermalParameters):
         self.volume = np.array((self.dimension**3,(self.dimension*1.5)**3))
         self.NumberofTraps()
         to_add = 1.5e-8
-        while self.N < 100: 
+        while self.N < 300: 
             self.dimension += to_add
             self.volume = np.array((self.dimension**3,(self.dimension*1.5)**3))
             self.NumberofTraps()
@@ -153,7 +153,7 @@ class Box(_temp,_ThermalParameters):
     
     def NumberofHoles(self)-> None:
         """Returns the number of holes to generate with the boundary padding"""
-        self.HN = round(self.rho*self.volume[1]) 
+        self.HN = round(self.rho*self.volume[1])
 
 
     def topk_manhattan(self,traps, holes, k=20):
@@ -186,10 +186,6 @@ class Box(_temp,_ThermalParameters):
         hole_coords = (self.rng.random((self.HN,3))*size*1.5)      
         trap_coords = (self.rng.random((self.N,3))*size)+(self.dimension*0.25) 
 
-
-        # if self.HN > 10:
-        #     nn= int(self.HN/2)
-        # else:
         nn = self.HN
 
         self.create_distance_matrix(trap_coords,hole_coords)
@@ -356,15 +352,17 @@ class Box(_temp,_ThermalParameters):
             return
         avail = np.flatnonzero(self.occ_trap==0)
         t_index = self.rng.choice(avail)
-        nn = self.nearest[t_index][~np.isin(self.nearest[t_index],np.flatnonzero(self.occ_hole))]
-        if len(nn) > 0 : 
-            h_index = nn[0]
-        else:
+        # nn = self.nearest[t_index][~np.isin(self.nearest[t_index],np.flatnonzero(self.occ_hole))]
+        # if len(nn) > 0 : 
+        #     h_index = nn[0]
+        # else:
+        if self.h_cnt < self.HN:
+            
             avail = np.flatnonzero(self.occ_hole==0)
             h_index = self.rng.choice(avail)
             
-        self.occ_hole[h_index] = 1 
-        self.h_cnt += 1 
+            self.occ_hole[h_index] = 1 
+            self.h_cnt += 1 
 
         self.occ_trap[t_index] = 1 
         self.define_new_d()

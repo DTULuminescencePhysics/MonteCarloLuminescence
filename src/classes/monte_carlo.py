@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 import numpy as np
 from dataclasses import dataclass, field
-from joblib import Parallel, delayed
+# from joblib import Parallel, delayed
 from omegaconf import DictConfig
 from src.classes.constants import cnst  
 
@@ -220,5 +220,29 @@ class MCBase:
 
         return time_union, ratio
     
+    def inverse_modeling_simulation(self,):
+
+        def last_non_nan(arr,div):
+            valid = np.where(~np.isnan(arr))[0]
+            if valid.size > 0:
+                return arr[valid[-1]]
+            else: 
+                div -= 1
+                return 0
+        
+        self.results[:,:,:] = np.nan
+        self.results.flush()
+        self.monte_carlo_loop()
+        self.results.flush()
+        
+        div = self.repetion
+        ratio = 0 
+        for i in range(self.repetion):
+            ratio += last_non_nan(self.results[i, 1],div)
+
+        ratio /= div
+
+        return ratio
+
 
 

@@ -13,7 +13,7 @@ warnings.filterwarnings('error')
 class ReverseJmpMCMC:
     obs: np.ndarray
     iters: int 
-    reps:int = field(default=10)
+    reps: int = field(default=10)
     MC: MCBase | None = field(default=None)
     t_common: np.ndarray = field(init=False)
     crrnt_T: dict  = field(init=False)

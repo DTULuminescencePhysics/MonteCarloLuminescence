@@ -87,8 +87,8 @@ def clean_up_results(results, output_file_name, crystal):
     
     assert C == 3
 
-    ratio_file = output_file_name+"_ratio.csv"
-    lum_file = output_file_name+"_lum.csv"
+    ratio_file = output_file_name+"_ratio"
+    lum_file = output_file_name+"_lum"
 
     valid_mask = ~np.isnan(results[:, 0, :])
     lengths = valid_mask.sum(axis=1)
@@ -97,34 +97,53 @@ def clean_up_results(results, output_file_name, crystal):
     time_union = np.unique(np.concatenate(times_list))
 
     del times_list
-     
+    steady_time = np.linspace(0,time_union[-1],10000) 
     divisor = closest_divisor(S)
     additional = S/divisor -1 
   
-    ratio_results = np.zeros((int(3+additional), time_union.size))
-    ratio_results[0,:] = time_union
+    # ratio_results = np.zeros((int(3+additional), time_union.size))
+    ratio_results = np.zeros((int(3+additional), steady_time.size))
+
+    # ratio_results[0,:] = time_union
+    ratio_results[0,:] = steady_time
+
     cnt = 0
     header = [f"Time (s)", "Temperature (C)"]
+
+    sumed = np.zeros(time_union.size)
     for i in range(S):
-        ratio_results[2+cnt,:]+= np.interp(time_union, results[i,0, :lengths[i]], results[i,1,:lengths[i]])
+        sumed += np.interp(time_union, results[i,0, :lengths[i]], results[i,1,:lengths[i]])
         if (i+1) % divisor == 0 and i !=0:
-            if i < S-1:
-                ratio_results[2+cnt+1,:]+= ratio_results[2+cnt,:]
-            ratio_results[2+cnt,:] /=i+1
-            cnt +=1
+
+            ratio_results[2+cnt,:] = (np.interp(steady_time,time_union,sumed))/(i+1)
+            
+            cnt+=1
             header.append(f"n/N (avg {i+1} reps)")
+
+    # for i in range(S):
+    #     ratio_results[2+cnt,:]+= np.interp(time_union, results[i,0, :lengths[i]], results[i,1,:lengths[i]])
+    #     if (i+1) % divisor == 0 and i !=0:
+    #         if i < S-1:
+    #             ratio_results[2+cnt+1,:]+= ratio_results[2+cnt,:]
+    #         ratio_results[2+cnt,:] /=i+1
+    #         cnt +=1
+    #         header.append(f"n/N (avg {i+1} reps)")
 
     ratio_results[1,:] = crystal.Tat(ratio_results[0,:])
     ratio_results[1,:] -= 273.15
 
-    if os.path.exists(ratio_file):
-        os.remove(ratio_file)
-    np.savetxt(ratio_file, ratio_results.T, delimiter=",", header=",".join(header))
+    if os.path.exists(f"{ratio_file}.csv"):
+        os.remove(f"{ratio_file}.csv")
+    np.savetxt(f"{ratio_file}.csv", ratio_results.T, delimiter=",", header=",".join(header))
     
     cnt = 0 
     lum_results = np.zeros((int(3+additional), time_union.size))
-    lum_results[0:2,:] = ratio_results[0:2,:]
+    
+    # lum_results[0:2,:] =    ratio_results[0:2,:]
+    lum_results[0,:] = time_union
+    
     del ratio_results
+    return ratio_file, lum_file
     header = [f"Time (s)", "Temperature (C)"]
     for i in range(S):
         zeros = np.zeros(time_union.size)
@@ -138,9 +157,9 @@ def clean_up_results(results, output_file_name, crystal):
                 header.append(f"Lum (avg {i+1} reps)")
             cnt+=1 
    
-    if os.path.exists(lum_file):
-        os.remove(lum_file)
-    np.savetxt(lum_file, lum_results.T, delimiter=",", header=",".join(header))
+    if os.path.exists(f"{lum_file}.csv"):
+        os.remove(f"{lum_file}.csv")
+    np.savetxt(f"{lum_file}.csv", lum_results.T, delimiter=",", header=",".join(header))
     del lum_results
     return ratio_file, lum_file
 
@@ -212,19 +231,19 @@ def plot_T_profile(file_name:str, temp: np.ndarray, times: np.ndarray, T_unit:st
 
 def plot_forward_results(ratio_file: str, lum_file:str, T_unit: str = 's', T_type: str = 'constant') -> None:
    
-    data = np.loadtxt(ratio_file, delimiter=",")
+    data = np.loadtxt(f"{ratio_file}.csv", delimiter=",")
     times = time_sequence(data[:,0], T_unit)
 
-    f = open(ratio_file)
+    f = open(f"{ratio_file}.csv")
     header = f.readline()
     header_names = header.split(',')[2:]
     f.close()
 
-    plot_forward_ratio("Time_filling_ratio.png",data[:,2:],times, T_unit,header_names)
+    plot_forward_ratio(f"Time_filling_{ratio_file}.png",data[:,2:],times, T_unit,header_names)
     plot_T_profile("Temperature_Profile.png",data[:,1],times,T_unit)
 
     if T_type != 'constant':
-        plot_forward_ratio_T("Time_filling_ratio_T.png",data[:,2:],data[:,1],header_names)
+        plot_forward_ratio_T(f"Time_filling_{ratio_file}_T.png",data[:,2:],data[:,1],header_names)
 
 def plot_forward_multi_experiment(ratio_files: list[str],file_name: str,T_unit: str = 's') -> None:
     fig=plt.figure(figsize=(3.37,5.055))
@@ -248,7 +267,7 @@ def plot_forward_multi_experiment(ratio_files: list[str],file_name: str,T_unit: 
     plt.close()
 
 
-def plot_analtyical_results(analytic_file: str, T_unit: str = 's'): 
+def plot_analytical_results(analytic_file: str, T_unit: str = 's'): 
     
     data = np.loadtxt(f"{analytic_file}.csv", delimiter=",")
     times = time_sequence(data[:,0], T_unit)

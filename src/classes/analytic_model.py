@@ -10,7 +10,6 @@ from src.classes.physics.time_temperature import _temp
 from src.classes.physics.set_system import _ThermalParameters 
 from src.classes.constants import cnst
 
-from src.process_plot import plot_analtyical_results
 
 @dataclass
 class analytical_crystal(_temp,_ThermalParameters):
