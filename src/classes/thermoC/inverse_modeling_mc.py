@@ -15,6 +15,7 @@ class InverseMC:
     T0_max: float
     T_target: float
     duration: float
+    seed: int
     dT_min: float = field(default=0)
     dT_max: float = field(default=0)
     tolerance: float = field(default=5)
@@ -30,7 +31,7 @@ class InverseMC:
     true_T: np.ndarray = field(init=False)
     
     def set_random_generator(self):
-        self.rng = np.random.default_rng()
+        self.rng = np.random.default_rng(self.seed)
 
 
     def check_inputs(self, err: ErrorOutputHandler | None):
@@ -121,7 +122,7 @@ class InverseMC:
                 if linear_drop_total > 0:
                     w = self.rng.uniform(self.dT_min,(self.dT_max+1e-9),(n_steps+1))
                     ran = self.rng.random(n_steps + 1)
-                    w[ran>0.75] = 0 
+                    w[ran>0.5] = 0 
                     # w = self.rng.random(n_steps + 1)
                     
                     w /= w.sum()
@@ -241,26 +242,29 @@ class InverseMC:
         count = 0
         if isinstance(self.MC_crystal,MCBase):
             ratio = np.zeros(1)
+            i = 1
             for prof in self.T_profiles:
                 self.MC_crystal.crystal.set_temperature_profile("linearsteps",prof)
                 ratio[0] = self.MC_crystal.inverse_modeling_simulation()
                 if self.likeliness_score(ratio):
                     self.accumulate_profile_on_grid(self.MC_crystal)
                     count += 1
-                print(f"Number of accepted profiles is {count}")
+                print(f"Number of accepted profiles is {count} after {i} trials out of {self.iters}") 
+                i+=1
             self.MC_crystal.clean_up()
         else:
             ratio = np.zeros(len(self.MC_crystal))
+            i = 1
             for prof in self.T_profiles:
                 for i in range(len(self.MC_crystal)):
                     self.MC_crystal[i].crystal.set_temperature_profile("linearsteps",prof)
                     ratio[i] = self.MC_crystal[i].inverse_modeling_simulation()
-                # print(ratio)
-                # print(self.obs)
+
                 if self.likeliness_score(ratio):
                     self.accumulate_profile_on_grid(self.MC_crystal[0])
                     count += 1
-                print(f"Number of accepted profiles is {count}")
+                print(f"Number of accepted profiles is {count} after {i} trials out of {self.iters}") 
+                i+=1            
             for i in range(len(self.MC_crystal)):
                 self.MC_crystal[i].clean_up()
         

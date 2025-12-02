@@ -7,232 +7,527 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 from scipy.stats import truncnorm
 import warnings
+from src.errors import ErrorOutputHandler
 
 warnings.filterwarnings('error')
+
+@dataclass 
+class TProfile:
+    k: int  
+    T0: float
+    times: np.ndarray
+    dT_step: np.ndarray
+    dT: np.ndarray
+    t_end: float
+    T_final: float = field(init=False) 
+    tau: np.ndarray = field(init=False)
+    output_dict: dict = field(init=False) 
+
+    def __post_init__(self):
+        self.update_tau()
+        self.compute_end_T()
+
+    def __eq__(self, other):
+        if not isinstance(other, TProfile):
+            return NotImplemented
+
+        if self.k != other.k:
+            return False
+        
+        if self.T0 != other.T0: 
+            return False
+        
+        if not (self.times == other.times).all():
+            return False 
+        
+        if not (self.dT_step == other.dT_step).all():
+            return False 
+        
+        if not (self.dT == other.dT).all():
+            return False 
+
+        return True
+    
+    def __ne__(self, other):
+        return  not self.__eq__(other)
+    
+    @classmethod
+    def initialise(cls, rng:np.random.Generator, 
+                   k_max: int, p_geom: float, 
+                   init_T0_mean: float, init_T0_sd:float,
+                   min_gap: float, duration: float,
+                   init_step_mean: float, init_step_sd: float,
+                   init_dT_mean:float, init_dT_sd: float,
+                   T_min:float, unit: str,
+                   non_increasing: bool = True, celsius: bool = True):
+        
+        k = 0
+        while k < k_max and rng.random() > p_geom:
+            k += 1
+        
+        T0 = float(rng.normal(init_T0_mean, init_T0_sd))
+        T_gap_max = T0 - T_min
+        if k == 0:
+            times = np.array([])
+            dT_step = np.array([])
+        else:
+            min_required_gap = (k+1)*min_gap
+            slack = duration - min_required_gap
+            gaps = rng.random(k+1)
+            gaps /= np.sum(gaps)
+
+            gaps = min_gap + (gaps*slack)
+            times = np.cumsum(gaps)
+            times = times[0:k]
+            max_temp_drop = T_gap_max * rng.random()
+
+            limit = (max_temp_drop-(k*init_step_mean))/init_step_sd 
+            x = rng.normal(0,1,k)
+            S = np.sum(x)
+            if S > limit: 
+                x *= (limit / S)
+            
+            dT_step = init_step_mean + init_step_sd*x
+       
+       
+        if non_increasing:
+            dT_step = np.maximum(dT_step, 0.0)
+
+
+        max_temp_drop = T_gap_max - np.sum(dT_step)
+        dt = np.diff(np.concatenate(([0.0], times, [duration])))
+
+        limit = (max_temp_drop- np.sum(dt*init_dT_mean))/init_dT_sd
+        final = T_min - 10 
+        # i=1
+        dT = np.zeros((k+1))
+        while final < T_min:
+
+            x = rng.normal(0,1,(k+1))
+   
+            if non_increasing:
+                x = np.maximum(x, -x)
+     
+            S = np.dot(x,dt)
+      
+            if S > limit: 
+                x *= (limit / S) 
+       
+            dT = init_dT_mean + init_dT_sd*x
+            if non_increasing:
+                dT = np.maximum(dT, 0.0)
+
+            final = T0 - np.sum(dT_step) - np.dot(dT,dt)
+          
+            
+       
+        obj = cls(k,T0,times,dT_step,dT,duration)
+        obj.set_dictionary(unit, celsius)
+      
+        return obj
+    
+    @classmethod
+    def make_copy(cls, profile: TProfile):
+        """Intialises a copy of the profile using an existing one"""
+        obj = cls(profile.k, profile.T0, profile.times.copy(), 
+                  profile.dT_step.copy(), profile.dT.copy(), profile.t_end)
+        obj.set_dictionary(profile.output['unit'],profile.output['celsius'])
+        return obj
+      
+    def compute_end_T(self):
+        """Computes the current end temperature"""
+        dt = np.diff(self.tau)
+        ld = np.sum(self.dT*dt)
+        sd = np.sum(self.dT_step)
+        self.T_final = self.T0 - ld - sd
+
+    def set_dictionary(self, unit: str, celsius: bool = True):
+        """Sets the dictionary values that are passed to the 
+        MC crystals"""
+        self.output={'unit': unit, 
+              'celsius': celsius, 
+              'kind': 'linearsteps', 
+              'T0': self.T0, 
+              'duration': self.t_end, 
+              'times': self.times, 
+              'dT_step': self.dT_step, 
+              'dT': self.dT}
+
+    def update_tau(self):
+        """Sets the array of start, drop times and end time"""
+        self.tau = np.concatenate(([0.0],self.times,[self.t_end]))
+
+    def update_k(self, k: int):
+        "updates the value of k"
+        self.k = k 
+
+    def update_T0(self, T0: float | None = None): 
+        """Updates the value of T0"""
+        if T0 is not None:
+            self.T0 = T0 
+     
+        self.output['T0'] = self.T0
+
+    def update_times(self, times: np.ndarray| None = None):
+        """Updates the times of the drops"""
+        if times is not None:
+            self.times = times
+      
+        self.output['times'] = self.times  
+
+    def update_dT_step(self, dT_step: np.ndarray| None = None):
+        """Updates the size of the steps (down)""" 
+        if dT_step is not None:
+            self.dT_step = dT_step 
+      
+        self.output['dT_step'] = self.dT_step  
+
+    def update_dT(self, dT: np.ndarray| None = None):
+        """Updates the gradients of sections between drops"""
+        if dT is not None:
+            self.dT = dT 
+        
+        self.output['dT'] = self.dT  
+    
+    def update_controller(self, val: str): 
+        if val == 'T0':
+            self.update_T0()
+        elif val == 'time':
+            self.update_times()
+            self.update_tau()
+        elif val == 'step': 
+            self.update_dT_step()
+        elif val == 'dT':
+            self.update_dT()
+        elif val == 'da': 
+            self.update_times()
+            self.update_tau()
+            self.update_dT_step()
+            self.update_dT()
+        else:
+            self.update_T0()
+            self.update_times()
+            self.update_tau()
+            self.update_dT_step()
+            self.update_dT()
+
+        self.compute_end_T() 
+
+    def update_profile(self, profile: TProfile, val: str | None = None): 
+        """Updates an entire profile or a specific value in the profile 
+        from an existing profile"""
+        self.k = profile.k 
+        if val == 'T0':
+            self.update_T0(profile.T0)
+        elif val == 'time':
+            self.update_times(profile.times.copy())
+            self.update_tau()
+        elif val == 'step': 
+            self.update_dT_step(profile.dT_step.copy())
+        elif val == 'dT':
+            self.update_dT(profile.dT.copy())
+        elif val == 'da': 
+            self.update_times(profile.times.copy())
+            self.update_tau()
+            self.update_dT_step(profile.dT_step.copy())
+            self.update_dT(profile.dT.copy())
+        else:
+            self.update_T0(profile.T0)
+            self.update_times(profile.times.copy())
+            self.update_tau()
+            self.update_dT_step(profile.dT_step.copy())
+            self.update_dT(profile.dT.copy())
+        
+        self.compute_end_T() 
+
+    def get_T0_lim(self,T0_max: float, T0_min: float, min_T:float):
+        """Returns the maximum and minimum values T) can be altered by 
+        to remain within the specified limits""" 
+        upper = T0_max - self.T0
+        lower = max((T0_min - self.T0), (min_T - self.T_final))
+        return upper, lower
+
+    def get_time_lim(self, j: int, min_T:float, min_gap): 
+        """Sets the maximum changes that can be made to 
+        time, j to stay within min_T"""
+        lo = (self.tau[j]  + min_gap) - self.tau[j+1]
+        hi = (self.tau[j+2] - min_gap) -self.tau[j+1]
+
+        delta_therm_min = -np.inf
+        delta_therm_max = np.inf
+        M = self.T_final-min_T
+        D = self.dT[j] - self.dT[j+1]
+        if D > 0: 
+            delta_therm_max = M / D
+        elif D < 0:
+            delta_therm_min = M / D
+
+        lower = max(lo, delta_therm_min)
+        upper = min(hi, delta_therm_max)
+      
+        if lower > upper:
+            return  0.0, 0.0
+
+        return upper, lower
+      
+    def get_dT_step_lim(self, min_T:float):
+        """Sets the maximum change that can be made to a step 
+        to stay within the specified limit"""
+        return (self.T_final - min_T)
+
+    def get_dT_lim(self, j: int, min_T: float):
+        """Sets the maximum change that can be made to dT to
+        stay within the specified limit""" 
+        gaps = np.diff(self.tau)
+        dt = gaps[j]
+        return ((self.T_final - min_T)/dt)
+    
+    def propose_new_T0(self, T0_max: float, T0_min: float, min_T:float,
+                       std: float, ran: np.random.Generator):
+        upper, lower = self.get_T0_lim(T0_max, T0_min, min_T)
+        if upper != lower and upper > lower:
+            self.T0 += truncnorm.rvs(lower/std,upper/std,loc=0, scale = std, random_state = ran)
+            self.update_controller('T0')
+
+    def propose_new_time(self, j: int, min_T:float, min_gap:float,
+                       std: float, ran: np.random.Generator):
+        
+        upper, lower = self.get_time_lim(j, min_T, min_gap)
+        if upper == lower:
+            return
+        prop = truncnorm.rvs(lower/std,upper/std,loc=0, scale = std, random_state = ran)
+        self.times[j] += prop
+        self.update_controller('time')
+       
+           
+    def propose_new_dT_step(self, j: int, min_T:float, std: float, ran: np.random.Generator, increasing: bool = True):
+        
+        lower = self.get_dT_step_lim(min_T)
+        self.dT_step[j] -= truncnorm.rvs(lower/std,np.inf/std,loc=0, scale = std, random_state = ran)
+        
+        if increasing: 
+            self.dT_step[j] =np.maximum(0.0,self.dT_step[j])
+       
+        self.update_controller('step')
+       
+
+    def propose_new_dT(self, j: int, min_T:float,
+                       std: float, ran: np.random.Generator,  increasing: bool = True):
+        lower = self.get_dT_lim(j, min_T)
+        self.dT[j] -= truncnorm.rvs(lower/std,np.inf/std,loc=0, scale = std, random_state = ran)
+        if increasing: 
+            self.dT[j] =np.maximum(0.0,self.dT[j])
+        
+        self.update_controller('dT')
+
+    def propose_birth_step(self, j: int, min_T:float, min_gap: float, mean_s: float ,
+                           std_s: float, mean_t: float ,
+                           std_t: float, ran: np.random.Generator, increasing: bool = True):
+        
+        lo = self.tau[j]
+        hi = self.tau[j+1]
+        if hi - lo <= 2 * min_gap:
+            return -1
+        
+        new_time = ran.uniform(lo + min_gap, hi - min_gap)
+        self.times =  np.insert(self.times, j, new_time)
+        self.dT = np.insert(self.dT, j+1, 0)
+        self.dT_step = np.insert(self.dT_step, j, 0)
+        self.update_controller('da')
+        final = min_T - 100
+        i=1
+        while final < min_T: 
+            self.dT[j+1] = np.maximum(ran.normal(mean_t,std_t),0.0)
+            self.dT_step[j] = np.maximum(ran.normal(mean_s,std_s),0.0)
+            self.update_controller('da') 
+            final = self.T_final
+            i+=1
+            if i >100: 
+                self.k += 1
+                return -1 
+
+
+        # self.dT_step[j] = ran.random()*(self.T_final-min_T)
+        # self.update_controller('da')
+        # upper = (self.T_final-min_T)*(self.tau[j+1] - self.tau[j])
+
+        # prop = truncnorm.rvs(-mean_t/std_t,(upper-mean_t/std_t),loc=mean_t, scale = std_t, random_state = ran)
+        # if increasing: 
+        #     prop =np.maximum(0.0,prop)
+        # self.dT[j+j] = prop
+      
+        # self.update_controller('dT')
+
+        self.k += 1
+    
+    def propose_death_step(self, j:int): 
+        self.times = np.delete(self.times,j)
+        self.dT_step = np.delete(self.dT_step,j)
+        dt = (self.dT[j]+self.dT[j+1])/2    
+        self.dT = np.delete(self.dT,j+1)
+        self.dT[j] = dt 
+        self. k -= 1 
+        self.update_controller('da')
+
+
+    def admissible_length(self, s: int, min_gap: float, increasing: bool) -> float:
+        """
+        Length of the uniform region for tau_new inside (lo+min_gap, hi-min_gap).
+        Returns 0 if invalid.
+        """
+        lo, hi = self.tau[s], self.tau[s+2]
+
+        L = (hi - min_gap) - (lo + min_gap)
+        if increasing:
+            return max(0.0, L)
+        else: 
+            return L
+        
+    def set_random_generator(self, seed:int|None = None) -> None:
+        """Set the random number genreator using the seed. The seed 
+        will be a user set value plus the current simulation number"""
+        self.rng = np.random.default_rng(seed=seed)
+
+    
+
 @dataclass
 class ReverseJmpMCMC:
     obs: np.ndarray
-    iters: int 
-    reps: int = field(default=10)
-    MC: MCBase | None = field(default=None)
-    t_common: np.ndarray = field(init=False)
-    crrnt_T: dict  = field(init=False)
-    prop_T: dict  = field(init=False)
-    k: int  = field(init=False)
-    prop_k: int = field(init=False)
-    ratio_crrnt: np.ndarray = field(init=False)
-    ratio_prop: np.ndarray = field(init=False)
-    rng: np.random.Generator = field(init=False)
+    iters: int
+    MC_crystal: MCBase | list[MCBase] = field(init=False)
+    T_target: float
+    duration: float
+    seed: int 
     
+    tolerance: float = field(default=5)
     min_gap: float = 0.001 
     non_increasing: bool = True 
     p_geom: float = 0.4 
     k_max: int = 5
 
-    init_step_mean: float = 30
-    init_step_sd:float = 20.0
-    init_dT_mean:float = 400
-    init_dT_sd: float = 350
-    init_T0_mean: float = 200.0
-    init_T0_sd: float = 100.0
+    init_step_mean: float = 20
+    init_step_sd:float = 10.0
+    init_dT_mean:float = 300
+    init_dT_sd: float = 100
+    init_T0_mean: float = 100.0
+    init_T0_sd: float = 20.0
+    T0_max: float =  150
+    T0_min:float = 50
 
     time_sd: float = 0.1 
-    step_sd: float = 15.0 
-    dT_sd: float = 100
-    T0_sd: float = 20.0
+    step_sd: float = 10.0 
+    dT_sd: float = 75
+    T0_sd: float = 15.0
 
     birth_prob: float = 0.25 
     death_prob: float = 0.25
-    new_step_mean: float = 10 
-    new_step_sd:float  = 5
-    new_dT_mean: float = 350
-    new_dT_sd: float = 200
+    new_step_mean: float = 20 
+    new_step_sd:float  = 10
+    new_dT_mean: float = 300
+    new_dT_sd: float = 100
 
-    prior_dT_sd: float = 100.0
-    prior_step_sd: float = 100.0 
+    prior_dT_sd: float = 50.0
+    prior_step_sd: float = 50.0 
     # prior_time_sd: float = 10  
-    prior_T0_sd: float = 100.0
+    prior_T0_sd: float = 50.0
+
+    T_min: float = field(init=False)
+    t_common: np.ndarray = field(init=False)
+    crrnt_T: TProfile  = field(init=False)
+    prop_T: TProfile  = field(init=False)
+
+  
+    ratio_crrnt: np.ndarray = field(init=False)
+    ratio_prop: np.ndarray = field(init=False)
+    rng: np.random.Generator = field(init=False)
 
 
-    @classmethod
-    def from_config(cls, obs: np.ndarray, iters:int, cfg: DictConfig, reps: int = 1) -> "ReverseJmpMCMC":
-        """Intialise RJMCMC from input dictionary"""
-        obj = cls(obs, iters, reps)
-        seed = cfg.setup.seed+cfg.mc.reps
-        obj.set_random_generator(seed)
-        obj.k = obj.intialise_k()
-        obj.crrnt_T = obj.initialise_temperature_profile(obj.k, cfg.temp.unit,cfg.temp.celsius,cfg.temp.duration)
-      
-        obj.prop_T = obj.crrnt_T.copy()
-        obj.MC = MCBase.RJMCMC_setup(cfg, reps, seed+1)
-
-        obj.t_common = np.linspace(0,obj.MC.crystal.duration,num=10000)
-        obj.obs = obj.process_ratio(obj.obs[:,1],obj.obs[:,0])
-        return obj 
-    
-    def process_ratio(self, ratio: np.ndarray, time: np.ndarray) -> np.ndarray:
-        """Takes a time amnd ratio output and extrapolates it to fit a common set of 
-        time values allowing easy comparison between results"""
-        interp_obs  = interp1d(time,  ratio,  kind='linear', fill_value='extrapolate')
-        return interp_obs(self.t_common)
-        
-
-    def intialise_values(self, MC: MCBase, seed):
-        """Intialise RJMCMC class from an already exisiting 
-        Monte Carlo Class"""
-        self.MC = MC
-        self.k = self.intialise_k()
-        self.crrnt_T = self.initialise_temperature_profile(self.k, self.MC.crystal.unit, self.MC.crystal.celsius, 
-                                                           self.MC.crystal.duration)
-        self.MC.crystal.set_temperature_profile("linearsteps",self.crrnt_T)
-        self.set_random_generator(seed)
-        self.MC.seed = seed+1
-        self.MC.repetion = self.reps
-
-    def set_random_generator(self, seed: int | None = None) -> None:
+    def set_random_generator(self) -> None:
         """Set the random number genreator using the seed. The seed 
         will be a user set value plus the current simulation number"""
-        self.rng = np.random.default_rng(seed=seed)
+        self.rng = np.random.default_rng(seed=self.seed)
 
-    #########################################################################################################################
-    #                                        Intialise Temperature Profile                                                  #
-    #########################################################################################################################
-    def intialise_k(self) -> int:
-        """Intialises k which is the number of step points but could also be seen as the point the current 
-        temperature behaviour changes. """
-        k = 0
-        while k < self.k_max and self.rng.random() > self.p_geom:
-            k += 1
-        return k
-    
-    def initialise_times(self, k: int, duration: float) -> np.ndarray:
-        """
-        Sample K ordered internal breakpoints in (0, t_end) with minimal spacing.
-        Returns times with shape (K): [t1, ..., tk].
-        """
-        if k == 0:
-            return np.array([])
-        # if k == 1:
-        #     return np.array(self.rng.uniform(self.min_gap,(duration-self.min_gap+1e-10)))
+    def intialise_run(self,cfg: DictConfig | list[DictConfig], experiments:int, err: ErrorOutputHandler):
+        """Function that sets up the inverse Monte Carlo ready to run the simulation.
+        The random generator is initialised. Values checked. Monte Carlo crystals set"""
         
-        min_required_gap = (k+1)*self.min_gap
+        # self.check_inputs(err)
+        # err.checkpoint()
+        self.set_random_generator()
+        self.T_min = self.T_target - self.tolerance
+        if experiments == 1 and isinstance(cfg, DictConfig):
+            err.output("Setting up simulation crystal...")
+            self.MC_crystal = MCBase.from_config(cfg)
+            self.MC_crystal.RJMCMC_initialise()
+            err.output("Crystal setup complete.")
+            unit = cfg.temp.unit
+            celsius = cfg.temp.celsius
+            self.t_common = np.linspace(0,self.MC_crystal.crystal.duration)
+        else:
+            self.MC_crystal = []
+            for i in range(experiments):    
+                err.output("Setting up simulation crystal...")
+                self.MC_crystal.append(MCBase.from_config(cfg[i]))
+                self.MC_crystal[i].result_csv_path += f"_{i+1}"
+                self.MC_crystal[i].RJMCMC_initialise()
+                err.output("Crystal setup complete.")
+            self.t_common = np.linspace(0,self.MC_crystal[0].crystal.duration)
+            unit = cfg[0].temp.unit
+            celsius = cfg[0].temp.celsius
 
-        slack = duration - min_required_gap
-        gaps = self.rng.random(k+1)
-        gaps /= np.sum(gaps)
-
-        gaps = self.min_gap + (gaps*slack)
-        times = np.cumsum(gaps)
-        return times[0:k]
-    
-    def initialise_dT_step(self, k: int) -> np.ndarray:
-        """
-        Initialize the K step drops at each breakpoint. Negative = step down.
-        """
-        if k == 0:
-           return np.array([])
-        
-        steps = self.rng.normal(loc=self.init_step_mean, scale=self.init_step_sd, size=k)
-        if self.non_increasing:
-            steps = np.maximum(steps, 0.0)
-        return steps
-
-    def initialise_dT(self, k: int) -> np.ndarray:
-        """
-        Initialize slopes for the K+1 sections. If non_increasing, clip to ≤ 0.
-        """
-        g = self.rng.normal(loc=self.init_dT_mean, scale=self.init_dT_sd, size=k+1)
-        if self.non_increasing:
-            g = np.maximum(g, 0.0)
-        return g
-
-    def initialise_T0(self) -> float:
-        """Starting temperature before first interval."""
-        return float(self.rng.normal(self.init_T0_mean, self.init_T0_sd))
-    
-    def initialise_temperature_profile(self, k: int, unit: str, celsius: bool, duration: float) -> dict:
-        """Function that sets intial temperature profile parameters"""
-        crrnt_T={'unit': unit, 
-              'celsius': celsius, 
-              'kind': 'linearsteps', 
-              'T0': self.initialise_T0(), 
-              'duration': duration, 
-              'times': self.initialise_times(k,duration), 
-              'dT_step': self.initialise_dT_step(k), 
-              'dT': self.initialise_dT(k)}
-        # crrnt_T['dT'][:]=0
      
-        return crrnt_T
-
+        self.crrnt_T = TProfile.initialise(self.rng, self.k_max,self.p_geom, 
+                                           self.init_T0_mean, self.init_T0_sd,
+                                           self.min_gap,self.duration,
+                                           self.init_step_mean,self.init_step_sd,
+                                           self.init_dT_mean, self.init_dT_sd,
+                                           self.T_min, unit, self.non_increasing,
+                                           celsius)
+        
+        self.prop_T = TProfile.make_copy(self.crrnt_T)
+       
+        
     #########################################################################################################################
     #                                        Uni-dimensional profile change                                                 #
     #########################################################################################################################
     
     def propose_new_time(self) -> None:
         """Randomly jitter one internal breakpoint, keeping order and min gap."""
-        if self.prop_k == 0:
+        if self.prop_T.k == 0:
             return
-        times = np.concatenate(([0.0], self.prop_T["times"], [self.prop_T["duration"]]))
-        idx = self.rng.integers(1,  self.prop_k, endpoint=True)
-        lo = times[idx-1] + self.min_gap
-        hi = times[idx+1] - self.min_gap
-        if hi <= lo:
-            return 
-        
-        prop = np.clip(self.prop_T["times"][idx-1] + self.rng.normal(0, self.time_sd), lo, hi)
-        self.prop_T["times"][idx-1] = prop
+        idx = int(self.rng.integers(0, self.prop_T.k))
+
+        self.prop_T.propose_new_time(idx,self.T_min,self.min_gap, self.time_sd,self.rng)
 
     def propose_new_dT_size(self) -> None:
         """Perturb one step drop; keep it ≤ 0 for 'down' steps."""
-        if self.prop_k == 0:
+        if self.prop_T.k == 0:
             return 
-    
-        j = self.rng.integers(0, self.prop_k)
-        val = self.crrnt_T['dT_step'][j] + self.rng.normal(0, self.step_sd)
-        
-        if self.non_increasing:
-            val = np.maximum(0.0, val)
-
-        self.prop_T['dT_step'][j] = val
-
-        total_drop = self.prop_T["T0"] - np.sum(self.prop_T['dT_step'])
-        # while total_drop < -5: 
-        #     val = self.crrnt_T['dT_step'][j] + self.rng.normal(0, self.step_sd)
-        
-        #     if self.non_increasing:
-        #         val = np.maximum(0.0, val)
-
-        #     self.prop_T['dT_step'][j] = val
-
-        # self.prop_T['dT_step'][j] = val
+       
+        j = int(self.rng.integers(0, self.prop_T.k))
+        self.prop_T.propose_new_dT_step(j,self.T_min,self.step_sd,self.rng, self.non_increasing)
+      
       
     def propose_new_dT(self) -> None:
         """Perturb one interval slope; optionally enforce ≤ 0."""
-        # if self.prop_k != 0:
-        #     j = self.rng.integers(0,self.prop_k, endpoint=True)
-        # else: 
-        #     j = 0 
-        j = self.rng.integers(0,self.prop_k, endpoint=True)
-        val = self.prop_T["dT"][j] + self.rng.normal(0, self.dT_sd)
-        if self.non_increasing:
-            val = np.maximum(val, 0.0)
-        self.prop_T["dT"][j] = val
+       
+        j = int(self.rng.integers(0,self.prop_T.k, endpoint=True))
+        self.prop_T.propose_new_dT(j,self.T_min,self.dT_sd,self.rng,self.non_increasing)
+      
         
     def propose_new_T0(self) -> None:
         """Random-walk on starting temperature."""
-        temp = self.prop_T['T0'] + self.rng.normal(0, self.T0_sd)
-        while temp > 200:
-            temp = self.prop_T['T0'] + self.rng.normal(0, self.T0_sd)
 
-        self.prop_T['T0'] = temp 
-        # += self.rng.normal(0, self.T0_sd)
+        self.prop_T.propose_new_T0(self.T0_max,self.T0_min,self.T_min,
+                                   self.T0_sd,self.rng)
+      
 
 
     def uni_dimensional_change(self, sigma:float, acc_within: int) -> bool:
         """Selects one of the available changes to the temperature profile that retains the dimension of the model
         i.e k stays constant. """
-        # move = self.rng.choice(["time", "step", "dT", "T0"])
-        move = self.rng.choice(["time", "step",  "T0"])
+        move = self.rng.choice(["time", "step", "dT", "T0"])
+       
         if move == "time":
             self.propose_new_time()
         elif move == "step":
@@ -241,146 +536,88 @@ class ReverseJmpMCMC:
             self.propose_new_dT()
         else:
             self.propose_new_T0()
-
-        if self.prop_T is not self.crrnt_T: 
-            self.MC.crystal.set_temperature_profile(self.prop_T["kind"],self.prop_T)
-            # if self.MC.crystal.Tat(self.t_common[-1]) < 260:
-            #     return False
-            self.ratio_prop = self.new_observation_calculation()
-            accept, la = self.accept(sigma)
-            if accept:
-                self.update_profiles(True, acc_within)
-                return True
-            
-        return False
+      
+        accept = False
+       
+        if self.prop_T != self.crrnt_T:
+            if self.prop_T.T_final >= self.T_min: 
+                self.set_temp_profile(self.prop_T)
+                self.ratio_prop = self.new_observation_calculation()
+                accept, la = self.accept(sigma)
+        self.update_profiles(move,accept, acc_within)
+    
+        return accept
         
     #########################################################################################################################
     #                                        Trans-dimensional profile change                                               #
     #########################################################################################################################              
-    def admissible_length(self, lo: float, hi: float) -> float:
-        """
-        Length of the uniform region for tau_new inside (lo+min_gap, hi-min_gap).
-        Returns 0 if invalid.
-        """
-        L = (hi - self.min_gap) - (lo + self.min_gap)
-        if self.non_increasing:
-            return max(0.0, L)
-        else: 
-            return L 
-
+   
     def propose_birth_step(self) -> int:
         """
         Insert a new step: choose a segment to split, sample a breakpoint inside it,
         add a new step drop and a new gradient (we create one extra interval).
         """
-        if self.prop_k == self.k_max:
+        if self.prop_T.k == self.k_max:
             return -1
 
-        times = np.concatenate(([0.0], self.prop_T["times"], [self.prop_T["duration"]]))
+        s = int(self.rng.integers(0,self.prop_T.k))
 
-        s = self.rng.integers(1,times.size)
-
-        # s = int(self.rng.integers(self.prop_k))
-        lo = times[s-1]
-        hi = times[s]
-        
-        if hi - lo <= 2 * self.min_gap:
-            return -1
-        
-        s -= 1
-        new_time = self.rng.uniform(lo + self.min_gap, hi - self.min_gap)
-        self.prop_T["times"] = np.insert(self.prop_T["times"], s, new_time)
-
-        step_dt_step = max(0.0, self.rng.normal(self.new_step_mean, self.new_step_sd))
-        self.prop_T["dT_step"] = np.insert(self.prop_T["dT_step"], s, step_dt_step)
-
-        # total_drop = self.prop_T["T0"] - np.sum(self.prop_T['dT_step'])
-        # while total_drop < -5: 
-        #     step_dt_step = max(0.0, self.rng.normal(self.new_step_mean/2, self.new_step_sd/2))
-            
-        #     self.prop_T['dT_step'][s] = step_dt_step
-
-        dT_new = self.rng.normal(self.new_dT_mean, self.new_dT_sd)
-        if self.non_increasing:
-            dT_new = np.maximum(dT_new, 0.0)
-        self.prop_T["dT"] = np.insert(self.prop_T["dT"], s + 1, dT_new)
-        self.prop_k += 1
-        
-        return int(s)
+        self.prop_T.propose_birth_step(s,self.T_min,self.min_gap,self.new_step_mean,self.new_step_sd,
+                                       self.new_dT_mean,self.new_dT_sd,self.rng,self.non_increasing)
+    
+        return s
         
     def log_q_birth_forward(self, s_chosen: int) -> float:
         """Calcualtes the log proposal of adding a step"""
 
-        times = np.concatenate(([0.0], self.prop_T["times"], [self.prop_T["duration"]]))
-        s = s_chosen + 1 
-        lo, hi =  times[s-1],  times[s+1]
-        L = self.admissible_length(lo,hi)
-
-        # if L <= 0:
-        #     return -np.inf
-        # if not (lo + self.min_gap < times[s] < hi - self.min_gap): 
-        #     return -np.inf
-        # if self.non_increasing and (self.prop_T["dT_step"][s_chosen] < 0 or self.prop_T["dT"][s_chosen+1] < 0):
-        #     return -np.inf
-
+        L = self.prop_T.admissible_length(s_chosen, self.min_gap, self.non_increasing)
+        
         lq = np.log(self.birth_prob)
-        lq += -np.log(self.k+1)
+        lq += -np.log(self.prop_T.k)
         lq += -np.log(L)
-        lq += self.log_truncnorm_pdf(self.prop_T["dT_step"][s_chosen], self.new_step_mean, self.new_step_sd, lower=0.0)
-        lq += self.log_truncnorm_pdf(self.prop_T["dT"][s_chosen+1], self.new_dT_mean, self.new_dT_sd, lower=0.0)
+        lq += self.log_truncnorm_pdf(self.prop_T.dT_step[s_chosen], self.new_step_mean, self.new_step_sd, lower=0.0)
+        lq += self.log_truncnorm_pdf(self.prop_T.dT[s_chosen+1], self.new_dT_mean, self.new_dT_sd, lower=0.0)
 
         return float(lq)
 
     def log_q_birth_reverse(self):
         """Calcualtes the log proposals of removing the additional step"""
-        if self.prop_k <= 0:
+        if self.prop_T.k <= 0:
             return -np.inf
 
-        return np.log(self.death_prob) - np.log(self.prop_k)
+        return np.log(self.death_prob) - np.log(self.prop_T.k)
 
-    def propose_death_step(self) ->  int:
+    def propose_death_step(self, T_min: float) ->  int:
         """Remove a randomly chosen step (and its breakpoint and one gradient)."""
 
-        if self.prop_k < 1:
+        if self.prop_T.k < 1:
             return -1
        
-        j = int(self.rng.integers(self.prop_k))
-        self.prop_T["times"] = np.delete(self.prop_T["times"], j)
-        self.prop_T["dT_step"] = np.delete(self.prop_T["dT_step"], j)
-        
-        self.prop_T["dT"][j] = (self.prop_T["dT"][j]+self.prop_T["dT"][j+1])/2
-        self.prop_T["dT"] = np.delete(self.prop_T["dT"], j + 1)
-        self.prop_k -= 1
-        
+        j = int(self.rng.integers(self.prop_T.k))
+        self.prop_T.propose_death_step(j)
+        if self.prop_T.T_final < T_min:
+            return -1 
         return j 
 
     def log_q_death_forward(self, s_chosen: int) -> float:
         """Calcualtes the log proposals of removing the a step"""
 
-        if not (0 <= s_chosen < self.k):
+        if not (0 <= s_chosen < self.crrnt_T.k):
             return -np.inf
-        return np.log(self.death_prob)-np.log(self.k)
+        return np.log(self.death_prob)-np.log(self.crrnt_T.k)
     
     def log_q_death_reverse(self, s_chosen: int): 
         """Calcualtes the log proposals of adding the removed step back in"""
-        
-        times = np.concatenate(([0.0], self.crrnt_T["times"], [self.crrnt_T["duration"]]))
-        s = s_chosen +1 
-        lo, hi = times[s-1], times[s+1]
+     
       
-        L = self.admissible_length(lo, hi)
-        # if L <= 0:
-        #     return -np.inf
-        # if not (lo + self.min_gap < times[s]  < hi - self.min_gap):
-        #     return -np.inf
-        # if self.crrnt_T["dT_step"][s_chosen] < 0 or self.crrnt_T["dT"][s_chosen+1] < 0:
-        #     return -np.inf
-    
+        L = self.crrnt_T.admissible_length(s_chosen,self.min_gap,self.non_increasing)
+       
         lq = np.log(self.birth_prob)
-        lq += -np.log(self.prop_k + 1)     
+        lq += -np.log(self.crrnt_T.k)     
         lq += -np.log(L)             
-        lq += self.log_truncnorm_pdf(self.crrnt_T["dT_step"][s_chosen], self.new_step_mean, self.new_step_sd, lower=0.0)
-        lq += self.log_truncnorm_pdf(self.crrnt_T["dT"][s_chosen+1], self.new_dT_mean, self.new_dT_sd, lower=0.0)
+        lq += self.log_truncnorm_pdf(self.crrnt_T.dT_step[s_chosen], self.new_step_mean, self.new_step_sd, lower=0.0)
+        lq += self.log_truncnorm_pdf(self.crrnt_T.dT[s_chosen+1], self.new_dT_mean, self.new_dT_sd, lower=0.0)
+        
         return lq
     
     def trans_dimension_accept(self, s_chosen: int, sigma: float, birth: bool = True): 
@@ -394,7 +631,6 @@ class ReverseJmpMCMC:
             lq_rev = self.log_q_death_reverse(s_chosen) 
 
         accept, la = self.accept(sigma,lq_fwd,lq_rev, 0.0)
-        
         return accept, la 
 
 
@@ -405,28 +641,26 @@ class ReverseJmpMCMC:
         if u < self.birth_prob: 
             birth = True 
             s_chosen = self.propose_birth_step()
-        elif u < self.birth_prob + self.death_prob and self.k > 0:
+        elif u < self.birth_prob + self.death_prob and self.crrnt_T.k > 0:
             birth = False
-            s_chosen = self.propose_death_step()
+            s_chosen = self.propose_death_step(self.T_min)
         else:
             return False
-        
-        # self.prop_T['dT'][:]=0
-        if (s_chosen > -1) and (self.prop_T is not self.crrnt_T):
-            self.MC.crystal.set_temperature_profile(self.prop_T["kind"],self.prop_T)
-            # if self.MC.crystal.Tat(self.t_common[-1]) < 260:
-            #     return False
-            self.ratio_prop = self.new_observation_calculation()
-            accept, la = self.trans_dimension_accept(s_chosen,sigma,birth)
-            if accept: 
-                if birth:
-                    self.update_profiles(True, acc_birth)
-                    return True 
-                else: 
-                    self.update_profiles(True, acc_death)
-                    return True
       
-        return False 
+        accept = False
+       
+        if (s_chosen > -1): 
+            if (self.prop_T != self.crrnt_T):
+                if self.prop_T.T_final >= self.T_min: 
+                    self.set_temp_profile(self.prop_T)
+                    self.ratio_prop = self.new_observation_calculation()
+                    accept, la = self.trans_dimension_accept(s_chosen,sigma,birth)
+            
+        if birth: 
+            self.update_profiles('da',accept,acc_birth)
+        else: 
+            self.update_profiles('da',accept,acc_death)
+        return accept 
     
     #########################################################################################################################
     #                                        log prior calculation functions                                                #
@@ -441,24 +675,19 @@ class ReverseJmpMCMC:
         """Log of priror k"""
         return k*np.log(1-self.p_geom) + np.log(self.p_geom)
     
-    def log_prior_profile(self, k: int, prof: dict) -> float:
+    def log_prior_profile(self, k: int, prof: TProfile) -> float:
         """Log of the prior temperature profile"""
         lp = 0.0
-      
         if k > 0: 
-            # if self.non_increasing and (np.any(prof["dT"] < 0) or np.any(prof["dT_step"] < 0)):
-            #     return -np.inf
+        
+            lp += -0.5*np.sum(np.square((prof.dT - self.init_dT_mean)/self.prior_dT_sd))
+            lp += -0.5*np.sum(np.square((prof.dT_step - self.init_step_mean)/self.prior_step_sd))
+            lp += -0.5*np.minimum(0,(0-np.sum(prof.dT_step)))
+            gaps = np.diff(prof.tau)
     
-            # lp += -0.5*np.sum(np.square((prof["dT"] - self.init_dT_mean)/self.prior_dT_sd))
-            lp += -0.5*np.sum(np.square((prof["dT_step"] - self.init_step_mean)/self.prior_step_sd))
-            lp += -0.5*np.minimum(0,(0-np.sum(prof["dT_step"])))
-            gaps = np.diff(np.concatenate(([0.0], prof["times"], [prof["duration"]])))
-            # if np.any(gaps <= self.min_gap) :
-            #     return -np.inf
             lp += -0.5*np.sum(gaps)
       
-       
-        lp += -0.5*((prof["T0"] - self.init_T0_mean)/self.prior_T0_sd)**2
+        lp += -0.5*((prof.T0  - self.init_T0_mean)/self.prior_T0_sd)**2
         return lp
     
     def log_posterior(self, k, ratio, sigma, prof):
@@ -485,18 +714,56 @@ class ReverseJmpMCMC:
     #########################################################################################################################
     #                                        Utilities                                                                      #
     ######################################################################################################################### 
+    def constrained_norm_gen(self, n:int, mean: float, std: float, maximum: float) -> np.ndarray: 
+        limit = (maximum-(n*mean))/std 
+        x = self.rng.normal(0,1,n)
+        S = x.sum()
+        if S > limit: 
+            x *= (limit / S)
 
-    def new_observation_calculation(self, t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None) -> np.ndarray:
-        if self.MC is not None:
-            # self.MC.crystal.set_temperature_profile(self.prop_T["kind"],self.prop_T)
-            self.MC.seed +=self.MC.repetion
-            time, ratio = self.MC.RJMCMC_simulation(t, t_pcnt, h_pcnt)
-            result = self.process_ratio(ratio,time)
-          
-            return result
+        return mean + std*x
+    
+    def constrained_norm_gen_with_weighting(self, n:int, mean: float, std: float, maximum: float, weights: np.ndarray) -> np.ndarray: 
+        
+        limit = (maximum - (mean*(weights.sum())))/std
+        x = self.rng.normal(0,1,n)
+        S = np.dot(x,weights)
+        if S > limit: 
+            x *= (limit) / S 
+
+        return mean + std*x
+
+    def set_temp_profile(self, prof: TProfile): 
+        if isinstance(self.MC_crystal, MCBase): 
+            self.MC_crystal.crystal.set_temperature_profile(prof.output["kind"],prof.output)
+        else: 
+            for crystal in self.MC_crystal:
+                crystal.crystal.set_temperature_profile(prof.output["kind"],prof.output)
+
+    def store_profile(self, temp_prof: np.memmap, count: int):
+        if isinstance(self.MC_crystal, MCBase): 
+            temp_prof[:,count]=self.MC_crystal.crystal.Tat(self.t_common)-273.15
         else:
-            return np.empty(0) 
+            temp_prof[:,count]=self.MC_crystal[0].crystal.Tat(self.t_common)-273.15
+        
 
+      
+    def new_observation_calculation(self, t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None) -> np.ndarray:
+        
+        if isinstance(self.MC_crystal, MCBase):
+            result = np.zeros(1)
+            self.MC_crystal.seed += self.MC_crystal.repetion
+            result[0] =  self.MC_crystal.RJMCMC_simulation(t,t_pcnt,h_pcnt)
+        else: 
+            result = np.zeros(len(self.MC_crystal))
+            i=0
+            for crystal in self.MC_crystal:
+                crystal.seed += crystal.repetion 
+                result[i] = crystal.RJMCMC_simulation(t,t_pcnt,h_pcnt)
+                i+=1 
+
+        return result
+       
     def get_low(self,times: np.ndarray, s_chosen: int):
         if s_chosen == 0:
             return 0.0 
@@ -513,12 +780,11 @@ class ReverseJmpMCMC:
         """
         Fixed-dimension move: prop_k == k
         """
-        if self.k == self.prop_k: 
+        if self.crrnt_T.k == self.prop_T.k:
             log_q_fwd=log_q_rev=logJ=0.0
 
-        lp_cur = self.log_posterior(self.k, self.ratio_crrnt, sigma, self.crrnt_T)
-        lp_new = self.log_posterior(self.prop_k, self.ratio_prop, sigma, self.prop_T)
-       
+        lp_cur = self.log_posterior(self.crrnt_T.k, self.ratio_crrnt, sigma, self.crrnt_T)
+        lp_new = self.log_posterior(self.prop_T.k, self.ratio_prop, sigma, self.prop_T)
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always", category=RuntimeWarning)
     
@@ -532,21 +798,19 @@ class ReverseJmpMCMC:
                 for warn in w:
                     print(f"Warning caught: {warn.message}")
                 return False, -np.inf
-       
+      
         return (np.log(self.rng.random()) < la), la
 
-    def update_profiles(self, acc: bool = False, acc_type: int | None = None):
+    def update_profiles(self, code: str, acc: bool = False, acc_type: int | None = None):
         """Updates the temperature profile and current observation
         or reverts bakc to the original if the proposal is rejected"""
-        if acc: 
-            self.crrnt_T = self.prop_T.copy()
-            self.ratio_crrnt = self.ratio_prop
-            self.k = self.prop_k 
+        if acc:
+            self.crrnt_T.update_profile(self.prop_T,code)
             if acc_type is not None:    
                 acc_type += 1     
         else: 
-            self.prop_T = self.crrnt_T.copy()
-            self.prop_k = self.k 
+            self.prop_T.update_profile(self.crrnt_T,code)
+           
     
     def sigma_update(self,sigma):
         """Update sigma"""
@@ -578,15 +842,19 @@ class ReverseJmpMCMC:
         plt.pause(0.1) 
  
    
-    def rjmcmc_temperature(self,err):
+    def rjmcmc_temperature(self):
         """Main RJMCMC function that proposes a new temperature profile"""
 
         plt.close()
         self.fig, self.ax = plt.subplots()
         self.ax.set_xlabel("Time")
         self.ax.set_ylabel("Temperature")
-        self.lines = [] 
-        self.ax.plot(self.t_common,self.MC.crystal.Tat(self.t_common), color="black", alpha=1.0, label="Actual")
+        self.lines = []
+        if isinstance(self.MC_crystal, MCBase): 
+            self.ax.plot(self.t_common,(self.MC_crystal.crystal.Tat(self.t_common)-273.15), color="black", alpha=1.0, label="Actual")
+        else:
+            self.ax.plot(self.t_common,self.MC_crystal[0].crystal.Tat(self.t_common), color="black", alpha=1.0, label="Actual")
+
         # self.lines.append(line)
         plt.show(block=False)
 
@@ -594,42 +862,37 @@ class ReverseJmpMCMC:
         # self.lines.append(line)
         
         # plt.show(block=False)
+        self.set_temp_profile(self.crrnt_T)
 
-        self.MC.RJMCMC_initialise()
        
         temp_prof = np.memmap("temp_profiles.dat", dtype=np.float32, mode='w+', shape=(self.t_common.size, self.iters*2))
         count = 0 
-        sigma = float(np.std(self.obs) + 1e-6)
-        self.prop_k = self.k
-
-        self.MC.crystal.set_temperature_profile(self.prop_T["kind"],self.prop_T)
+        sigma = self.obs*0.1# float(np.std(self.obs) + 1e-6)
+        
         self.ratio_crrnt = self.new_observation_calculation()
-       
-        temp_prof[:,count]=self.MC.crystal.Tat(self.t_common)
+        self.store_profile(temp_prof, count)
+        
         self.add_result(self.t_common, temp_prof[:,count],0)
      
         count+=1
         samples = []
         acc_within = acc_birth = acc_death = 0
-        # err.output(self.MC.crystal.__repr__())
+
         for it in range(self.iters):
-            print(it)
             accept = self.uni_dimensional_change(sigma, acc_within)
             if accept: 
-                temp_prof[:,count]=self.MC.crystal.Tat(self.t_common)
+                self.store_profile(temp_prof, count)
                 self.add_result(self.t_common, temp_prof[:,count],f"{it}_1")
                 # err.output(self.MC.crystal.__repr__())
                 count+=1
-            else: 
-                self.update_profiles()
-
+           
             accept = self.trans_dimensional_change(sigma, acc_birth, acc_death)
             if accept: 
-                temp_prof[:,count]=self.MC.crystal.Tat(self.t_common)
+                self.store_profile(temp_prof, count)
+
                 self.add_result(self.t_common, temp_prof[:,count],f"{it}_2")
                 count+=1
-            else: 
-                self.update_profiles()
+           
                
             # sigma = self.sigma_update(sigma)
             
@@ -643,8 +906,12 @@ class ReverseJmpMCMC:
             "acc_birth": acc_birth / max(1, int(self.iters*self.birth_prob)),
             "acc_death": acc_death / max(1, int(self.iters*self.death_prob)),
         }
+        if isinstance(self.MC_crystal, MCBase): 
+            self.MC_crystal.RJMCMC_cleanup()
+        else: 
+            for crystal in self.MC_crystal:
+                crystal.RJMCMC_cleanup()
 
-        self.MC.RJMCMC_cleanup()
         plt.savefig("Temp_profile_Change.png",dpi=300, transparent=False,bbox_inches='tight')
 
         return samples, stats

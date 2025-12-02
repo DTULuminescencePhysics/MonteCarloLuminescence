@@ -155,7 +155,7 @@ class MCBase:
     def monte_carlo_loop(self, t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None) -> None:
         for i in range(self.repetion):
             self.single_experiment_run(i, t, t_pcnt, h_pcnt)
-            print(f"Rep {i+1} of {self.repetion} completed")
+            # print(f"Rep {i+1} of {self.repetion} completed")
 
     def full_monte_carlo_simulation(self, err: ErrorOutputHandler):
         """Runs the monte carlo simulation in the forward direction"""
@@ -197,28 +197,29 @@ class MCBase:
 
 
     def RJMCMC_simulation(self, t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None):
+        def last_non_nan(arr,div):
+            valid = np.where(~np.isnan(arr))[0]
+            if valid.size > 0:
+                return arr[valid[-1]]
+            else: 
+                div -= 1
+                return 0
+        
         self.results[:,:,:] = np.nan
         self.results.flush()
         self.monte_carlo_loop(t, t_pcnt, h_pcnt)
         self.results.flush()
 
-       
-        valid_mask = ~np.isnan(self.results[:, 0, :])
-        lengths = valid_mask.sum(axis=1)
-        times_list = [self.results[i, 0, :lengths[i]] for i in range(self.repetion)]
-        time_union = np.unique(np.concatenate(times_list))
-        del times_list
-
-        ratio = np.zeros((time_union.size))
-       
+        div = self.repetion
+        ratio = 0 
         for i in range(self.repetion):
-            ratio += np.interp(time_union, self.results[i,0, :lengths[i]], self.results[i,1,:lengths[i]])
-            
-            
-        ratio /= self.repetion
+            ratio += last_non_nan(self.results[i, 1],div)
+
+        ratio /= div
+
+        return ratio
        
 
-        return time_union, ratio
     
     def inverse_modeling_simulation(self,):
 

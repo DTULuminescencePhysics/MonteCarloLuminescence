@@ -133,13 +133,13 @@ class Box(_temp,_ThermalParameters):
         self.l= np.zeros(2) 
         self.set_dimensions()
       
-    def set_dimensions(self) -> None:
+    def set_dimensions(self, N_number: int = 100) -> None:
         """Set the dimensions of the box"""
 
         self.volume = np.array((self.dimension**3,(self.dimension*1.5)**3))
         self.NumberofTraps()
         to_add = 1.5e-8
-        while self.N < 300: 
+        while self.N < N_number: 
             self.dimension += to_add
             self.volume = np.array((self.dimension**3,(self.dimension*1.5)**3))
             self.NumberofTraps()

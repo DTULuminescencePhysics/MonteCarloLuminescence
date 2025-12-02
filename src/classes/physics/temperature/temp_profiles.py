@@ -68,14 +68,14 @@ def _build_linear_steps(T0: float, times: Iterable[float],dT_step: Iterable[floa
         
         return f
 
-    elif isinstance(times, float):
+    elif isinstance(times, float) or isinstance(times, np.floating):
         s = np.asarray(times, dtype=float)
         a = np.asarray(dT_step, dtype=float)
+        r = np.asarray(dT,      dtype=float)
     else:
         s = np.asarray(list(times), dtype=float)
         a = np.asarray(list(dT_step), dtype=float)
-
-    r = np.asarray(list(dT),      dtype=float)
+        r = np.asarray(list(dT),      dtype=float)
 
     if s.size != a.size:
         raise ValueError("dT_step must have the same length as times")
