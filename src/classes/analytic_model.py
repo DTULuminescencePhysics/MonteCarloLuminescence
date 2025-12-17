@@ -188,3 +188,63 @@ class analytical_crystal(_temp,_ThermalParameters):
       
         np.savetxt(f"{self.result_csv_path}.csv",np.column_stack((self.time_steps,results)), delimiter=",", header="Time, n/N (Analytic)")
 
+    def get_analytical_solution_end(self):
+        """Function that returns the analytical solution for the 
+        given set of parameters."""
+
+        def unitless_model(t,vars, ur ):
+            """System of the ODEs that describe the filling and fading 
+            of the traps in the crystal."""
+
+            ratio = vars[0] 
+            T = self.Tat(t)
+
+            fill = self._fill(ratio,self.D0,self.D_dot)
+            fade = self._fade(T,ur)*ratio
+
+        
+            dn_dt = fill-fade
+           
+            
+            return [dn_dt]
+        
+      
+        def model(t,vars, r):
+            """System of the ODEs that describe the filling and fading 
+            of the traps in the crystal."""
+
+            nN = vars[0] 
+            T = self.Tat(t)
+
+            fill = self._fill(nN,self.D0,self.D_dot)
+            fade = self._fade(T,r)*nN
+            dn_dt = fill-fade
+           
+            return [dn_dt]
+
+       
+        results = np.zeros((self.time_steps.size))
+        cnt = 0
+        for i in range(len(self.ur)):
+            if self.ur_weights[i] <=0:
+                continue
+            r = self.ur[i]
+
+          
+            if self.unitless:
+                solution = solve_ivp(unitless_model, (0, self.duration), [0], args=(r,), t_eval=self.time_steps, method = 'Radau',dense_output=True)
+                res=  (solution.y[0]*self.ur_weights[i])
+            else:
+                solution = solve_ivp(model, (0, self.duration), [0], args=(r,), t_eval=self.time_steps, method = 'Radau',dense_output=False)
+                res= solution.y[0]*self.ur_weights[i]
+            
+            try:
+                results += res     
+                cnt += self.ur_weights[i]
+            except:
+                print(f'error with length {r} with weight {self.ur_weights[i]}')
+               
+        
+        results /=cnt
+      
+        return results[-1]

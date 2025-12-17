@@ -2,6 +2,7 @@ from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass, field
 from src.classes.monte_carlo import MCBase
+from src.classes.analytic_model import analytical_crystal
 from omegaconf import DictConfig
 from src.errors import ErrorOutputHandler
 from typing import Tuple
@@ -24,6 +25,7 @@ class InverseMC:
     rng: np.random.Generator = field(init=False)
     T_profiles: list = field(init=False)
     MC_crystal: MCBase | list[MCBase] = field(init=False)
+    AC_crystal: analytical_crystal = field(init=False)
     t_edges: np.ndarray = field(init=False)
     T_edges: np.ndarray = field(init=False)
     grid: np.ndarray = field(init=False)
@@ -173,14 +175,19 @@ class InverseMC:
         self.t_samples = np.linspace(t_min, t_max*time_to_seconds[unit], n_samples)
 
     
+    # def accumulate_profile_on_grid(self, MC_profile: analytical_crystal) -> None:
     def accumulate_profile_on_grid(self, MC_profile: MCBase) -> None:
         """
         Sample a time-temperature profile and increment grid squares that the
         profile passes through (once per profile per square).
         """
+        # T_samples = MC_profile.Tat(self.t_samples)
         T_samples = MC_profile.crystal.Tat(self.t_samples)
+        # if MC_profile.celsius:
         if MC_profile.crystal.celsius:
             T_samples -= 273.15
+        # t_bins = np.digitize((self.t_samples/time_to_seconds[MC_profile.unit]), self.t_edges) - 1
+        
         t_bins = np.digitize((self.t_samples/time_to_seconds[MC_profile.crystal.unit]), self.t_edges) - 1
         T_bins = np.digitize(T_samples, self.T_edges) - 1
        
@@ -211,6 +218,7 @@ class InverseMC:
             err.output("Temperature profile setup complete")
             err.output("Setting up simulation crystal...")
             self.MC_crystal = MCBase.from_config(cfg)
+            # self.AC_crystal =  analytical_crystal.from_config(cfg)
             self.MC_crystal.RJMCMC_initialise()
             err.output("Crystal setup complete.")
         else:
@@ -244,9 +252,13 @@ class InverseMC:
             ratio = np.zeros(1)
             i = 1
             for prof in self.T_profiles:
+                # self.AC_crystal.set_temperature_profile("linearsteps",prof)
+                # ratio[0] = self.AC_crystal.get_analytical_solution_end()
                 self.MC_crystal.crystal.set_temperature_profile("linearsteps",prof)
                 ratio[0] = self.MC_crystal.inverse_modeling_simulation()
                 if self.likeliness_score(ratio):
+                    # self.accumulate_profile_on_grid(self.AC_crystal)
+
                     self.accumulate_profile_on_grid(self.MC_crystal)
                     count += 1
                 print(f"Number of accepted profiles is {count} after {i} trials out of {self.iters}") 
@@ -254,7 +266,7 @@ class InverseMC:
             self.MC_crystal.clean_up()
         else:
             ratio = np.zeros(len(self.MC_crystal))
-            i = 1
+            j = 1
             for prof in self.T_profiles:
                 for i in range(len(self.MC_crystal)):
                     self.MC_crystal[i].crystal.set_temperature_profile("linearsteps",prof)
@@ -263,10 +275,10 @@ class InverseMC:
                 if self.likeliness_score(ratio):
                     self.accumulate_profile_on_grid(self.MC_crystal[0])
                     count += 1
-                print(f"Number of accepted profiles is {count} after {i} trials out of {self.iters}") 
-                i+=1            
-            for i in range(len(self.MC_crystal)):
-                self.MC_crystal[i].clean_up()
+                print(f"Number of accepted profiles is {count} after {j} trials out of {self.iters}") 
+                j+=1            
+            for k in range(len(self.MC_crystal)):
+                self.MC_crystal[k].clean_up()
         
         self.plot_probability_density_grid(count)
 

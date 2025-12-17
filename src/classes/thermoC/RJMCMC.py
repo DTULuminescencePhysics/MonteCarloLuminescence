@@ -3,11 +3,11 @@ import numpy as np
 from omegaconf import DictConfig
 from dataclasses import dataclass, field
 from src.classes.monte_carlo import MCBase
-from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 from scipy.stats import truncnorm
 import warnings
 from src.errors import ErrorOutputHandler
+from src.classes.constants import time_to_seconds
 
 warnings.filterwarnings('error')
 
@@ -30,22 +30,16 @@ class TProfile:
     def __eq__(self, other):
         if not isinstance(other, TProfile):
             return NotImplemented
-
         if self.k != other.k:
             return False
-        
         if self.T0 != other.T0: 
             return False
-        
         if not (self.times == other.times).all():
             return False 
-        
         if not (self.dT_step == other.dT_step).all():
             return False 
-        
         if not (self.dT == other.dT).all():
             return False 
-
         return True
     
     def __ne__(self, other):
@@ -346,18 +340,6 @@ class TProfile:
                 self.k += 1
                 return -1 
 
-
-        # self.dT_step[j] = ran.random()*(self.T_final-min_T)
-        # self.update_controller('da')
-        # upper = (self.T_final-min_T)*(self.tau[j+1] - self.tau[j])
-
-        # prop = truncnorm.rvs(-mean_t/std_t,(upper-mean_t/std_t),loc=mean_t, scale = std_t, random_state = ran)
-        # if increasing: 
-        #     prop =np.maximum(0.0,prop)
-        # self.dT[j+j] = prop
-      
-        # self.update_controller('dT')
-
         self.k += 1
     
     def propose_death_step(self, j:int): 
@@ -400,9 +382,9 @@ class ReverseJmpMCMC:
     seed: int 
     
     tolerance: float = field(default=5)
-    min_gap: float = 0.001 
+    min_gap: float = 0.0000001 
     non_increasing: bool = True 
-    p_geom: float = 0.4 
+    p_geom: float = 0.6
     k_max: int = 5
 
     init_step_mean: float = 20
@@ -414,22 +396,21 @@ class ReverseJmpMCMC:
     T0_max: float =  150
     T0_min:float = 50
 
-    time_sd: float = 0.1 
-    step_sd: float = 10.0 
-    dT_sd: float = 75
+    time_sd: float = 0.5
+    step_sd: float = 20.0 
+    dT_sd: float = 150
     T0_sd: float = 15.0
 
-    birth_prob: float = 0.25 
-    death_prob: float = 0.25
+    birth_prob: float = 0.5 
+    death_prob: float = 0.5
     new_step_mean: float = 20 
     new_step_sd:float  = 10
     new_dT_mean: float = 300
     new_dT_sd: float = 100
 
-    prior_dT_sd: float = 50.0
-    prior_step_sd: float = 50.0 
-    # prior_time_sd: float = 10  
-    prior_T0_sd: float = 50.0
+    prior_dT_sd: float = 500.0
+    prior_step_sd: float = 200.0 
+    prior_T0_sd: float = 25.0
 
     T_min: float = field(init=False)
     t_common: np.ndarray = field(init=False)
@@ -462,7 +443,7 @@ class ReverseJmpMCMC:
             err.output("Crystal setup complete.")
             unit = cfg.temp.unit
             celsius = cfg.temp.celsius
-            self.t_common = np.linspace(0,self.MC_crystal.crystal.duration)
+            self.t_common = np.linspace(0,self.MC_crystal.crystal.duration, 10000)
         else:
             self.MC_crystal = []
             for i in range(experiments):    
@@ -471,7 +452,7 @@ class ReverseJmpMCMC:
                 self.MC_crystal[i].result_csv_path += f"_{i+1}"
                 self.MC_crystal[i].RJMCMC_initialise()
                 err.output("Crystal setup complete.")
-            self.t_common = np.linspace(0,self.MC_crystal[0].crystal.duration)
+            self.t_common = np.linspace(0,self.MC_crystal[0].crystal.duration, 10000)
             unit = cfg[0].temp.unit
             celsius = cfg[0].temp.celsius
 
@@ -678,14 +659,22 @@ class ReverseJmpMCMC:
     def log_prior_profile(self, k: int, prof: TProfile) -> float:
         """Log of the prior temperature profile"""
         lp = 0.0
+        # return lp
         if k > 0: 
-        
-            lp += -0.5*np.sum(np.square((prof.dT - self.init_dT_mean)/self.prior_dT_sd))
-            lp += -0.5*np.sum(np.square((prof.dT_step - self.init_step_mean)/self.prior_step_sd))
-            lp += -0.5*np.minimum(0,(0-np.sum(prof.dT_step)))
-            gaps = np.diff(prof.tau)
+            mean = np.zeros(k+1)
+            mean[prof.dT>10] = self.init_dT_mean
+            lp += -0.5*np.sum(np.square((prof.dT - mean)/self.prior_dT_sd))
+
+            # lp += -0.5*np.sum(np.square((prof.dT - self.init_dT_mean)/self.prior_dT_sd))
+            # lp += -0.5*np.sum(np.square((prof.dT_step - self.init_step_mean)/self.prior_step_sd))
+            mean = np.zeros(k)
+            mean[prof.dT_step>1] = self.init_step_mean
+            lp += -0.5*np.sum(np.square((prof.dT_step - mean)/self.prior_step_sd))
+
+            # lp += -0.5*np.minimum(0,(0-np.sum(prof.dT_step)))
+            # gaps = np.diff(prof.tau)
     
-            lp += -0.5*np.sum(gaps)
+            # lp += -0.5*np.sum(gaps)
       
         lp += -0.5*((prof.T0  - self.init_T0_mean)/self.prior_T0_sd)**2
         return lp
@@ -714,24 +703,7 @@ class ReverseJmpMCMC:
     #########################################################################################################################
     #                                        Utilities                                                                      #
     ######################################################################################################################### 
-    def constrained_norm_gen(self, n:int, mean: float, std: float, maximum: float) -> np.ndarray: 
-        limit = (maximum-(n*mean))/std 
-        x = self.rng.normal(0,1,n)
-        S = x.sum()
-        if S > limit: 
-            x *= (limit / S)
-
-        return mean + std*x
     
-    def constrained_norm_gen_with_weighting(self, n:int, mean: float, std: float, maximum: float, weights: np.ndarray) -> np.ndarray: 
-        
-        limit = (maximum - (mean*(weights.sum())))/std
-        x = self.rng.normal(0,1,n)
-        S = np.dot(x,weights)
-        if S > limit: 
-            x *= (limit) / S 
-
-        return mean + std*x
 
     def set_temp_profile(self, prof: TProfile): 
         if isinstance(self.MC_crystal, MCBase): 
@@ -747,7 +719,6 @@ class ReverseJmpMCMC:
             temp_prof[:,count]=self.MC_crystal[0].crystal.Tat(self.t_common)-273.15
         
 
-      
     def new_observation_calculation(self, t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None) -> np.ndarray:
         
         if isinstance(self.MC_crystal, MCBase):
@@ -764,17 +735,6 @@ class ReverseJmpMCMC:
 
         return result
        
-    def get_low(self,times: np.ndarray, s_chosen: int):
-        if s_chosen == 0:
-            return 0.0 
-        else:
-            return times[s_chosen]
-
-    def get_heigh(self,times: np.ndarray, s_chosen: int, duration: float): 
-        if s_chosen == times.size:
-            return duration 
-        else: 
-            return times[s_chosen+1]
 
     def accept(self, sigma, log_q_fwd=0.0, log_q_rev=0.0, logJ=0.0):
         """
@@ -852,9 +812,10 @@ class ReverseJmpMCMC:
         self.lines = []
         if isinstance(self.MC_crystal, MCBase): 
             self.ax.plot(self.t_common,(self.MC_crystal.crystal.Tat(self.t_common)-273.15), color="black", alpha=1.0, label="Actual")
+            self.true_T = (self.MC_crystal.crystal.Tat(self.t_common)-273.15)
         else:
             self.ax.plot(self.t_common,self.MC_crystal[0].crystal.Tat(self.t_common), color="black", alpha=1.0, label="Actual")
-
+            self.true_T = (self.MC_crystal[0].crystal.Tat(self.t_common)-273.15)
         # self.lines.append(line)
         plt.show(block=False)
 
@@ -913,7 +874,105 @@ class ReverseJmpMCMC:
                 crystal.RJMCMC_cleanup()
 
         plt.savefig("Temp_profile_Change.png",dpi=300, transparent=False,bbox_inches='tight')
-
+        self.plot_probability_density_grid(count,temp_prof)
         return samples, stats
 
 
+    def make_time_temp_grid(self, t_min: float, t_max: float, T_min: float,
+        T_max: float, n_bins: int = 50, n_samples: int = 10000, unit:str = 's') -> None:
+        """
+        Create a regular time-temperature grid.
+        """
+        self.t_edges = np.linspace(t_min, t_max, n_bins + 1)
+        self.T_edges = np.linspace(T_min, T_max, n_bins + 1)
+        self.grid = np.zeros((n_bins, n_bins), dtype=int)
+        self.t_samples = np.linspace(t_min, self.duration, n_samples)
+
+    def accumulate_profile_on_grid(self,temp_prof, count) -> None:
+        """
+        Sample a time-temperature profile and increment grid squares that the
+        profile passes through (once per profile per square).
+        """
+       
+        t_bins = np.digitize((self.t_samples), self.t_edges) - 1
+        n_bins = self.grid.shape[0]
+        t_bins = np.clip(t_bins, 0, n_bins - 1)
+        for i in range(count): 
+            T_samples = temp_prof[:,i]
+   
+            T_bins = np.digitize(T_samples, self.T_edges) - 1
+            T_bins = np.clip(T_bins, 0, n_bins - 1)
+
+            pairs = np.stack([T_bins, t_bins], axis=1)
+            unique_pairs = np.unique(pairs, axis=0)
+        
+            for T_idx, t_idx in unique_pairs:
+                self.grid[T_idx, t_idx] += 1
+
+    
+    def plot_probability_density_grid(self,count, temp_prof):
+
+        self.make_time_temp_grid(0,self.duration,-5,150)
+        self.accumulate_profile_on_grid(temp_prof,count)
+
+        import matplotlib.pyplot as plt
+        fig=plt.figure(figsize=(3.37,5.055))
+        ax=fig.add_axes((0.,0.,2.,1.))
+
+        im = ax.imshow(
+            (self.grid/count),
+            origin="lower",     
+            aspect="auto",
+            extent=(self.t_edges[0], self.t_edges[-1], self.T_edges[0], self.T_edges[-1])
+        )
+
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label("Probability")
+
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Temperature")
+
+        counts = self.grid.astype(float)    
+        n_t = counts.shape[1]
+
+        t_mids = 0.5 * (self.t_edges[:-1] + self.t_edges[1:])
+        T_mids = 0.5 * (self.T_edges[:-1] + self.T_edges[1:])
+
+        col_sums = counts.sum(axis=0)  
+
+        cdf = np.cumsum(counts, axis=0) 
+        with np.errstate(invalid="ignore", divide="ignore"):
+            cdf = cdf / col_sums[None, :]
+
+        probs=(0.6, 0.9)
+        paths = {}
+        valid = col_sums > 0
+        for c in probs:
+            p_low = (1.0 - c) / 2.0
+            p_high = 1.0 - p_low
+            idx_low = np.argmax(cdf >= p_low, axis=0) 
+            idx_high = np.argmax(cdf >= p_high, axis=0)
+            lower = np.full(n_t, np.nan, dtype=float)
+            upper = np.full(n_t, np.nan, dtype=float)
+            lower[valid] = T_mids[idx_low[valid]]
+            upper[valid] = T_mids[idx_high[valid]]
+            paths[c] = {"lower": lower, "upper": upper}
+
+    
+        idx = np.argmax(cdf >= 0.5, axis=0) 
+
+        median = np.full(n_t, np.nan, dtype=float)  
+        median[valid] = T_mids[idx[valid]]
+
+        b60 = paths[0.6]
+        ax.plot(t_mids, b60["lower"], label="60%", linestyle=":",color="green")
+        ax.plot(t_mids, b60["upper"],linestyle=":",color="green")
+        b90 = paths[0.9]
+        ax.plot(t_mids, b90["lower"], label="90%", linestyle=":",color="black")
+        ax.plot(t_mids, b90["upper"], linestyle=":",color="black")
+
+        ax.plot(t_mids, median, color="red",label="median")
+        ax.plot(self.t_samples,self.true_T,linewidth=2,linestyle="--",color="white")
+        # ax.legend()
+        plt.savefig("weights.png",dpi=300, transparent=False,bbox_inches='tight')
+        plt.close()

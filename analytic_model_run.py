@@ -126,10 +126,10 @@ def paper_examples():
         plot_ng(ax,semi_analytic_2015[0],semi_analytic_2015[1],"dashdot", input["c1"],0,factor=1)
         plot_ne(ax,semi_analytic_2015[0],semi_analytic_2015[2],"dashdot",input["c1"],0,factor=input["factor"])
        
-        plot_lum(ax2,analytic_2012[0],analytic_2012[3],"solid", input["c1"],format_string,factor=1)
-        plot_lum(ax2,semi_analytic_2012[0],semi_analytic_2012[3],"dashed", input["c1"],None,factor=1)
-        plot_lum(ax2,analytic_2015[0],analytic_2015[3],"dotted", input["c1"],None,factor=1)
-        plot_lum(ax2,semi_analytic_2015[0],semi_analytic_2015[3],"dashdot", input["c1"],None,factor=1)
+        plot_lum(ax2,analytic_2012[0],analytic_2012[3]/dtdt,"solid", input["c1"],format_string,factor=1)
+        plot_lum(ax2,semi_analytic_2012[0],semi_analytic_2012[3]/dtdt,"dashed", input["c1"],None,factor=1)
+        plot_lum(ax2,analytic_2015[0],analytic_2015[3]/dtdt,"dotted", input["c1"],None,factor=1)
+        plot_lum(ax2,semi_analytic_2015[0],semi_analytic_2015[3]/dtdt,"dashdot", input["c1"],None,factor=1)
 
 
         file_name = f"E_{input["E_loc"]}_s_{'{:.1E}'.format(input["s"])}_rho_{'{:.1E}'.format(input["rho"])}_result.xlsx"

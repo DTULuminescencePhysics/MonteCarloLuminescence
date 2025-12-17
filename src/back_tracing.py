@@ -58,17 +58,17 @@ def RJMCMC_control_functions(cfg: DictConfig | list[DictConfig],
         duration = cfg[0].temp.duration
         seed = cfg[0].setup.seed
 
-    rjmcmc_obj = ReverseJmpMCMC(obs,iters=100,T_target=0,
+    rjmcmc_obj = ReverseJmpMCMC(obs,iters=1000,T_target=0,
                                 duration=duration,seed=seed,
                                 tolerance=5,min_gap=0.001,
-                                non_increasing=True,p_geom=0.4,
+                                non_increasing=True,p_geom=0.5,
                                 k_max=100,
-                                init_step_mean=30,
-                                init_step_sd=20 ,
-                                init_dT_mean=400,
-                                init_dT_sd=100, 
+                                init_step_mean=10,
+                                init_step_sd=50 ,
+                                init_dT_mean=500,
+                                init_dT_sd=200, 
                                 init_T0_mean=100,
-                                init_T0_sd=20, T0_max=150,T0_min=50)
+                                init_T0_sd=10, T0_max=150,T0_min=50)
 
     rjmcmc_obj.intialise_run(cfg,experiments,err)
     rjmcmc_obj.rjmcmc_temperature()
@@ -87,7 +87,11 @@ def MC_control_functions(cfg: DictConfig | list[DictConfig],
         duration = cfg[0].temp.duration
         seed = cfg[0].setup.seed
 
-    inverse_obj = InverseMC(obs,sigma,10000,50,150,0,duration,seed,0,800,n_steps_min=0,n_steps_max=10)
+    inverse_obj = InverseMC(obs=obs,sigma=sigma,iters=1000,
+                            T0_min=50,T0_max=150,T_target=0,
+                            duration=duration,seed=seed,
+                            dT_min=0,dT_max=1000,tolerance=5,
+                            n_steps_min=0,n_steps_max=100)
 
     inverse_obj.intialise_run(cfg,experiments,err)
     inverse_obj.run_back_simulation()
