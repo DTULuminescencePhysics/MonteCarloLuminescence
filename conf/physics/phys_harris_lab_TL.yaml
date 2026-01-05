@@ -6,11 +6,11 @@ dimension : null   # Approximate dimension of test crystal to be used null uses 
 E_loc    : 1.4 
 b        : 1e12
 alpha    : 9e9 
-E_cb     : 1.8 
+E_cb     : null #1.8  
 s        : 1e13
-rho      : 1e22
-urho     : null
-D0       : 400.35
-D_dot    : 7.00
+rho      : null #1e22
+urho     : 3e-4 #null
+D0       : null #400.35
+D_dot    : null #7.00
 Dd_unit   : Ka 
 phys_type : null

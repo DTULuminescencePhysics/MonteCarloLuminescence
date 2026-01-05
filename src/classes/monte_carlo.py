@@ -58,14 +58,15 @@ class MCBase:
             self.max_dt = self.crystal.times[0]
             self.max_dt_time_chk = self.crystal.times[0]
         elif self.crystal.kind == "linear" :
-            self.max_dt = 1/self.crystal.dT
+            self.max_dt = (1/abs(self.crystal.dT))
             self.max_dt_time_chk = 1e50
         elif self.crystal.kind == "linearsteps":
             if self.crystal.dT[0] == 0: 
                 self.max_dt = self.crystal.times[0]
             else:
-                self.max_dt = 1/self.crystal.dT[0]
+                self.max_dt = 1/abs(self.crystal.dT[0])
             self.max_dt_time_chk = self.crystal.times[0]
+        
        
     def max_dt_finder(self):
         if self.max_dt_time_chk > self.crystal.duration:
@@ -85,7 +86,7 @@ class MCBase:
                 self.max_dt = (self.crystal.times[self.max_dt_cnt]-self.crystal.times[self.max_dt_cnt-1])#/100
                 self.max_dt_time_chk = self.crystal.times[self.max_dt_cnt]
         elif self.crystal.kind == "linear" :
-            self.max_dt = 1/self.crystal.dT
+            self.max_dt = 1/abs(self.crystal.dT)
             self.max_dt_time_chk = 1e50
         elif self.crystal.kind == "linearsteps":
             if self.max_dt_cnt >= self.crystal.times.size:
@@ -99,7 +100,7 @@ class MCBase:
             if self.crystal.dT[self.max_dt_cnt] == 0: 
                 self.max_dt = (max_time-self.crystal.times[self.max_dt_cnt-1])
             else:
-                self.max_dt = 1/self.crystal.dT[self.max_dt_cnt]
+                self.max_dt = 1/abs(self.crystal.dT[self.max_dt_cnt])
 
 
            
@@ -123,7 +124,7 @@ class MCBase:
             if self.crystal.time >= self.max_dt_time_chk:
                 self.max_dt_finder()
             dt = min(self.crystal.fill,self.crystal.fade,self.max_dt)
-        
+
         
             self.crystal.event_bool = True
             if dt == self.crystal.fill:
@@ -155,7 +156,7 @@ class MCBase:
     def monte_carlo_loop(self, t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None) -> None:
         for i in range(self.repetion):
             self.single_experiment_run(i, t, t_pcnt, h_pcnt)
-            # print(f"Rep {i+1} of {self.repetion} completed")
+            print(f"Rep {i+1} of {self.repetion} completed")
 
     def full_monte_carlo_simulation(self, err: ErrorOutputHandler):
         """Runs the monte carlo simulation in the forward direction"""
