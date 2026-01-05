@@ -28,4 +28,4 @@ def main(cfg: DictConfig):
         plot_analytic_comp_MC(run_num,ac_file,mc_file,cfg.temp.unit)
     
     RJMCMC_control_functions(runs,run_num,err,ac_file)
-    # MC_control_functions(runs,run_num,err,ac_file)
+    MC_control_functions(runs,run_num,err,ac_file)

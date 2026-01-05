@@ -36,7 +36,7 @@ def build_fill_none() -> Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]:
 @CrystalPhysics.register_fade("therm_tunnel")
 def build_fade_therm_tun(E_loc:float, b: float, alpha: float)-> Callable[[ArrayLike, ArrayLike], ArrayLike]:
     def f(T: ArrayLike, r: ArrayLike) -> ArrayLike:
-        out = 1/(b * np.exp(-E_loc / (cnst.k_b_ev * T) - alpha * r))
+        out = 1/(b * np.exp(((-E_loc / (cnst.k_b_ev * T)) -(alpha * r))))
         return _return_like_input(r,out)
     return f
 

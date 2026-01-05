@@ -113,21 +113,13 @@ def clean_up_results(results, output_file_name, crystal):
     sumed = np.zeros(time_union.size)
     for i in range(S):
         sumed += np.interp(time_union, results[i,0, :lengths[i]], results[i,1,:lengths[i]])
-        if (i+1) % divisor == 0 and i !=0:
+
+        if(((i+1) % divisor == 0 and i !=0) or (S == 1)):
 
             ratio_results[2+cnt,:] = (np.interp(steady_time,time_union,sumed))/(i+1)
             
             cnt+=1
             header.append(f"n/N (avg {i+1} reps)")
-
-    # for i in range(S):
-    #     ratio_results[2+cnt,:]+= np.interp(time_union, results[i,0, :lengths[i]], results[i,1,:lengths[i]])
-    #     if (i+1) % divisor == 0 and i !=0:
-    #         if i < S-1:
-    #             ratio_results[2+cnt+1,:]+= ratio_results[2+cnt,:]
-    #         ratio_results[2+cnt,:] /=i+1
-    #         cnt +=1
-    #         header.append(f"n/N (avg {i+1} reps)")
 
     ratio_results[1,:] = crystal.Tat(ratio_results[0,:])
     ratio_results[1,:] -= 273.15
@@ -138,12 +130,10 @@ def clean_up_results(results, output_file_name, crystal):
     
     cnt = 0 
     lum_results = np.zeros((int(3+additional), time_union.size))
-    
-    # lum_results[0:2,:] =    ratio_results[0:2,:]
+
     lum_results[0,:] = time_union
     
     del ratio_results
-    return ratio_file, lum_file
     header = [f"Time (s)", "Temperature (C)"]
     for i in range(S):
         zeros = np.zeros(time_union.size)
@@ -151,12 +141,17 @@ def clean_up_results(results, output_file_name, crystal):
         mask = np.isin(time_union, temp[results[i,2,:lengths[i]]==1])
         zeros[mask] = 1
         lum_results[2+cnt,:]+= zeros
-        if (i+1) % divisor == 0 and i !=0:
+        if((i+1) % divisor == 0 and i !=0):
             if i < S-1:
                 lum_results[2+cnt+1,:]+= lum_results[2+cnt,:]
                 header.append(f"Lum (avg {i+1} reps)")
-            cnt+=1 
-   
+            cnt+=1
+        elif (S == 1):
+            header.append(f"Lum (avg {i+1} reps)")
+    
+    lum_results[1,:] = crystal.Tat(lum_results[0,:])
+    lum_results[1,:] -= 273.15
+
     if os.path.exists(f"{lum_file}.csv"):
         os.remove(f"{lum_file}.csv")
     np.savetxt(f"{lum_file}.csv", lum_results.T, delimiter=",", header=",".join(header))
@@ -238,7 +233,7 @@ def plot_forward_results(ratio_file: str, lum_file:str, T_unit: str = 's', T_typ
     header = f.readline()
     header_names = header.split(',')[2:]
     f.close()
-
+    
     plot_forward_ratio(f"Time_filling_{ratio_file}.png",data[:,2:],times, T_unit,header_names)
     plot_T_profile("Temperature_Profile.png",data[:,1],times,T_unit)
 

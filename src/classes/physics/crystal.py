@@ -379,8 +379,6 @@ class Box(_temp,_ThermalParameters):
       
         avail = np.flatnonzero(self.occ_trap)
         t_index = avail[self.fade_index]
-        avail = np.flatnonzero(self.occ_hole)
-        h_index = avail[self.h_index]
         idx_array = np.where(self.dist[t_index,:]==self.d[self.fade_index])[0]
         if idx_array.size == 0:
             raise ValueError("No match found for fade_index")
@@ -410,11 +408,10 @@ class Box(_temp,_ThermalParameters):
         """Recalcualtes the lifetimes and fill times"""
         self._filltime = self._fill(self.N, self.t_cnt, self.D_dot)
         self._lifetimes = self._fade(self.T,self.d)
-      
 
     def random_fill_fade(self) -> None:
         """Generates new random fill and fade times"""
-        if self.h_cnt < self.HN:
+        if (self.h_cnt < self.HN) and self._filltime > 0:
             self.fill = self.rng.exponential(self._filltime) 
         else: 
             self.fill = 1e20
@@ -429,7 +426,7 @@ class Box(_temp,_ThermalParameters):
             f = self.rng.exponential(self._lifetimes)
             self.fade = np.min(f)
             self.fade_index = int(np.argmin(f)) 
-          
+
 
      
     def initial_times(self, t: float = 0.0) -> None:
