@@ -5,6 +5,6 @@ t_pcnt    : 1      # Ratio of filled electrons traps
 h_pcnt    : 1     # Ratio of recombination holes that are unfilled
 reps      : 10     # Number of Monte Carlo simulations to repeat
 mc        : True 
-ac        : False
+ac        : True
 
  
