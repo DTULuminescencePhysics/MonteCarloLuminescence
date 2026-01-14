@@ -16,16 +16,17 @@ def main(cfg: DictConfig):
     err = next(h for h in root.handlers if isinstance(h, ErrorOutputHandler))
 
     run_num, runs = cfg_list_check(cfg,err)
-    run_num=1 
-    runs = runs[0]
+    # run_num=1 
+    # runs = runs[0]
     err.checkpoint()
-    if cfg.mc.mc:
+    if cfg.setup.mc:
         mc_file = monte_carlo_control_functions(runs,run_num,err)
-    if cfg.mc.ac:
+    if cfg.setup.ac:
         ac_file = analytic_control_functions(runs,run_num,err)
 
-    if 'mc_file' in locals() and 'ac_file' in locals():
+    if cfg.setup.mc and cfg.setup.ac:
         plot_analytic_comp_MC(run_num,ac_file,mc_file,cfg.temp.unit)
     
-    RJMCMC_control_functions(runs,run_num,err,ac_file)
-    MC_control_functions(runs,run_num,err,ac_file)
+    if cfg.setup.TC:
+        RJMCMC_control_functions(runs,run_num,err,ac_file)
+        MC_control_functions(runs,run_num,err,ac_file)

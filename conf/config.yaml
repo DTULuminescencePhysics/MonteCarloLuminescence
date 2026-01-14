@@ -1,15 +1,20 @@
 defaults: 
   - _self_
   - physics:  phys_harris_lab_TL # phys_King_etal_2016_k_23 #
-  - mc: monte_carlo_crib
   - temp: temp_linear #temp_constant_T
   - override hydra/job_logging: custom
   - override hydra/hydra_logging: disabled
 
 setup:
-  physics_name: Example
-  project: "${mc.name}_${mc.exp_typ}_${setup.physics_name}"
+  project: "Example"
   seed: 1
+  t_pcnt    : 1      # Ratio of filled electrons traps
+  h_pcnt    : 1     # Ratio of recombination holes that are unfilled
+  reps      : 10     # Number of Monte Carlo simulations to repeat
+  mc        : True   # Run monte Carlo simulations
+  ac        : True  # Run analytic model 
+  TC        : True  # Run thermo chronology
+
 
 hydra:
   run:

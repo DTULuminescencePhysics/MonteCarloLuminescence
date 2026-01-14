@@ -30,15 +30,15 @@ class MCBase:
     def from_config(cls, cfg: DictConfig) -> "MCBase":
         crs = Box.from_config(cfg)
     
-        return cls(cfg.mc.reps, cfg.setup.seed, cfg.mc.t_pcnt, 
-                   cfg.mc.h_pcnt, crs)
+        return cls(cfg.setup.reps, cfg.setup.seed, cfg.setup.t_pcnt, 
+                   cfg.setup.h_pcnt, crs)
     
    
     @classmethod
     def RJMCMC_setup(cls, cfg: DictConfig, reps: int, seed: int) -> "MCBase":
         crs = Box.from_config(cfg)
       
-        return cls(reps, seed, cfg.mc.t_pcnt, cfg.mc.h_pcnt, crs, data_path = "RJMCMC_prelim_results.dat")
+        return cls(reps, seed, cfg.setup.t_pcnt, cfg.setup.h_pcnt, crs, data_path = "RJMCMC_prelim_results.dat")
 
     
     def max_dt_setter(self):
