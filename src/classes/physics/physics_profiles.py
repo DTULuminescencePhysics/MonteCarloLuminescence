@@ -57,6 +57,24 @@ def build_fade_therm_tun_deloc(E_loc:float, b: float, alpha: float, E_cb: float,
         return _return_like_input(r,out)
     return f
 
+@CrystalPhysics.register_fade("therm_tunnel_delocalise_GS_tunnel")
+def build_fade_therm_tun_deloc_GS_tun(E_loc:float, b: float, alpha: float, alpha_GS: float, E_cb: float, s: float)-> Callable[[ArrayLike, ArrayLike], ArrayLike]:
+    def f(T: ArrayLike, r: ArrayLike) -> ArrayLike:
+        if isinstance(r, np.ndarray):
+            if r.size == 0:
+                return -1e20 
+        else: 
+            if r is None or r == 0: 
+                return -1e20
+                 
+        term1 = (b * np.exp(-((E_loc / (cnst.k_b_ev * T)) +(alpha * r))))
+        term2 = (s * np.exp(-E_cb / (cnst.k_b_ev * T)))
+        term3 = (b * np.exp(-alpha_GS * r))
+        out = 1/(term1 + term2 + term3)
+
+        return _return_like_input(r,out)
+    return f
+
 # @CrystalPhysics.register_fade("therm_tunnel_delocalise")
 # def build_fade_therm_tun_deloc(E_loc:float, b: float, urho: float, E_cb: float, s: float)-> Callable[[ArrayLike, ArrayLike], ArrayLike]:
 

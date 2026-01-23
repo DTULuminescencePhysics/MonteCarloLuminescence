@@ -12,7 +12,6 @@ class _ThermalParameters(CrystalPhysics):
     E_loc:   float                  # Energy gap between ground and excited state
     b :      float                  # attmpt to tunnel frequency
     alpha:   float | None = field(default=None)
-    alpha_GS:float | None = field(default=None)
     E_cb:    float | None = field(default=None) # Conduction band energy
     s :      float | None = field(default=None) # Escape frequency
     rho:     float | None = field(default=None) # Density
@@ -46,7 +45,7 @@ class _ThermalParameters(CrystalPhysics):
         if self.phys_type.find("king") > 0:
             fade_kind = "GE_king_2016"
         else: 
-            fade_kind = "therm_tunnel_delocalise_GS_tunnel" if self.E_cb is not None else "therm_tunnel"
+            fade_kind = "therm_tunnel_delocalise" if self.E_cb is not None else "therm_tunnel"
         
         if self.phys_type.find("unitless") > 0:
             fade_kind += "_unitless"

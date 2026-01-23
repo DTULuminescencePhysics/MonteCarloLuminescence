@@ -63,15 +63,16 @@ class CrystalPhysics:
 @dataclass
 class _ThermalParameters(CrystalPhysics):
 
-    E_loc: float                  # Energy gap between ground and excited state
-    b :    float                  # attmpt to tunnel frequency
-    alpha: float | None = field(default=None)
-    E_cb:  float | None = field(default=None) # Conduction band energy
-    s :    float | None = field(default=None) # Escape frequency
-    rho:   float | None = field(default=None) # Density
-    urho:  float | None = field(default=None) # Unitless density
-    D0:    float | None = field(default=None) # Characteristic does
-    D_dot: float | None = field(default=None) # Radition per second
+    E_loc:     float                  # Energy gap between ground and excited state
+    b :        float                  # attmpt to tunnel frequency
+    alpha:     float | None = field(default=None) # Excited state tunnelling
+    alpha_GS:  float | None = field(default=None) # Ground state tunnelling
+    E_cb:      float | None = field(default=None) # Conduction band energy
+    s :        float | None = field(default=None) # Escape frequency
+    rho:       float | None = field(default=None) # Density
+    urho:      float | None = field(default=None) # Unitless density
+    D0:        float | None = field(default=None) # Characteristic does
+    D_dot:     float | None = field(default=None) # Radition per second
    
     def __post_init__(self):
 
