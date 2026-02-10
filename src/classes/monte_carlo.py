@@ -20,7 +20,7 @@ class MCBase:
     max_dt: float = field(default=1)
     max_dt_time_chk: float = field(init=False)
     max_dt_cnt: int = 0
-    max_length: int = field(default=50000)
+    max_length: int = field(default=500000)
     data_path: str = field(default="sim_prelim_results.dat")
     result_csv_path: str = field(default="MC_results")
     results: np.memmap = field(init=False) 
@@ -153,9 +153,59 @@ class MCBase:
         self.results[rep,1,:] /= self.crystal.N
         self.results.flush()
 
+    def single_experiment_run_modified(self, rep: int, t: float = 0.0, 
+                              t_pcnt: float | None = None, h_pcnt:float | None = None) -> None:
+        
+        if t_pcnt is None:
+            t_pcnt = self.trap_pcnt 
+        if h_pcnt is None:
+            h_pcnt = self.hole_pcnt
+
+        self.crystal.lattice_setup((self.seed+rep), t_pcnt, h_pcnt, t=t)
+        i=0
+        self.results[rep,0,i] = self.crystal.time
+        self.results[rep,1,i] = self.crystal.t_cnt
+        self.results[rep,2,i] = 0
+        i+=1 
+        self.max_dt_setter()
+        
+        while self.crystal.time < self.crystal.duration:
+            if self.crystal.time >= self.max_dt_time_chk:
+                self.max_dt_finder()
+            
+            dt = min(self.crystal.fill,self.crystal.exec_time,self.max_dt)
+        
+            self.crystal.event_bool = True
+            if dt == self.crystal.fill:
+                self.crystal.trap_new_electron()
+                event = 0
+            elif dt == self.crystal.exec_time:                
+                self.crystal.operate_electron()
+                event = 1
+            else:
+                self.crystal.event_bool = False
+                event = 0
+            self.crystal.timestep(dt)
+
+            if self.crystal.time >= self.crystal.duration:
+                self.results[rep,0,i] = self.crystal.duration
+                self.results[rep,1,i] = self.results[rep,1,i-1]
+                self.results[rep,2,i] = 0
+                i+=1
+                break 
+
+            self.results[rep,0,i] = self.crystal.time
+            self.results[rep,1,i] = self.crystal.t_cnt
+            self.results[rep,2,i] = event
+            i+=1
+
+        self.results[rep,1,:] /= self.crystal.N
+        self.results.flush()
+
     def monte_carlo_loop(self, t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None) -> None:
         for i in range(self.repetion):
-            self.single_experiment_run(i, t, t_pcnt, h_pcnt)
+            # self.single_experiment_run_(i, t, t_pcnt, h_pcnt)
+            self.single_experiment_run_modified(i, t, t_pcnt, h_pcnt)
             print(f"Rep {i+1} of {self.repetion} completed")
 
     def full_monte_carlo_simulation(self, err: ErrorOutputHandler):

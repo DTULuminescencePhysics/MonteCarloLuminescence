@@ -12,6 +12,7 @@ class _ThermalParameters(CrystalPhysics):
     E_loc:   float                  # Energy gap between ground and excited state
     b :      float                  # attmpt to tunnel frequency
     alpha:   float | None = field(default=None)
+    alpha_GS:float | None = field(default=None)
     E_cb:    float | None = field(default=None) # Conduction band energy
     s :      float | None = field(default=None) # Escape frequency
     rho:     float | None = field(default=None) # Density

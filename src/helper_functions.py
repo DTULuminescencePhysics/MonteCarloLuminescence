@@ -11,6 +11,7 @@ ArrayLike = Union[float, ndarray]
 Builder = Callable[..., Callable[[ArrayLike], ArrayLike]]
 Builder2 = Callable[..., Callable[[ArrayLike, ArrayLike], ArrayLike]]
 Builder3 = Callable[..., Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]]
+Builder4 = Callable[..., Callable[[ArrayLike], Tuple[str, ArrayLike]]]
 
 
 def _filter_kwargs(builder: Callable[..., Any], kwargs: Dict[str, Any]) -> Dict[str, Any]:

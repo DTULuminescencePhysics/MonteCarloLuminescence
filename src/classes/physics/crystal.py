@@ -6,7 +6,8 @@ from math import ceil
 import numpy as np
 from src.helper_functions import ArrayLike
 from src.classes.physics.time_temperature import _temp 
-from src.classes.constants import mp
+from src.classes.constants import mp, cnst
+from scipy.spatial.distance import cdist
 
 from src.classes.physics.set_system import _ThermalParameters 
 
@@ -36,20 +37,36 @@ class Box(_temp,_ThermalParameters):
     HN: int = field(init=False)
     occ_trap: np.ndarray = field(init=False)
     occ_hole: np.ndarray = field(init=False)
+    ex_trap:  np.ndarray = field(init=False)
     trap_coords: np.ndarray = field(init=False)
     hole_coords: np.ndarray = field(init=False)
     precise_trap: np.ndarray = field(init=False)
     precise_hole: np.ndarray = field(init=False)
     nearest: np.ndarray = field(init=False)
     dist: np.ndarray = field(init=False)
+    dist_ee: np.ndarray = field(init=False)
     d: np.ndarray = field(init=False)
+    d_ee: np.ndarray = field(init=False)
     _lifetimes: ArrayLike = field(init=False)
     _filltime: ArrayLike = field(init=False)
+    _tau_es_tun_recom: ArrayLike | None = field(init=False)
+    _tau_gs_tun_recom: ArrayLike | None = field(init=False)
+    _tau_es_con: ArrayLike | None = field(init=False)
+    _tau_gs_con: ArrayLike | None = field(init=False)
+    _tau_es_tun_retrap: ArrayLike | None = field(init=False)
+    _tau_gs_tun_retrap: ArrayLike | None = field(init=False)
+    _tau_cb_mob: ArrayLike | None = field(init=False)
     fade: ArrayLike = field(init=False)
     fill: ArrayLike = field(init=False)
+    exec_time: ArrayLike = field(init=False)
     fade_index: int = field(init=False)
+    exec_index: int = field(init=False)
     event_bool: bool = field(init=False,default=False)
     rng: np.random.Generator = field(init=False)
+    F1: float = field(init=False)
+    F2: float = field(init=False)
+    retrap_pre: float = field(default=0.001)
+
 
     def __repr__(self):
         if self.kind == "constant":
@@ -239,7 +256,7 @@ class Box(_temp,_ThermalParameters):
                     hole_tot += 1
         
         self.h_cnt = np.flatnonzero(self.occ_hole).size
-        self.define_new_d()
+        self.define_new_d_full()    # self.define_new_d()
         self.initial_times(t=t)
 
     def float64_to_int32(self,points) -> np.ndarray:
@@ -301,10 +318,13 @@ class Box(_temp,_ThermalParameters):
     def create_distance_matrix(self,trap_coords: np.ndarray, 
                                hole_coords: np.ndarray) -> None:
        
-        e = trap_coords[:,None,:]
-        h = hole_coords[None,:,:]
-        self.dist = np.linalg.norm(e-h,axis=2)
-       
+        # e = trap_coords[:,None,:]
+        # h = hole_coords[None,:,:]
+        # self.dist = np.linalg.norm(e-h,axis=2)
+        
+        self.dist = cdist(trap_coords, hole_coords)
+        self.dist_ee = cdist(trap_coords, trap_coords)
+        np.fill_diagonal(self.dist_ee, 1e-20)
 
         # m = self.dist.mean()
         # s = self.dist.std()
@@ -327,22 +347,41 @@ class Box(_temp,_ThermalParameters):
     #     hole = self.int32_to_float642(self.precise_hole)
     #     self.create_distance_matrix(trap_coords,hole_coords,trap,hole)
 
-    def define_new_d(self):
-        """Creates a mask to only consider available holes and traps
-        then creates the array of minimum distances"""
-        row_m = self.occ_trap.astype(bool)
-        col_m = self.occ_hole.astype(bool)
-        full = self.dist[row_m][:,col_m]
-        self.d = full
-        if full.size == 0: 
-            self.d = np.zeros(0)
-            return
-        self.d = full.min(axis=1)
+    # def define_new_d(self):
+    #     """Creates a mask to only consider available holes and traps
+    #     then creates the array of minimum distances"""
+    #     row_m = self.occ_trap.astype(bool)
+    #     col_m = self.occ_hole.astype(bool)
+    #     full = self.dist[row_m][:,col_m]
+    #     # self.d = full
+    #     if full.size == 0: 
+    #         self.d = np.zeros(0)
+    #         return
+    #     self.d = full.min(axis=1)
 
         # mask = np.ones_like(self.dist,dtype=bool)
         # mask[np.ix_(np.flatnonzero(self.occ_trap),np.flatnonzero(self.occ_hole))]=False
         # self.d = np.ma.array(self.dist,mask=mask)#.compressed()
         # self.d = np.ma.array(self.dist,mask=mask).min(axis=1).compressed()
+
+    def define_new_d_full(self):
+        """Updates the distance matrix between occupied electron trap and 
+        occupied hole trap pair and the distance between occupied electron trap
+        and unoccupied electron trap"""
+        row_m = self.occ_trap.astype(bool)
+        col_m = self.occ_hole.astype(bool)
+        full = self.dist[row_m][:,col_m]
+        # self.d = full
+        if full.size == 0: 
+            self.d = np.zeros(0)
+            return
+        self.d = full   # .min(axis=1)
+
+        col_m = np.invert(self.occ_trap.astype(bool))
+        self.d_ee = self.dist_ee[row_m][:, col_m]
+        if self.d_ee.size == 0:
+            self.d_ee = np.zeros(0)
+        
 
     def trap_new_electron(self):
         """Function that randomly chooses a new electron trap.
@@ -365,30 +404,126 @@ class Box(_temp,_ThermalParameters):
             self.h_cnt += 1 
 
         self.occ_trap[t_index] = 1 
-        self.define_new_d()
+        self.define_new_d_full()
         self.t_cnt += 1 
 
       
-    def remove_electron(self):
-        """Function to remove an electron-hole pair.
-        The index of the electron-hole pair is stored in self.fade_index 
-        which is found when the times are updated. This index is then used to 
-        find the corresponding hole index. These are then both removed"""
+    # def remove_electron(self):
+    #     """Function to remove an electron-hole pair.
+    #     The index of the electron-hole pair is stored in self.fade_index 
+    #     which is found when the times are updated. This index is then used to 
+    #     find the corresponding hole index. These are then both removed"""
+    #     if self.t_cnt <= 0:
+    #         return
+      
+    #     avail = np.flatnonzero(self.occ_trap)
+    #     t_index = avail[self.fade_index]
+    #     idx_array = np.where(self.dist[t_index,:]==self.d[self.fade_index])[0]
+    #     if idx_array.size == 0:
+    #         raise ValueError("No match found for fade_index")
+    #     h_index = int(idx_array[0])
+       
+    #     self.occ_trap[t_index] = 0 
+    #     self.occ_hole[h_index] = 0
+    #     self.define_new_d()
+    #     self.t_cnt -= 1 
+    #     self.h_cnt -= 1 
+
+    def operate_electron(self):
+
+        if self.t_cnt <= 0:
+            return
+        
+        len_recom = self.d.shape[1]; len_retrap = self.d_ee.shape[1]
+
+        t_index = np.flatnonzero(self.occ_trap)[self.exec_index]
+        lifetime = np.array([])
+
+        if self.d.size != 0:        # Prerequisite for recombination
+            lifetime = np.hstack((lifetime, self.F1 * self._tau_gs_tun_recom[self.exec_index,:], 
+                              self.F2 * self._tau_es_tun_recom[self.exec_index,:]))
+        else:
+            lifetime = np.hstack((lifetime, 1.e-20 * np.ones(len_recom*2)))
+
+
+        if self.d_ee.size != 0:     # Prerequisite for retrapping
+            lifetime = np.hstack((lifetime, self.F1 * self._tau_gs_tun_retrap[self.exec_index,:] * self.retrap_pre, 
+                              self.F2 * self._tau_es_tun_retrap[self.exec_index,:]  * self.retrap_pre ))
+        else:
+            lifetime = np.hstack((lifetime, 1.e-20 * np.ones(len_retrap*2)))
+
+        lifetime = np.hstack((lifetime, self.F1 * self._tau_gs_con, self.F2 * self._tau_es_con))
+
+        possibility_list = np.cumsum(lifetime) / np.sum(lifetime)
+        rand = self.rng.random()
+        idx  = np.min(np.argwhere(possibility_list >= rand))
+
+        if idx < len_recom*2:         # Recombination event takes place
+
+            h_idx = idx % len_recom
+            avail_h = np.flatnonzero(self.occ_hole)
+            h_index = avail_h[h_idx]
+            self.occ_hole[h_index] = 0
+            self.occ_trap[t_index] = 0
+            self.t_cnt -= 1 
+            self.h_cnt -= 1 
+
+        elif idx < (len_recom + len_retrap)*2:     # Retrapping event takes place
+
+            t_idx = (idx - 2 * len_recom) % len_retrap
+            avail_t = np.where(self.occ_trap == 0)[0]
+            dest_idx = avail_t[t_idx]
+            self.occ_trap[dest_idx] = 1
+            self.occ_trap[t_index] = 0
+
+        else:    # Excitation to conduction band takes place
+
+            self._tau_cb_mob = np.array([])
+
+            if self.d.size != 0:
+                self._tau_cb_mob = np.append(self._tau_cb_mob, self._cb_mob(self.d[self.exec_index,:]))
+
+            if self.d_ee.size != 0:
+                self._tau_cb_mob = np.append(self._tau_cb_mob, self._cb_mob(self.d_ee[self.exec_index,:]) * self.retrap_pre)
+
+            possibility_list_2 = np.cumsum(self._tau_cb_mob) / np.sum(self._tau_cb_mob)
+            R2 = self.rng.random()
+            idx2 = np.min(np.argwhere(possibility_list_2 >= R2))
+
+            if idx2 < len_recom:       # Recombination
+                avail_h = np.flatnonzero(self.occ_hole)
+                h_index = avail_h[idx2]
+                self.occ_trap[t_index] = 0
+                self.occ_hole[h_index] = 0
+                self.t_cnt -= 1
+                self.h_cnt -= 1
+            else:                           # Retrapping
+                t_idx2 = idx2 - len_recom
+                avail_t = np.where(self.occ_trap == 0)[0]
+                dest_idx2 = avail_t[t_idx2]
+                self.occ_trap[t_index] = 0
+                self.occ_trap[dest_idx2] = 1
+
+        self.define_new_d_full()
+
+    def move_electron(self):
+        """
+        Function to move an electron to another unoccupied electron trap.
+        """
         if self.t_cnt <= 0:
             return
       
         avail = np.flatnonzero(self.occ_trap)
-        t_index = avail[self.fade_index]
-        idx_array = np.where(self.dist[t_index,:]==self.d[self.fade_index])[0]
+        orgn_index = avail[self.exec_index]
+        idx_array = np.where(self.dist[orgn_index,:]==self.d[self.exec_index])[0]
         if idx_array.size == 0:
             raise ValueError("No match found for fade_index")
-        h_index = int(idx_array[0])
+        dest_index = int(idx_array[0])
        
-        self.occ_trap[t_index] = 0 
-        self.occ_hole[h_index] = 0
-        self.define_new_d()
-        self.t_cnt -= 1 
-        self.h_cnt -= 1 
+        self.occ_trap[orgn_index] = 0
+        self.occ_trap[dest_index] = 1
+        self.define_new_d_full()
+
 
     def timestep(self, dt) -> None:
         """Moves time forward by dt and updates the 
@@ -396,44 +531,120 @@ class Box(_temp,_ThermalParameters):
         the lifetimes are simply reduced by dt"""
         super().timestep(dt)
         if self.T_chng or self.event_bool:
-            self.recalc_times()
-            self.random_fill_fade()
+            self.recalc_times_full()
+            self.select_electron()
+            # self.recalc_times()
+            # self.random_fill_fade()
         else:
             self.fill -= dt
             self.fade -= dt
         
         # self.random_fill_fade()
 
-    def recalc_times(self):
-        """Recalcualtes the lifetimes and fill times"""
-        self._filltime = self._fill(self.N, self.t_cnt, self.D_dot)
-        self._lifetimes = self._fade(self.T,self.d)
+    # def recalc_times(self):
+    #     """Recalcualtes the lifetimes and fill times"""
+    #     self._filltime = self._fill(self.N, self.t_cnt, self.D_dot)
+    #     self._lifetimes = self._fade(self.T,self.d)
 
-    def random_fill_fade(self) -> None:
-        """Generates new random fill and fade times"""
+    def recalc_times_full(self):
+        """Recalculates the lifetimes and fill times for the full distance matrix"""
+        self._filltime = self._fill(self.N, self.t_cnt, self.D_dot)
+
+        if self.d.size != 0:
+            self._tau_gs_tun_recom = self._gs_tun(self.d)
+            self._tau_es_tun_recom = self._es_tun(self.d)
+        else:
+            self._tau_gs_tun_recom = np.zeros(0)
+            self._tau_es_tun_recom = np.zeros(0)
+        
+        if self.d_ee.size != 0:
+            self._tau_gs_tun_retrap = self._gs_tun(self.d_ee)
+            self._tau_es_tun_retrap = self._es_tun(self.d_ee)
+        else:
+            self._tau_gs_tun_retrap = np.zeros(0)
+            self._tau_es_tun_retrap = np.zeros(0)
+        
+        self._tau_gs_con = self._gs_con(self.T)
+        self._tau_es_con = self._es_con(self.T)
+        
+        # self._tau_cb_mob = self._cb_mob(self.mu)
+
+    # def random_fill_fade(self) -> None:
+    #     """Generates new random fill and fade times"""
+    #     if (self.h_cnt < self.HN) and self._filltime > 0:
+    #         self.fill = self.rng.exponential(self._filltime) 
+    #     else: 
+    #         self.fill = 1e20
+      
+    #     if self.t_cnt == 0 :
+    #         self.fade = 1e20
+    #     elif self.t_cnt == 1:
+    #         f = self.rng.exponential(self._lifetimes)
+    #         self.fade_index = 0
+    #         self.h_index = 0
+    #     else: 
+    #         f = self.rng.exponential(self._lifetimes)
+    #         self.fade = np.min(f)
+    #         self.fade_index = int(np.argmin(f)) 
+
+    def select_electron(self) -> None:
+
+        """
+        Generate execution time for filling and fading transition, in the fading
+        transitions the overall lifetime of each electron is calculated and the
+        general execution time for each electron is generated 
+        """
+
         if (self.h_cnt < self.HN) and self._filltime > 0:
             self.fill = self.rng.exponential(self._filltime) 
         else: 
             self.fill = 1e20
-      
-        if self.t_cnt == 0 :
-            self.fade = 1e20
-        elif self.t_cnt == 1:
-            f = self.rng.exponential(self._lifetimes)
-            self.fade_index = 0
-            self.h_index = 0
-        else: 
-            f = self.rng.exponential(self._lifetimes)
-            self.fade = np.min(f)
-            self.fade_index = int(np.argmin(f)) 
 
+        if self.t_cnt == 0:
+            self.exec_time = 1e20
+            self.exec_index = None
+        else:
+            self.F1 = 1 + np.exp(-self.E_loc/(cnst.k_b_ev * self.T))
+            self.F2 = 1 + np.exp( self.E_loc/(cnst.k_b_ev * self.T))
+
+            gs_lifetime = self._tau_gs_con; es_lifetime = self._tau_es_con
+
+            if self.d.size != 0:
+                gs_lifetime += self._tau_gs_tun_recom.sum(axis=1)
+                es_lifetime += self._tau_es_tun_recom.sum(axis=1)
+                
+            if self.d_ee.size != 0:
+                gs_lifetime += self._tau_gs_tun_retrap.sum(axis=1)
+                es_lifetime += self._tau_es_tun_retrap.sum(axis=1)
+
+            f = self.rng.exponential(1/(self.F1 * gs_lifetime + self.F2 * es_lifetime))
+            self.exec_time = np.min(f)
+            self.exec_index = int(np.argmin(f))
+
+    # def select_fading_event(self) -> None:
+    #     """Generates new random transition"""
+    #     if (self.h_cnt < self.HN) and self._filltime > 0:
+    #         self.fill = self.rng.exponential(self._filltime) 
+    #     else: 
+    #         self.fill = 1e20
+      
+    #     if self.t_cnt == 0 :
+    #         self.fade = 1e20
+    #     elif self.t_cnt == 1:
+    #         f = self.rng.exponential(self._lifetimes)
+    #         self.fade_index = 0
+    #         self.h_index = 0
+    #     else: 
+    #         f = self.rng.exponential(self._lifetimes)
+    #         self.fade = np.min(f)
+    #         self.fade_index = int(np.argmin(f)) 
 
      
     def initial_times(self, t: float = 0.0) -> None:
         """Generates the initial fill and fade times"""
-        self.time=t
+        self.time = t
         self.T = self(self.time)
-        self.recalc_times()
-        self.random_fill_fade()
+        self.recalc_times_full()    # self.recalc_times()
+        self.select_electron()      # self.random_fill_fade()
 
     

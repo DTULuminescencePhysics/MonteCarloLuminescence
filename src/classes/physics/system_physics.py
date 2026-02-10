@@ -1,22 +1,30 @@
 from __future__ import annotations
-from typing import Callable, ClassVar, Dict,  Optional
+from typing import Callable, ClassVar, Dict, List
 from dataclasses import dataclass, field
 import numpy as np
-from src.helper_functions import _filter_kwargs,ArrayLike, Builder2, Builder3
+from src.helper_functions import _filter_kwargs,ArrayLike, Builder, Builder2, Builder3
 from src.classes.constants import cnst
+from functools import partial
 
 
 @dataclass
 class CrystalPhysics:
-    _fill:  Callable[..., ArrayLike] = field(init=False, repr=False)
+    _fill: Callable[..., ArrayLike] = field(init=False, repr=False)
     _fade: Callable[..., ArrayLike] = field(init=False, repr=False)
+    
+    _gs_tun: Callable[..., ArrayLike] = field(init=False, repr=False)
+    _es_tun: Callable[..., ArrayLike] = field(init=False, repr=False)
+    _gs_con: Callable[..., ArrayLike] = field(init=False, repr=False)
+    _es_con: Callable[..., ArrayLike] = field(init=False, repr=False)
+    _cb_mob: Callable[..., ArrayLike] = field(init=False, repr=False)
 
-    FILL_REGISTRY:  ClassVar[Dict[str, Builder3]] = {}
+    FILL_REGISTRY: ClassVar[Dict[str, Builder3]] = {}
     FADE_REGISTRY: ClassVar[Dict[str, Builder2]] = {}
+    TRAN_REGISTRY: ClassVar[Dict[str, Builder]] = {}
 
-    def __init__(self, fill_kind: str, fade_kind: str, **kwargs):
+    def __init__(self, fill_kind: str, fade_kind: str, tran_kind: Dict[str, str]|None = None, **kwargs):
                  
-        fill_kind  = fill_kind.lower()
+        fill_kind = fill_kind.lower()
         fade_kind = fade_kind.lower()
         if fill_kind not in self.FILL_REGISTRY:
             raise ValueError(f"Unknown fill kind '{fill_kind}'. Available: {sorted(self.FILL_REGISTRY)}")
@@ -29,8 +37,15 @@ class CrystalPhysics:
         fi_kwargs = _filter_kwargs(f_builder, kwargs)
         fa_kwargs = _filter_kwargs(e_builder, kwargs)
 
-        object.__setattr__(self, "_fill",  f_builder(**fi_kwargs))
+        object.__setattr__(self, "_fill", f_builder(**fi_kwargs))
         object.__setattr__(self, "_fade", e_builder(**fa_kwargs))
+
+        if tran_kind is not None:
+            for tran, attr in tran_kind.items():
+                f_builder = self.TRAN_REGISTRY[tran]
+                f_kwargs = _filter_kwargs(f_builder, kwargs)
+                object.__setattr__(self, attr, f_builder(**f_kwargs))
+
 
     # Registration helpers
     @classmethod
@@ -52,13 +67,40 @@ class CrystalPhysics:
             cls.FADE_REGISTRY[kind] = fn
             return fn
         return deco
+    
+    @classmethod
+    def register_tran(cls, kind: str) -> Callable[[Builder], Builder]:
+        kind = kind.lower()
+        def deco(fn: Builder) -> Builder:
+            if not callable(fn):
+                raise TypeError("empty builder must be callable")
+            cls.TRAN_REGISTRY[kind] = fn
+            return fn
+        return deco
 
     @classmethod
     def available_physics(cls) -> dict[str, list[str]]:
         return {
-            "fill":  sorted(cls.FILL_REGISTRY),
+            "fill": sorted(cls.FILL_REGISTRY),
             "fade": sorted(cls.FADE_REGISTRY),
         }
+    
+
+    def lifetime_dist_independ(E:float, s:float, T:float) -> float:
+        return s * np.exp(-E/(cnst.k_b_ev * T))
+
+
+    def lifetime_dist_depend(alpha:float, b:float, r:ArrayLike) -> ArrayLike:
+        if isinstance(r, np.ndarray):
+            if r.size == 0:
+                return -1.e20
+            
+        else:
+            if r is None or r == 0: 
+                return -1.e20
+
+        return b * np.exp(-alpha * r)
+
 
 @dataclass
 class _ThermalParameters(CrystalPhysics):
@@ -73,6 +115,7 @@ class _ThermalParameters(CrystalPhysics):
     urho:      float | None = field(default=None) # Unitless density
     D0:        float | None = field(default=None) # Characteristic does
     D_dot:     float | None = field(default=None) # Radition per second
+    
    
     def __post_init__(self):
 
@@ -84,7 +127,7 @@ class _ThermalParameters(CrystalPhysics):
             self.rho_from_urho(self.alpha)
 
         fill_kind = "dose" if self.D0 is not None else "none"
-        fade_kind = "therm_tunnel_delocaise" if self.E_cb is not None else "therm_tunnel"
+        fade_kind = "therm_tunnel_delocalise" if self.E_cb is not None else "therm_tunnel"
         
         CrystalPhysics.__init__(self,fill_kind,fade_kind,**vars(self))
     
@@ -108,8 +151,6 @@ class _ThermalParameters(CrystalPhysics):
             self.rho = self.urho*np.power(alpha,3)*(3/(np.pi*4))
 
     
-
-
 
 
 
