@@ -65,7 +65,8 @@ class Box(_temp,_ThermalParameters):
     rng: np.random.Generator = field(init=False)
     F1: float = field(init=False)
     F2: float = field(init=False)
-    retrap_pre: float = field(default=0.001)
+    retrap_pre_tun: float|None = field(default=0)
+    retrap_pre_CB: float|None = field(default=1)
 
 
     def __repr__(self):
@@ -429,12 +430,30 @@ class Box(_temp,_ThermalParameters):
     #     self.t_cnt -= 1 
     #     self.h_cnt -= 1 
 
+    def remove_electron(self):
+
+        h_index = np.flatnonzero(self.occ_hole)[self.selected_index]
+        t_index = np.flatnonzero(self.occ_trap)[self.exec_index]
+
+        self.occ_hole[h_index] = 0
+        self.occ_trap[t_index] = 0
+
+        h_cnt -= 1
+        t_cnt -= 1
+
+    def move_electron(self):
+        dest_index = np.where(self.occ_trap==0)[0][self.selected_index]
+        t_index = np.flatnonzero(self.occ_trap)[self.exec_index]
+
+        self.occ_trap[dest_index] = 1
+        self.occ_trap[t_index] = 0
+
     def operate_electron(self):
 
         if self.t_cnt <= 0:
             return
         
-        len_recom = self.d.shape[1]; len_retrap = self.d_ee.shape[1]
+        len_recom = self.h_cnt; len_retrap = self.N - self.t_cnt
 
         t_index = np.flatnonzero(self.occ_trap)[self.exec_index]
         lifetime = np.array([])
@@ -447,8 +466,8 @@ class Box(_temp,_ThermalParameters):
 
 
         if self.d_ee.size != 0:     # Prerequisite for retrapping
-            lifetime = np.hstack((lifetime, self.F1 * self._tau_gs_tun_retrap[self.exec_index,:] * self.retrap_pre, 
-                              self.F2 * self._tau_es_tun_retrap[self.exec_index,:]  * self.retrap_pre ))
+            lifetime = np.hstack((lifetime, self.F1 * self._tau_gs_tun_retrap[self.exec_index,:] * self.retrap_pre_tun, 
+                              self.F2 * self._tau_es_tun_retrap[self.exec_index,:]  * self.retrap_pre_tun))
         else:
             lifetime = np.hstack((lifetime, 1.e-20 * np.ones(len_retrap*2)))
 
@@ -467,6 +486,7 @@ class Box(_temp,_ThermalParameters):
             self.occ_trap[t_index] = 0
             self.t_cnt -= 1 
             self.h_cnt -= 1 
+            print("Recombination via tunneling between electron {} and hole {} at T={}K".format(t_index,h_index,self.T))
 
         elif idx < (len_recom + len_retrap)*2:     # Retrapping event takes place
 
@@ -475,6 +495,7 @@ class Box(_temp,_ThermalParameters):
             dest_idx = avail_t[t_idx]
             self.occ_trap[dest_idx] = 1
             self.occ_trap[t_index] = 0
+            print("Retrapping via tunneling from electron {} to trap {} at T={}K".format(t_index,dest_idx,self.T))
 
         else:    # Excitation to conduction band takes place
 
@@ -484,7 +505,7 @@ class Box(_temp,_ThermalParameters):
                 self._tau_cb_mob = np.append(self._tau_cb_mob, self._cb_mob(self.d[self.exec_index,:]))
 
             if self.d_ee.size != 0:
-                self._tau_cb_mob = np.append(self._tau_cb_mob, self._cb_mob(self.d_ee[self.exec_index,:]) * self.retrap_pre)
+                self._tau_cb_mob = np.append(self._tau_cb_mob, self._cb_mob(self.d_ee[self.exec_index,:]) * self.retrap_pre_CB)
 
             possibility_list_2 = np.cumsum(self._tau_cb_mob) / np.sum(self._tau_cb_mob)
             R2 = self.rng.random()
@@ -497,32 +518,34 @@ class Box(_temp,_ThermalParameters):
                 self.occ_hole[h_index] = 0
                 self.t_cnt -= 1
                 self.h_cnt -= 1
+                print("Recombination via CB from electron {} to hole {} at T={}K".format(t_index,h_index,self.T))
             else:                           # Retrapping
                 t_idx2 = idx2 - len_recom
                 avail_t = np.where(self.occ_trap == 0)[0]
                 dest_idx2 = avail_t[t_idx2]
                 self.occ_trap[t_index] = 0
                 self.occ_trap[dest_idx2] = 1
+                print("Retrapping via CB from electron {} to trap {} at T={}K".format(t_index,dest_idx2,self.T))
 
         self.define_new_d_full()
 
-    def move_electron(self):
-        """
-        Function to move an electron to another unoccupied electron trap.
-        """
-        if self.t_cnt <= 0:
-            return
+    # def move_electron(self):
+    #     """
+    #     Function to move an electron to another unoccupied electron trap.
+    #     """
+    #     if self.t_cnt <= 0:
+    #         return
       
-        avail = np.flatnonzero(self.occ_trap)
-        orgn_index = avail[self.exec_index]
-        idx_array = np.where(self.dist[orgn_index,:]==self.d[self.exec_index])[0]
-        if idx_array.size == 0:
-            raise ValueError("No match found for fade_index")
-        dest_index = int(idx_array[0])
+    #     avail = np.flatnonzero(self.occ_trap)
+    #     orgn_index = avail[self.exec_index]
+    #     idx_array = np.where(self.dist[orgn_index,:]==self.d[self.exec_index])[0]
+    #     if idx_array.size == 0:
+    #         raise ValueError("No match found for fade_index")
+    #     dest_index = int(idx_array[0])
        
-        self.occ_trap[orgn_index] = 0
-        self.occ_trap[dest_index] = 1
-        self.define_new_d_full()
+    #     self.occ_trap[orgn_index] = 0
+    #     self.occ_trap[dest_index] = 1
+    #     self.define_new_d_full()
 
 
     def timestep(self, dt) -> None:
@@ -604,10 +627,11 @@ class Box(_temp,_ThermalParameters):
             self.exec_time = 1e20
             self.exec_index = None
         else:
-            self.F1 = 1 + np.exp(-self.E_loc/(cnst.k_b_ev * self.T))
-            self.F2 = 1 + np.exp( self.E_loc/(cnst.k_b_ev * self.T))
+            self.F1 = 1. / (1 + np.exp(-self.E_loc/(cnst.k_b_ev * self.T)))
+            self.F2 = 1. / (1 + np.exp( self.E_loc/(cnst.k_b_ev * self.T)))
 
-            gs_lifetime = self._tau_gs_con; es_lifetime = self._tau_es_con
+            gs_lifetime = self._tau_gs_con * np.ones(self.d.shape[0])
+            es_lifetime = self._tau_es_con * np.ones(self.d.shape[0])
 
             if self.d.size != 0:
                 gs_lifetime += self._tau_gs_tun_recom.sum(axis=1)
