@@ -4,7 +4,6 @@ from typing import Callable, Dict, ClassVar
 
 from src.helper_functions import ArrayLike, Builder, _filter_kwargs
 
-
 @dataclass
 class TimeTempProfile:
     _f: Callable[[ArrayLike], ArrayLike] = field(init=False, repr=False)
@@ -17,6 +16,8 @@ class TimeTempProfile:
 
     def __init__(self, **kwargs):
         kind = kwargs.pop("kind")
+        if kind is None: 
+            kind = 'linearsteps'
         kind = kind.lower()
         try:
             builder = self._REGISTRY[kind]
@@ -29,7 +30,9 @@ class TimeTempProfile:
         object.__setattr__(self, "_f", builder(**filtered))
 
     @classmethod
-    def register(cls, kind: str) -> Callable[[Builder], Builder]:
+    def register(cls, kind: str | None) -> Callable[[Builder], Builder]:
+        if kind is None: 
+            kind = 'linearsteps'
         kind = kind.lower()
         def decorator(fn: Builder) -> Builder:
             if not callable(fn):

@@ -1,7 +1,7 @@
 defaults: 
   - _self_
   - physics:  phys_harris_lab_TL # phys_King_etal_2016_k_23 #
-  - temp: temp_linear #temp_constant_T
+  - temp: temp_King_etal_2016_vi # temp_linear #temp_constant_T
   - override hydra/job_logging: custom
   - override hydra/hydra_logging: disabled
 
@@ -12,8 +12,8 @@ setup:
   h_pcnt    : 1     # Ratio of recombination holes that are unfilled
   reps      : 10     # Number of Monte Carlo simulations to repeat
   mc        : True   # Run monte Carlo simulations
-  ac        : True  # Run analytic model 
-  TC        : True  # Run thermo chronology
+  ac        : False  # Run analytic model 
+  TC        : False  # Run thermo chronology
 
 
 hydra:

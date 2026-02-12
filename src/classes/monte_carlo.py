@@ -4,7 +4,6 @@ import numpy as np
 from dataclasses import dataclass, field
 # from joblib import Parallel, delayed
 from omegaconf import DictConfig
-from src.classes.constants import cnst  
 
 from src.errors import ErrorOutputHandler
 from src.classes.physics.crystal import Box
@@ -43,67 +42,38 @@ class MCBase:
     
     def max_dt_setter(self):
         self.max_dt_cnt=0
-        if (self.crystal.kind not in {"constant", "linear"} and 
-            self.crystal.times.size == 0):
-            if self.crystal.dT[0] == 0: 
-                self.crystal.kind = "constant"
-            else:
-                self.crystal.kind = "linear"
-
-
+    
         if self.crystal.kind == "constant" :
             self.max_dt =  self.crystal.duration*10
             self.max_dt_time_chk = self.crystal.duration*10
-        elif self.crystal.kind in {"step","steps"}:
-            self.max_dt = self.crystal.times[0]
-            self.max_dt_time_chk = self.crystal.times[0]
         elif self.crystal.kind == "linear" :
             self.max_dt = (1/abs(self.crystal.dT))
-            self.max_dt_time_chk = 1e50
-        elif self.crystal.kind == "linearsteps":
+            self.max_dt_time_chk = self.crystal.duration*10
+        else:
             if self.crystal.dT[0] == 0: 
-                self.max_dt = self.crystal.times[0]
+                self.max_dt = (self.crystal.times[1]-self.crystal.times[0])/100
             else:
                 self.max_dt = 1/abs(self.crystal.dT[0])
-            self.max_dt_time_chk = self.crystal.times[0]
+
+            self.max_dt_time_chk = self.crystal.times[1]
         
-       
-    def max_dt_finder(self):
+    def max_dt_finder(self): 
         if self.max_dt_time_chk > self.crystal.duration:
             return
+       
         self.max_dt_cnt+=1
-        if self.crystal.kind == "constant" :
-            self.max_dt =  self.crystal.duration
+        self.max_dt_time_chk = self.crystal.times[self.max_dt_cnt+1]
+
+        if self.crystal.dT[self.max_dt_cnt] == 0: 
+                self.max_dt =  (self.max_dt_time_chk - self.crystal.time)/100
+        else:
+            self.max_dt = 1/abs(self.crystal.dT[self.max_dt_cnt])
+        
+        if self.max_dt_cnt == self.crystal.times.size:
             self.max_dt_time_chk = self.crystal.duration*10
-        elif self.crystal.kind == "step":
-            self.max_dt =  self.crystal.duration
-            self.max_dt_time_chk = self.crystal.duration*10
-        elif self.crystal.kind == "steps":
-            if self.max_dt_cnt == self.crystal.times.size:
-                self.max_dt =  self.crystal.duration
-                self.max_dt_time_chk = self.crystal.duration*10
-            else:
-                self.max_dt = (self.crystal.times[self.max_dt_cnt]-self.crystal.times[self.max_dt_cnt-1])#/100
-                self.max_dt_time_chk = self.crystal.times[self.max_dt_cnt]
-        elif self.crystal.kind == "linear" :
-            self.max_dt = 1/abs(self.crystal.dT)
-            self.max_dt_time_chk = 1e50
-        elif self.crystal.kind == "linearsteps":
-            if self.max_dt_cnt >= self.crystal.times.size:
-                self.max_dt_time_chk = self.crystal.duration*10
-                max_time = self.crystal.duration
-            else: 
-                self.max_dt_time_chk = self.crystal.times[self.max_dt_cnt]
-                max_time = self.crystal.times[self.max_dt_cnt]
-                
+       
+   
 
-            if self.crystal.dT[self.max_dt_cnt] == 0: 
-                self.max_dt = (max_time-self.crystal.times[self.max_dt_cnt-1])
-            else:
-                self.max_dt = 1/abs(self.crystal.dT[self.max_dt_cnt])
-
-
-           
     def single_experiment_run(self, rep: int, t: float = 0.0, 
                               t_pcnt: float | None = None, h_pcnt:float | None = None) -> None:
         
@@ -123,7 +93,7 @@ class MCBase:
         while self.crystal.time < self.crystal.duration:
             if self.crystal.time >= self.max_dt_time_chk:
                 self.max_dt_finder()
-            dt = min(self.crystal.fill,self.crystal.fade,self.max_dt)
+            dt = min(self.crystal.fill,self.crystal.fade,self.max_dt,(self.max_dt_time_chk-self.crystal.time))
 
         
             self.crystal.event_bool = True

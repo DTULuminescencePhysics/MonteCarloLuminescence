@@ -2,7 +2,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Callable, Dict, Any, Union, Tuple
 from omegaconf import OmegaConf, DictConfig, ListConfig
-from numpy import ndarray, atleast_1d, asarray, ndim
+from numpy import ndarray, atleast_1d, asarray, ndim, concatenate
 from src.errors import ErrorOutputHandler
 import inspect 
 
@@ -26,6 +26,117 @@ def _return_like_input(t_in: ArrayLike, out_1d: ndarray) -> ArrayLike:
     """Return a scalar if input was scalar; otherwise the 1D array."""
     return out_1d.item() if ndim(t_in) == 0 else out_1d
 
+def cfg_temperature_check(cfg: DictConfig, err: ErrorOutputHandler): 
+    """ Function that checks if the temperature profile information is acceptable and throws and error if not"""
+    checker = True
+    err.output("Starting check of temperature profile variables")  
+    if not isinstance(cfg.temp.T0,(float,int)):
+        err.error(f"T0 value in the temperature profile was set as, {cfg.temp.T0}. This is not a float this should be correct", fatal=True)
+        checker = False
+    if not isinstance(cfg.temp.duration,(float,int)):
+        err.error(f"Duration value in the temperature profile was set as, {cfg.temp.duration}. This is not a float this should be correct", fatal=True)
+        checker = False 
+    
+    if cfg.temp.kind == "constant" or not checker:
+        err.output("Temperature profile variables check complete")
+        return   
+
+    if cfg.temp.kind == "linear":
+        if isinstance(cfg.temp.dT,(float,int)):
+            pass
+        elif (cfg.temp.dT is not None):
+            err.error(f"dT value is not None but is also not a float. Value entered: {cfg.temp.dT}.", fatal=False)
+            checker = False
+        else: 
+            checker = False
+        if not checker:
+            try:
+                cfg.temp.dT = (cfg.temp.T0 - cfg.temp.temps[-1] / cfg.temp.duration)
+                err.output(f"A starting temperature of {cfg.temp.T0} and a final temperature of {cfg.temp.temps[-1] } \
+                           have been identified with a duration of {cfg.temp.duration} giving a linear change of {cfg.temp.dT}.")
+                checker = True 
+            except: 
+                err.error(f"A starting temperature of {cfg.temp.T0} and a final temperature of {cfg.temp.temps[-1] } \
+                           have been identified with a duration of {cfg.temp.duration} but it was not possible to calculate a gradient.", fatal=True)           
+        
+        err.output("Temperature profile variables check complete")
+        return   
+    elif cfg.temp.kind is None:
+
+        for t in cfg.temp.times:
+            if not isinstance(t,(float,int)):
+                err.error(f"Value in times is not a float, input is: {t}.",fatal=True)
+                checker = False 
+        for t in cfg.temp.temps:
+            if not isinstance(t,(float,int)):
+                err.error(f"Value in temps is not a float, input is {t}.",fatal=True)
+                checker = False
+
+        if not cfg.temp.times == sorted(cfg.temp.times):
+            err.error("Not all values in times are increasing so profile cannot be generated", fatal=True)
+            checker = False
+
+        if not checker:
+            err.output("Temperature profile variables check complete")
+            return   
+
+        if len(cfg.temp.times) != len(cfg.temp.temps):
+            err.error(f"Length of times and temps list must be equal. They were {len(cfg.temp.times)} and {len(cfg.temp.temps)} will attempt to fix.",fatal=False)
+            checker = False 
+            if (len(cfg.temp.temps) == len(cfg.temp.times)+2):
+                if cfg.temp.times[0] != 0 and cfg.temp.times[-1] != cfg.temp.duration:
+                    cfg.temp.times.insert(0,0)
+                    cfg.temp.times.append(cfg.temp.duration)
+                    checker = True 
+            elif (len(cfg.temp.temps) == len(cfg.temp.times)+1):
+                if cfg.temp.times[0] != 0 and cfg.temp.times[-1] == cfg.temp.duration:
+                    cfg.temp.times.insert(0,0)
+                    checker = True 
+                elif cfg.temp.times[0] == 0 and cfg.temp.times[-1] != cfg.temp.duration:
+                    cfg.temp.times.append(cfg.temp.duration)
+                    checker = True
+            elif((len(cfg.temp.temps)+1  == len(cfg.temp.times)) and (cfg.temp.temps[0] != cfg.temp.T0)):
+                cfg.temp.temps.insert(0,cfg.temp.T0)
+                checker = True
+        
+            if checker:
+                err.error(f"Success fixing disparity in lengths of temps and times. New entries are {cfg.temp.times} and {cfg.temp.temps}.",fatal=False)
+                err.clear_errors()
+                err.output(f"Success fixing disparity in lengths of temps and times. New entries are {cfg.temp.times} and {cfg.temp.temps}.")
+            else: 
+                err.error(f"Unable to fix disparity in length of temps and times.",fatal=True)
+        
+        if not checker:
+            err.output("Temperature profile variables check complete")
+            return   
+
+        if cfg.temp.times[-1] != cfg.temp.duration:    
+            err.error(f"Final time must match duration. The values {cfg.temp.times[-1]} and {cfg.temp.duration}",fatal=True)
+
+        if cfg.temp.times[-1] != cfg.temp.duration and cfg.temp.temps[0] != cfg.temp.T0:
+            err.error(f"Missing starting time and temperature so will attempt to fix",fatal=False)
+
+        
+        if cfg.temp.temps[0] != cfg.temp.T0:
+            if cfg.temp.times[0] != 0.0: 
+                err.error(f"Missing starting time and temperature so will attempt to fix",fatal=False)
+                cfg.temp.times.insert(0,0)
+                cfg.temp.temps.insert(0,cfg.temp.T0)
+                err.error(f"Success fixing initial time and temperature. New entries are {cfg.temp.times} and {cfg.temp.temps}.",fatal=False)
+                err.clear_errors()
+                err.output(f"Success fixing initial time and temperature. New entries are {cfg.temp.times} and {cfg.temp.temps}.")
+            else: 
+                err.error(f"Initial temperature must match T0. The values {cfg.temp.temps[0]} and {cfg.temp.T0}",fatal=False)
+        
+       
+
+    else: 
+        err.error(f"The temperature profile kind parameter is {cfg.temp.kind} but should be set to null, constant or linear.")
+
+       
+    err.output("Temperature profile variables check complete")
+    return 
+
 
 
 def cfg_list_check(cfg: DictConfig, err: ErrorOutputHandler) -> Tuple[int, DictConfig] | Tuple[int, list[DictConfig]]:
@@ -35,6 +146,7 @@ def cfg_list_check(cfg: DictConfig, err: ErrorOutputHandler) -> Tuple[int, DictC
     into different input parameters. Returns the number of experiemnts to complete and the configuration 
     or a list of the configurations.
     """
+
 
     configs = {"physics"}
     list_vars = []

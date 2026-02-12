@@ -4,7 +4,7 @@ import logging
 from omegaconf import DictConfig
 from src.errors import ErrorOutputHandler
 from src.filesystem import CONFIG_DIR
-from src.helper_functions import cfg_list_check
+from src.helper_functions import cfg_list_check, cfg_temperature_check
 from src.MC_analytic_control import monte_carlo_control_functions, analytic_control_functions
 from src.process_plot import plot_analytic_comp_MC
 from src.back_tracing import MC_control_functions,RJMCMC_control_functions
@@ -15,6 +15,8 @@ def main(cfg: DictConfig):
     root = logging.getLogger()
     err = next(h for h in root.handlers if isinstance(h, ErrorOutputHandler))
 
+    cfg_temperature_check(cfg,err)
+    err.checkpoint()
     run_num, runs = cfg_list_check(cfg,err)
     # run_num=1 
     # runs = runs[0]

@@ -5,7 +5,7 @@ from src.classes.constants import time_to_seconds
 from src.helper_functions import ArrayLike
 from src.classes.physics.temperature.temp_profile_class import TimeTempProfile
 import src.classes.physics.temperature.temp_profiles
-
+import numpy as np
 
 @dataclass
 class _time:
@@ -22,40 +22,77 @@ class _time:
 class _temp(_time, TimeTempProfile):
     """Private temperature class that is built as a function of time"""
    
-    kind:    str              = field(default='constant') 
+    kind:    str       | None = field(default=None) 
     T0:      float            = field(default=0) 
     celsius: bool             = field(default=True)
     duration:float            = field(default=100)
     times:   ArrayLike | None = field(default=None) 
-    dT_step: ArrayLike | None = field(default=None) 
-    dT:      ArrayLike | None = field(default=None) 
-    T_inf:   ArrayLike | None = field(default=None) 
-    k:       ArrayLike | None = field(default=None) 
-    T_chng:  bool                = field(default=True)
-    T:       ArrayLike           = field(init=False,default=0.0)
+    temps:   ArrayLike | None = field(default=None) 
+    dT:      ArrayLike | None = field(default=None)
+    T_chng:  bool             = field(default=True)
+    T:       ArrayLike        = field(init=False,default=0.0)
 
     
     def __post_init__(self) -> None:
         """  Intialise the TimeTempProfile """
-        # super().__post_init__()
-        self.unit_celsius_checker()
+        if self.times is not None:
+            self.times = np.asarray(self.times,dtype=np.float64)
+        if self.temps is not None:
+            self.temps = np.asarray(self.temps,dtype=np.float64)
+
        
+        self.unit_celsius_checker()
+     
         TimeTempProfile.__init__(self,**vars(self))
         self.T = self(self.time)
-
         super().__post_init__()
     
     def unit_celsius_checker(self) -> None:
-        if self.unit != 's': 
-            if self.times is not None:
-                self.times = self.times * time_to_seconds[self.unit]
-                self.duration = self.duration *time_to_seconds[self.unit]
-            if self.dT is not None:
-                self.dT = self.dT / time_to_seconds[self.unit]
         if self.celsius:
             self.T0 = self.T0+273.15
-            if self.T_inf is not None:
-                self.T_inf = self.T_inf + 273.15
+            if self.temps is not None:
+                self.temps+=273.15
+           
+
+        if self.times is not None and self.temps is not None and self.kind is None:
+            if self.temps.size == 2 :
+                if self.temps[0] == self.temps[1]: 
+                    self.kind = "constant"
+                else: 
+                    self.kind = "linear"
+                    self.dT = (self.temps[0]-self.temps[1])/self.duration
+
+        if self.unit != 's':
+            self.duration = self.duration *time_to_seconds[self.unit]
+            if self.times is not None:
+                self.times = self.times * time_to_seconds[self.unit]
+            
+            if self.dT is not None:
+                self.dT = self.dT / time_to_seconds[self.unit]
+
+        if self.kind is None:
+                self.kind = "linearsteps"
+                e = 1e-9
+  
+                order = np.argsort(self.times, kind="mergesort")
+                self.times = self.times[order]
+                self.temps = self.temps[order]
+
+                self.dT = np.zeros((self.times.size-1))
+                for i in range(1, self.times.size):
+                    if  self.times[i] <=  self.times[i - 1]:
+                        self.times[i] =  self.times[i - 1] + e
+
+                    self.dT[i-1] = (self.temps[i-1]-self.temps[i])/(self.times[i]-self.times[i-1])
+        
+      
+        
+      
+
+       
+
+          
+
 
     def set_temperature_profile(self, kind: str, T_profile: dict) -> None:
         """Sets a new TimeTempProfile"""

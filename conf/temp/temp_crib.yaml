@@ -1,12 +1,42 @@
+# Temperature profiles are set in the following way, 
+# a kind of either null, constant or linear can be chosen 
+# constant means a constant temperature and linear means a temperature
+# changing at a fixed constant rate. If constant is chosen then 
+# only a starting temperature, T0 and duration are needed.
+# If linear is chosen then one of two options can be chosen:
+# either the inital and final times and temperatures are entered in times and temps respectively
+# allowing the program to calculate the rate of change. Or the rate can be entered 
+# in dT. Note if linear is selected and there is a value in both temps and dT 
+# the rate value in dT will take precedence. 
+# All other temperature profiles are described using the times and temps arrays.
+# The times parameter stores all of the points where there is a change in the 
+# behaviour of the temperature profile and temps stores the temperatures at these
+# points. The program will then connect the time, temperature coordinates with straight lines.
+# Adjacent time coordinates with the same temp value will give a time interval with a constant 
+# temperature. Adjacent time coordinates with the same time value and different temperatures 
+# will create a step, up or down, in temperature. Adjacent time and temperature coordinates with 
+# that are both different will give a time interval with a linear temperature change.
+# Note the starting temperature should be equal to T0 and usually correspond to starting time 0.
+# The final time should be equal to duration. 
+# Here is an example that demonstrates all of these features.
+# kind: null         
+# T0: 120            starting temperature of 120 
+# duration: 0.5      simulation lasting for 0.5 (Ma)
+# times: [0.18, 0.18, 0.275, 0.275, 0.384, 0.384, 0.467, 0.467, 0.5]
+# temps: [120 , 90  , 90   , 100   , 100,    40,    40   , 20   , 10 ]
+# This profile can be described as follows:
+# A constant temperature of 120 C until 0.18 when there is a step down of 30C
+# The temperature is then constant at 90 C until 0.275 when it steps up to 100C.
+# Again the temperature is constant until 0.384 when it steps down 60C. Temperature 
+# is a constant 40C until 0.467 when it steps down again to 20C. The temperature then
+# decreases linearly to 10C at a rate of 303 C/Ma. This rate would be calculated in the program
+
 unit: s # unit of time s -- sections, y -- years, Ma -- mega-annum i.e. 1000000 years
 celsius: true # true if temperatures are given in celsius else false for kelvin 
-kind: constant # constant; linear; step; steps; lineardrops; linearsteps; exponetial
-T0: 100 # Initial temperature, always required in celsius
-duration: 160 # Duration of the experiment in the time unit specified above
-times: [0.1] # times steps occur
-dT_step: [20] # size(s) of step(s) down either
-dT: [5] # linear rate of change(s). If using linearsteps one more gradient than number of steps must be given
-T_inf: 0 # Minimum temperature if using exponential cooling
-k: 10 # Exponential factor in T(t) = T_inf + (T0 - T_inf) * exp(-k t)
-# T_end: 800 # Final temperature, if required in celsius 
-# No_steps: 1 # Number of temperature step events
+kind: null # constant; linear;
+T0: 120 # Initial temperature, always required in celsius
+duration: 0.5 # Duration of the experiment in the time unit specified above
+times: [0, 0.25,  0.5] 
+temps: [120, 60,  0 ]
+dT: null 
+

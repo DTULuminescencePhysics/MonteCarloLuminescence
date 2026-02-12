@@ -81,23 +81,9 @@ class analytical_crystal(_temp,_ThermalParameters):
         elif self.kind == "linear":
             temp = (f"with a linear temperature profile starting at : {self.T0} (K) \n"
                     f"and increasing at a rate of : {self.dT} (K/s)\n") 
-        elif self.kind == "step":
-            temp = (f"with a step temperature profile starting at : {self.T0}"
-                f"and a step of {self.dT_step} : \n")
-        elif self.kind == "steps":
-            temp = (f"with a multiple step temperature profile starting at : {self.T0} (K) \n"
-                    f"with steps of : {self.dT_step} (K) at times : {self.times} (s)\n")
-        elif self.kind == "linearsteps":
-            temp = (f"with a multiple linear step temperature profile starting at : {self.T0} (K) \n"
-                    f"with steps of : {self.dT_step} (K) at times : {self.times} (s) \n"
-                    f"and linear rates of : {self.dT} (K/s)\n")
-        elif self.kind == "exponential":
-            temp = (f"with an exponential temperature profile starting at : {self.T0} (K) \n"
-                    f"and approaching {self.T_inf} (K) with a rate constant of : {self.k} (s^-1)\n")
-        elif self.kind == "lineardrops":
-            temp = (f"with a linear drop temperature profile starting at : {self.T0} (K) \n"
-                    f"with drops of : {self.dT_step} (K) at times : {self.times} (s) \n"
-                    f"and linear rates of : {self.dT} (K/s)\n")
+        else:
+            temp = (f"with a multiple linear step temperature profile starting at : {self.T0} (K) \n")
+                 
         string = ("Crystal Information: \n"
                 f" A density of : {self.rho} (m^-3) or {self.urho} (unitless)\n"
                 f"The ground state to excited state energy gap is : {self.E_loc} (eV)\n"
