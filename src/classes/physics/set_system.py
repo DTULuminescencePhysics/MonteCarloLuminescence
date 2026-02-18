@@ -45,6 +45,13 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
         # CrystalPhysics.__init__(self,fill_kind,fade_kind,tran_kind,**vars(self))
         Transitions.__init__(self, fill_kind, tran_kind, **vars(self))
 
+        self._processes = self.build_processes(
+            tran_kind,
+            retrap_pre_tun=getattr(self, 'retrap_pre_tun', 0.01),
+            retrap_pre_CB=getattr(self, 'retrap_pre_CB', 1.0),
+            _cb_mob=self._cb_mob,
+        )
+
     # def set_fill_and_fade(self):
     #     """Function that returns the fade and fill kinds that can be passed to the CrystalPhysics
     #     intializer."""
@@ -66,9 +73,7 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
     #     return fill_kind, fade_kind
     
     def set_transitions(self):
-        """
-        To be extended to switch on/off transitions.
-        """
+        
         fill_kind = "None"
 
         trans_kind = ["ground_state_tunnel", 

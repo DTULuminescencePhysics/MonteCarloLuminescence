@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 from scipy.signal import savgol_filter,lfilter 
 from src.classes.constants import time_to_seconds
+from src.classes.physics.transition_process import EVENT_NAMES
 
 mpl.rcParams['font.family']='DejaVu Sans'
 plt.rcParams['font.size']=18
@@ -84,8 +85,8 @@ def time_sequence(input_temps, unit):
 
 def clean_up_results(results, output_file_name, crystal):
     S, C, L = results.shape
-    
-    assert C == 3
+
+    assert C == 4
 
     ratio_file = output_file_name+"_ratio"
     lum_file = output_file_name+"_lum"
@@ -97,18 +98,15 @@ def clean_up_results(results, output_file_name, crystal):
     time_union = np.unique(np.concatenate(times_list))
 
     del times_list
-    steady_time = np.linspace(0,time_union[-1],10000) 
+    steady_time = np.linspace(0,time_union[-1],10000)
     divisor = closest_divisor(S)
-    additional = S/divisor -1 
-  
-    # ratio_results = np.zeros((int(3+additional), time_union.size))
-    ratio_results = np.zeros((int(3+additional), steady_time.size))
+    additional = S/divisor -1
 
-    # ratio_results[0,:] = time_union
+    ratio_results = np.zeros((int(3+additional), steady_time.size))
     ratio_results[0,:] = steady_time
 
     cnt = 0
-    header = [f"Time (s)", "Temperature (C)"]
+    header = ["Time (s)", "Temperature (C)"]
 
     sumed = np.zeros(time_union.size)
     for i in range(S):
@@ -117,24 +115,52 @@ def clean_up_results(results, output_file_name, crystal):
         if(((i+1) % divisor == 0 and i !=0) or (S == 1)):
 
             ratio_results[2+cnt,:] = (np.interp(steady_time,time_union,sumed))/(i+1)
-            
+
             cnt+=1
             header.append(f"n/N (avg {i+1} reps)")
 
     ratio_results[1,:] = crystal.Tat(ratio_results[0,:])
     ratio_results[1,:] -= 273.15
 
+    # ── Dominant event type per steady_time bin ──────────────────────
+    all_codes = []
+    all_times = []
+    for i in range(S):
+        t = results[i, 0, :lengths[i]]
+        c = results[i, 3, :lengths[i]]
+        event_mask = c >= 2   # only transition events (exclude no_event / fill)
+        all_codes.append(c[event_mask])
+        all_times.append(t[event_mask])
+    all_codes = np.concatenate(all_codes)
+    all_times = np.concatenate(all_times)
+
+    bins = np.digitize(all_times, steady_time)
+    dominant_names = []
+    for b in range(steady_time.size):
+        codes_in_bin = all_codes[bins == b].astype(int)
+        if codes_in_bin.size > 0:
+            dominant_names.append(EVENT_NAMES[int(np.bincount(codes_in_bin).argmax())])
+        else:
+            dominant_names.append(EVENT_NAMES[0])
+    header.append("dominant_event_type")
+
+    # ── Write ratio CSV with mixed numeric + string columns ─────────
     if os.path.exists(f"{ratio_file}.csv"):
         os.remove(f"{ratio_file}.csv")
-    np.savetxt(f"{ratio_file}.csv", ratio_results.T, delimiter=",", header=",".join(header))
-    
-    cnt = 0 
-    lum_results = np.zeros((int(3+additional), time_union.size))
+    with open(f"{ratio_file}.csv", "w") as f:
+        f.write("# " + ",".join(header) + "\n")
+        for j in range(steady_time.size):
+            numeric_cols = ",".join(f"{ratio_results[r, j]}" for r in range(ratio_results.shape[0]))
+            f.write(f"{numeric_cols},{dominant_names[j]}\n")
 
-    lum_results[0,:] = time_union
-    
     del ratio_results
-    header = [f"Time (s)", "Temperature (C)"]
+
+    # ── Luminescence binning (unchanged logic, uses channel 2) ──────
+    cnt = 0
+    lum_results = np.zeros((int(3+additional), time_union.size))
+    lum_results[0,:] = time_union
+
+    lum_header = ["Time (s)", "Temperature (C)"]
     for i in range(S):
         zeros = np.zeros(time_union.size)
         temp = results[i,0,:lengths[i]]
@@ -144,17 +170,17 @@ def clean_up_results(results, output_file_name, crystal):
         if((i+1) % divisor == 0 and i !=0):
             if i < S-1:
                 lum_results[2+cnt+1,:]+= lum_results[2+cnt,:]
-                header.append(f"Lum (avg {i+1} reps)")
+                lum_header.append(f"Lum (avg {i+1} reps)")
             cnt+=1
         elif (S == 1):
-            header.append(f"Lum (avg {i+1} reps)")
-    
+            lum_header.append(f"Lum (avg {i+1} reps)")
+
     lum_results[1,:] = crystal.Tat(lum_results[0,:])
     lum_results[1,:] -= 273.15
 
     if os.path.exists(f"{lum_file}.csv"):
         os.remove(f"{lum_file}.csv")
-    np.savetxt(f"{lum_file}.csv", lum_results.T, delimiter=",", header=",".join(header))
+    np.savetxt(f"{lum_file}.csv", lum_results.T, delimiter=",", header=",".join(lum_header))
     del lum_results
     return ratio_file, lum_file
 
@@ -224,16 +250,35 @@ def plot_T_profile(file_name:str, temp: np.ndarray, times: np.ndarray, T_unit:st
     plt.savefig(file_name,dpi=300, transparent=False,bbox_inches='tight')
     plt.close()
 
+def _load_ratio_csv(path: str):
+    """Load the ratio CSV, skipping the trailing string column."""
+    with open(path) as f:
+        header_line = f.readline()
+    # Count numeric columns by reading first data line
+    with open(path) as f:
+        f.readline()  # skip header
+        first_data = f.readline().strip()
+    parts = first_data.split(",")
+    # Find how many leading columns are numeric
+    ncols = 0
+    for p in parts:
+        try:
+            float(p)
+            ncols += 1
+        except ValueError:
+            break
+    data = np.loadtxt(path, delimiter=",", usecols=range(ncols))
+    return data, header_line
+
 def plot_forward_results(ratio_file: str, lum_file:str, T_unit: str = 's', T_type: str = 'constant') -> None:
-   
-    data = np.loadtxt(f"{ratio_file}.csv", delimiter=",")
+
+    data, header = _load_ratio_csv(f"{ratio_file}.csv")
     times = time_sequence(data[:,0], T_unit)
 
-    f = open(f"{ratio_file}.csv")
-    header = f.readline()
     header_names = header.split(',')[2:]
-    f.close()
-    
+    # Remove the event_type column name from header_names for plotting
+    header_names = [h for h in header_names if 'event' not in h.lower()]
+
     plot_forward_ratio(f"Time_filling_{ratio_file}.png",data[:,2:],times, T_unit,header_names)
     plot_T_profile("Temperature_Profile.png",data[:,1],times,T_unit)
 
@@ -246,10 +291,10 @@ def plot_forward_multi_experiment(ratio_files: list[str],file_name: str,T_unit: 
     j=0
     for i in range(len(ratio_files)):
         if( i > 0 and i%7 == 0):
-            j = ((j+1)%4) 
-      
+            j = ((j+1)%4)
+
         file = ratio_files[i]
-        data = np.loadtxt(file, delimiter=",")
+        data, _ = _load_ratio_csv(file)
         times = time_sequence(data[:,0], T_unit)
         ratio_vs(times,data[:,-1],ax,colors[i%7],lines[j],f"Experiment no.{i+1}")
 

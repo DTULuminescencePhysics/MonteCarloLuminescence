@@ -23,6 +23,7 @@ class Transitions:
 
     FILL_REGISTRY: ClassVar[Dict[str, Builder3]] = {}
     TRAN_REGISTRY: ClassVar[Dict[str, Builder4]] = {}
+    PROCESS_REGISTRY: ClassVar[Dict[str, Callable]] = {}
 
 
     def __init__(self, fill_kind: str, tran_kind: List[str], **kwargs):
@@ -67,8 +68,36 @@ class Transitions:
         return deco
 
     @classmethod
+    def register_process(cls, kind: str) -> Callable:
+        kind = kind.lower()
+        def deco(fn: Callable) -> Callable:
+            if not callable(fn):
+                raise TypeError("process builder must be callable")
+            cls.PROCESS_REGISTRY[kind] = fn
+            return fn
+        return deco
+
+    def build_processes(self, tran_kind: List[str], **kwargs) -> list:
+        """Build the ordered list of active TransitionProcess instances
+        from the registered process builders."""
+        processes: list = []
+        for tran_name in tran_kind:
+            if tran_name not in self.PROCESS_REGISTRY:
+                continue
+            attr_name = self.TRAN_REGISTRY[tran_name][0]
+            rate_fn = getattr(self, attr_name)
+            builder = self.PROCESS_REGISTRY[tran_name]
+            result = builder(rate_fn=rate_fn, **_filter_kwargs(builder, kwargs))
+            if isinstance(result, list):
+                processes.extend(result)
+            else:
+                processes.append(result)
+        return processes
+
+    @classmethod
     def available_physics(cls) -> dict[str, list[str]]:
         return {
             "fill": sorted(cls.FILL_REGISTRY),
             "tran": sorted(cls.TRAN_REGISTRY),
+            "process": sorted(cls.PROCESS_REGISTRY),
         }

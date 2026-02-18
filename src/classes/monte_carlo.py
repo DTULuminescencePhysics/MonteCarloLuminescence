@@ -4,10 +4,11 @@ import numpy as np
 from dataclasses import dataclass, field
 # from joblib import Parallel, delayed
 from omegaconf import DictConfig
-from src.classes.constants import cnst  
+from src.classes.constants import cnst
 
 from src.errors import ErrorOutputHandler
 from src.classes.physics.crystal import Box
+from src.classes.physics.transition_process import is_luminescence
 
 
 @dataclass
@@ -104,54 +105,46 @@ class MCBase:
 
 
            
-    def single_experiment_run(self, rep: int, t: float = 0.0, 
-                              t_pcnt: float | None = None, h_pcnt:float | None = None) -> None:
-        
-        if t_pcnt is None:
-            t_pcnt = self.trap_pcnt 
-        if h_pcnt is None:
-            h_pcnt = self.hole_pcnt
-
-        self.crystal.lattice_setup((self.seed+rep), t_pcnt, h_pcnt, t=t)
-        i=0
-        self.results[rep,0,i] = self.crystal.time
-        self.results[rep,1,i] = self.crystal.t_cnt
-        self.results[rep,2,i] = 0
-        i+=1 
-        self.max_dt_setter()
-        
-        while self.crystal.time < self.crystal.duration:
-            if self.crystal.time >= self.max_dt_time_chk:
-                self.max_dt_finder()
-            dt = min(self.crystal.fill,self.crystal.fade,self.max_dt)
-
-        
-            self.crystal.event_bool = True
-            if dt == self.crystal.fill:
-                self.crystal.trap_new_electron()
-                event = 0
-            elif dt == self.crystal.fade:                
-                self.crystal.remove_electron()
-                event = 1
-            else:
-                self.crystal.event_bool = False
-                event = 0
-            self.crystal.timestep(dt)
-
-            if self.crystal.time >= self.crystal.duration:
-                self.results[rep,0,i] = self.crystal.duration
-                self.results[rep,1,i] = self.results[rep,1,i-1]
-                self.results[rep,2,i] = 0
-                i+=1
-                break 
-
-            self.results[rep,0,i] = self.crystal.time
-            self.results[rep,1,i] = self.crystal.t_cnt
-            self.results[rep,2,i] = event
-            i+=1
-
-        self.results[rep,1,:] /= self.crystal.N
-        self.results.flush()
+    # def single_experiment_run(self, rep: int, t: float = 0.0,
+    #                           t_pcnt: float | None = None, h_pcnt:float | None = None) -> None:
+    #     if t_pcnt is None:
+    #         t_pcnt = self.trap_pcnt
+    #     if h_pcnt is None:
+    #         h_pcnt = self.hole_pcnt
+    #     self.crystal.lattice_setup((self.seed+rep), t_pcnt, h_pcnt, t=t)
+    #     i=0
+    #     self.results[rep,0,i] = self.crystal.time
+    #     self.results[rep,1,i] = self.crystal.t_cnt
+    #     self.results[rep,2,i] = 0
+    #     i+=1
+    #     self.max_dt_setter()
+    #     while self.crystal.time < self.crystal.duration:
+    #         if self.crystal.time >= self.max_dt_time_chk:
+    #             self.max_dt_finder()
+    #         dt = min(self.crystal.fill,self.crystal.fade,self.max_dt)
+    #         self.crystal.event_bool = True
+    #         if dt == self.crystal.fill:
+    #             self.crystal.trap_new_electron()
+    #             event = 0
+    #         elif dt == self.crystal.fade:
+    #             self.crystal.remove_electron()
+    #             event = 1
+    #         else:
+    #             self.crystal.event_bool = False
+    #             event = 0
+    #         self.crystal.timestep(dt)
+    #         if self.crystal.time >= self.crystal.duration:
+    #             self.results[rep,0,i] = self.crystal.duration
+    #             self.results[rep,1,i] = self.results[rep,1,i-1]
+    #             self.results[rep,2,i] = 0
+    #             i+=1
+    #             break
+    #         self.results[rep,0,i] = self.crystal.time
+    #         self.results[rep,1,i] = self.crystal.t_cnt
+    #         self.results[rep,2,i] = event
+    #         i+=1
+    #     self.results[rep,1,:] /= self.crystal.N
+    #     self.results.flush()
 
     def single_experiment_run_modified(self, rep: int, t: float = 0.0, 
                               t_pcnt: float | None = None, h_pcnt:float | None = None) -> None:
@@ -166,37 +159,40 @@ class MCBase:
         self.results[rep,0,i] = self.crystal.time
         self.results[rep,1,i] = self.crystal.t_cnt
         self.results[rep,2,i] = 0
-        i+=1 
+        self.results[rep,3,i] = 0
+        i+=1
         self.max_dt_setter()
-        
+
         while self.crystal.time < self.crystal.duration:
             if self.crystal.time >= self.max_dt_time_chk:
                 self.max_dt_finder()
-            
+
             dt = min(self.crystal.fill,self.crystal.exec_time,self.max_dt)
-        
-            self.crystal.event_bool = True
+
+            # self.crystal.event_bool = True
             if dt == self.crystal.fill:
                 self.crystal.trap_new_electron()
-                event = 0
-            elif dt == self.crystal.exec_time:                
+                event_code = self.crystal.event_code
+            elif dt == self.crystal.exec_time:
                 self.crystal.operate_electron()
-                event = 1
+                event_code = self.crystal.event_code
             else:
-                self.crystal.event_bool = False
-                event = 0
+                # self.crystal.event_bool = False
+                event_code = 0
             self.crystal.timestep(dt)
 
             if self.crystal.time >= self.crystal.duration:
                 self.results[rep,0,i] = self.crystal.duration
                 self.results[rep,1,i] = self.results[rep,1,i-1]
                 self.results[rep,2,i] = 0
+                self.results[rep,3,i] = 0
                 i+=1
-                break 
+                break
 
             self.results[rep,0,i] = self.crystal.time
             self.results[rep,1,i] = self.crystal.t_cnt
-            self.results[rep,2,i] = event
+            self.results[rep,2,i] = 1 if is_luminescence(event_code) else 0
+            self.results[rep,3,i] = event_code
             i+=1
 
         self.results[rep,1,:] /= self.crystal.N
@@ -213,7 +209,7 @@ class MCBase:
         if os.path.exists(self.data_path):
             os.remove(self.data_path)
 
-        self.results = np.memmap(self.data_path, dtype=np.float32, mode='w+', shape=(self.repetion, 3, self.max_length))
+        self.results = np.memmap(self.data_path, dtype=np.float32, mode='w+', shape=(self.repetion, 4, self.max_length))
         self.results[:,:,:] = np.nan
         self.results.flush()
         err.output(f"Starting Monte Carlo simulation with {self.repetion} repetitions")

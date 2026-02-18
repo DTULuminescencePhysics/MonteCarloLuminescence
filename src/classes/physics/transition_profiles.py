@@ -3,6 +3,10 @@ from typing import Callable, Tuple
 import numpy as np 
 
 from src.classes.physics.transitions import Transitions
+from src.classes.physics.transition_process import (
+    TunnelingRecombination, TunnelingRetrapping, ConductionBandExcitation,
+    EVENT_CODES,
+)
 from src.helper_functions import ArrayLike, _return_like_input
 from src.classes.constants import cnst
 
@@ -69,8 +73,43 @@ def build_gs_ex_cb(E_loc:float, E_cb:float, s:float) -> Callable[[ArrayLike], Ar
 @Transitions.register_tran("cb_mobility", "_cb_mob")
 def build_cb_mobility(mu:float) -> Callable[[ArrayLike], ArrayLike]:
     def f(r:ArrayLike) -> ArrayLike:
-        
-        lifetime = np.exp(r/mu)**2
+
+        lifetime = np.exp(-(r/mu)**2)
 
         return lifetime
     return f
+
+
+# ── Process builders ─────────────────────────────────────────────
+# Each builder receives the rate callable (rate_fn) already built by
+# the corresponding register_tran builder, plus physics kwargs.
+
+@Transitions.register_process("ground_state_tunnel")
+def _build_gs_tunnel_procs(rate_fn, retrap_pre_tun=0.01, **kw):
+    return [
+        TunnelingRecombination("GS tunneling", rate_fn, "F1",
+                               event_code=EVENT_CODES["GS_tun_recom"]),
+        TunnelingRetrapping("GS tunneling", rate_fn, "F1", retrap_pre_tun,
+                            event_code=EVENT_CODES["GS_tun_retrap"]),
+    ]
+
+@Transitions.register_process("excited_state_tunnel")
+def _build_es_tunnel_procs(rate_fn, retrap_pre_tun=0.01, **kw):
+    return [
+        TunnelingRecombination("ES tunneling", rate_fn, "F2",
+                               event_code=EVENT_CODES["ES_tun_recom"]),
+        TunnelingRetrapping("ES tunneling", rate_fn, "F2", retrap_pre_tun,
+                            event_code=EVENT_CODES["ES_tun_retrap"]),
+    ]
+
+@Transitions.register_process("ground_state_to_cb")
+def _build_gs_cb_proc(rate_fn, _cb_mob=None, retrap_pre_CB=1.0, **kw):
+    return [ConductionBandExcitation("GS->CB", rate_fn, "F1", _cb_mob, retrap_pre_CB,
+                                     recom_event_code=EVENT_CODES["GS_CB_recom"],
+                                     retrap_event_code=EVENT_CODES["GS_CB_retrap"])]
+
+@Transitions.register_process("excited_state_to_cb")
+def _build_es_cb_proc(rate_fn, _cb_mob=None, retrap_pre_CB=1.0, **kw):
+    return [ConductionBandExcitation("ES->CB", rate_fn, "F2", _cb_mob, retrap_pre_CB,
+                                     recom_event_code=EVENT_CODES["ES_CB_recom"],
+                                     retrap_event_code=EVENT_CODES["ES_CB_retrap"])]

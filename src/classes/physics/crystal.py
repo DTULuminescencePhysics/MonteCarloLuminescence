@@ -37,36 +37,29 @@ class Box(_temp,_ThermalParameters):
     HN: int = field(init=False)
     occ_trap: np.ndarray = field(init=False)
     occ_hole: np.ndarray = field(init=False)
-    ex_trap:  np.ndarray = field(init=False)
+    # ex_trap:  np.ndarray = field(init=False)
     trap_coords: np.ndarray = field(init=False)
     hole_coords: np.ndarray = field(init=False)
-    precise_trap: np.ndarray = field(init=False)
-    precise_hole: np.ndarray = field(init=False)
+    # precise_trap: np.ndarray = field(init=False)
+    # precise_hole: np.ndarray = field(init=False)
     nearest: np.ndarray = field(init=False)
     dist: np.ndarray = field(init=False)
     dist_ee: np.ndarray = field(init=False)
     d: np.ndarray = field(init=False)
     d_ee: np.ndarray = field(init=False)
-    _lifetimes: ArrayLike = field(init=False)
     _filltime: ArrayLike = field(init=False)
-    _tau_es_tun_recom: ArrayLike | None = field(init=False)
-    _tau_gs_tun_recom: ArrayLike | None = field(init=False)
-    _tau_es_con: ArrayLike | None = field(init=False)
-    _tau_gs_con: ArrayLike | None = field(init=False)
-    _tau_es_tun_retrap: ArrayLike | None = field(init=False)
-    _tau_gs_tun_retrap: ArrayLike | None = field(init=False)
-    _tau_cb_mob: ArrayLike | None = field(init=False)
-    fade: ArrayLike = field(init=False)
     fill: ArrayLike = field(init=False)
     exec_time: ArrayLike = field(init=False)
-    fade_index: int = field(init=False)
+    # fade_index: int = field(init=False)
     exec_index: int = field(init=False)
     event_bool: bool = field(init=False,default=False)
     rng: np.random.Generator = field(init=False)
     F1: float = field(init=False)
     F2: float = field(init=False)
-    retrap_pre_tun: float|None = field(default=0)
+    retrap_pre_tun: float|None = field(default=0.01)
     retrap_pre_CB: float|None = field(default=1)
+    boundary: str = field(default="padded")
+    event_code: int = field(init=False, default=0)
 
 
     def __repr__(self):
@@ -121,16 +114,17 @@ class Box(_temp,_ThermalParameters):
 
         physics_cfg = resolved.get("physics", {})
         box_cfg = resolved.get("box", {})
+        mc_cfg = resolved.get("mc", {})
         if T_override is None:
             temp_cfg = resolved.get("temp",{})
-        else: 
+        else:
             temp_cfg = T_override
 
         init_fields = {f.name for f in fields(cls) if f.init}
         array_fields = {"times", "dT_step", "dT", "T_inf", "k"}
 
         kwargs: Dict[str, Any] = {}
-        for section in (physics_cfg, temp_cfg, box_cfg, resolved):
+        for section in (physics_cfg, temp_cfg, box_cfg, mc_cfg, resolved):
             if not isinstance(section, dict):
                 continue
             for key, value in section.items():
@@ -154,12 +148,18 @@ class Box(_temp,_ThermalParameters):
     def set_dimensions(self, N_number: int = 100) -> None:
         """Set the dimensions of the box"""
 
-        self.volume = np.array((self.dimension**3,(self.dimension*1.5)**3))
+        if self.boundary == "periodic":
+            self.volume = np.array((self.dimension**3, self.dimension**3))
+        else:
+            self.volume = np.array((self.dimension**3, (self.dimension*1.5)**3))
         self.NumberofTraps()
         to_add = 1.5e-8
-        while self.N < N_number: 
+        while self.N < N_number:
             self.dimension += to_add
-            self.volume = np.array((self.dimension**3,(self.dimension*1.5)**3))
+            if self.boundary == "periodic":
+                self.volume = np.array((self.dimension**3, self.dimension**3))
+            else:
+                self.volume = np.array((self.dimension**3, (self.dimension*1.5)**3))
             self.NumberofTraps()
             to_add -= 1e-10
 
@@ -174,19 +174,19 @@ class Box(_temp,_ThermalParameters):
         self.HN = round(self.rho*self.volume[1])
 
 
-    def topk_manhattan(self,traps, holes, k=20):
-        """Finds the k nearest holes that are not necerssarily 
-        unique based upon the manhattan distance"""
-        idxs = np.empty((self.N, k), dtype=np.uint16)
-        for i, p in enumerate(traps):
-            d = np.abs(holes - p)*self.unit_cell_dims
-            d = d.sum(axis=1)
-            part = np.argpartition(d, k-1)[:k]
-            order = np.argsort(d[part])
-            best = part[order]
-            idxs[i] = best
-                      
-        return idxs
+    # def topk_manhattan(self,traps, holes, k=20):
+    #     """Finds the k nearest holes that are not necerssarily
+    #     unique based upon the manhattan distance"""
+    #     idxs = np.empty((self.N, k), dtype=np.uint16)
+    #     for i, p in enumerate(traps):
+    #         d = np.abs(holes - p)*self.unit_cell_dims
+    #         d = d.sum(axis=1)
+    #         part = np.argpartition(d, k-1)[:k]
+    #         order = np.argsort(d[part])
+    #         best = part[order]
+    #         idxs[i] = best
+    #
+    #     return idxs
     
     def set_random_generator(self, seed: int | None = None) -> None:
         """Set the random number genreator using the seed. The seed 
@@ -199,10 +199,13 @@ class Box(_temp,_ThermalParameters):
         self.set_random_generator(seed)
 
         size = np.array((self.dimension,self.dimension,self.dimension))
-      
 
-        hole_coords = (self.rng.random((self.HN,3))*size*1.5)      
-        trap_coords = (self.rng.random((self.N,3))*size)+(self.dimension*0.25) 
+        if self.boundary == "periodic":
+            hole_coords = self.rng.random((self.HN, 3)) * size
+            trap_coords = self.rng.random((self.N, 3)) * size
+        else:
+            hole_coords = (self.rng.random((self.HN,3))*size*1.5)
+            trap_coords = (self.rng.random((self.N,3))*size)+(self.dimension*0.25) 
 
         nn = self.HN
 
@@ -260,51 +263,50 @@ class Box(_temp,_ThermalParameters):
         self.define_new_d_full()    # self.define_new_d()
         self.initial_times(t=t)
 
-    def float64_to_int32(self,points) -> np.ndarray:
-        return (np.array(points) * (2**32 - 1)).astype(np.uint32)
+    # def float64_to_int32(self,points) -> np.ndarray:
+    #     return (np.array(points) * (2**32 - 1)).astype(np.uint32)
 
-    def int32_to_float642(self,points: np.ndarray) -> np.ndarray:
-        return points.astype(np.float64)/(2**32 - 1)
+    # def int32_to_float642(self,points: np.ndarray) -> np.ndarray:
+    #     return points.astype(np.float64)/(2**32 - 1)
 
-    def set_hole_trap_precise_locations(self) -> tuple[np.ndarray,np.ndarray]:
-        traps = self.rng.random((self.N,3))
-        holes = self.rng.random((self.HN,3))
-        
-        return traps, holes
-    
-    def xyz_coords_to_flat(self, arr: np.ndarray, h: int, w: int, l: int) -> np.ndarray:
-        """Flattens array of xyz coordiantes into single list""" 
-        flat_coords = np.array(np.ravel_multi_index(arr.T, (h, w, l)),dtype=np.uint32)
-        return flat_coords
-       
-    def flat_to_xyz_coords(self, flat_coords: np.ndarray, h: int, w: int, l: int)-> np.ndarray:
-        """Takes flattened coordinate list and converts them back to 
-        xyz coordinates"""
-        coords = np.array(np.unravel_index(flat_coords, (h,w,l))).T 
-        return coords
+    # def set_hole_trap_precise_locations(self) -> tuple[np.ndarray,np.ndarray]:
+    #     traps = self.rng.random((self.N,3))
+    #     holes = self.rng.random((self.HN,3))
+    #     return traps, holes
 
-    def flat_i_to_xyz(self,flat_coord: np.ndarray, h: int, w: int, l: int)-> np.ndarray:
-        """Takes single flat coordinate and converts it back to xyz"""
-        return np.array(np.unravel_index(flat_coord, (h,w,l)))
+    # def xyz_coords_to_flat(self, arr: np.ndarray, h: int, w: int, l: int) -> np.ndarray:
+    #     """Flattens array of xyz coordiantes into single list"""
+    #     flat_coords = np.array(np.ravel_multi_index(arr.T, (h, w, l)),dtype=np.uint32)
+    #     return flat_coords
 
-    def xyz_to_flat(self, arr: np.ndarray)-> np.ndarray:
-        """Turns an array into arry of flat bits"""
-        bits = np.packbits(arr.reshape(-1)).astype(np.uint8)
-        return bits
+    # def flat_to_xyz_coords(self, flat_coords: np.ndarray, h: int, w: int, l: int)-> np.ndarray:
+    #     """Takes flattened coordinate list and converts them back to
+    #     xyz coordinates"""
+    #     coords = np.array(np.unravel_index(flat_coords, (h,w,l))).T
+    #     return coords
 
-    def flat_to_xyz(self, bits: np.ndarray, h: int, w: int, l: int)-> np.ndarray:
-        """Recovers binary 3D arry from flattened bits"""
-        flat = np.unpackbits(bits)[:h*w*l]
-        arr = flat.reshape(h, w, l).astype(bool)
-        return arr
+    # def flat_i_to_xyz(self,flat_coord: np.ndarray, h: int, w: int, l: int)-> np.ndarray:
+    #     """Takes single flat coordinate and converts it back to xyz"""
+    #     return np.array(np.unravel_index(flat_coord, (h,w,l)))
 
-    def flat_to_xyz_occupied(self, bits: np.ndarray, h: int, w: int, l: int)-> np.ndarray:
-        """Returns the xyz coordinates of non-zero elements of a 3D array 
-        that has been flattened into a bit representation"""
-        flat = np.unpackbits(bits)[:h*w*l]
-        flat_indices = np.flatnonzero(flat)
-        coords = np.array(np.unravel_index(flat_indices,(h, w, l))).T 
-        return coords
+    # def xyz_to_flat(self, arr: np.ndarray)-> np.ndarray:
+    #     """Turns an array into arry of flat bits"""
+    #     bits = np.packbits(arr.reshape(-1)).astype(np.uint8)
+    #     return bits
+
+    # def flat_to_xyz(self, bits: np.ndarray, h: int, w: int, l: int)-> np.ndarray:
+    #     """Recovers binary 3D arry from flattened bits"""
+    #     flat = np.unpackbits(bits)[:h*w*l]
+    #     arr = flat.reshape(h, w, l).astype(bool)
+    #     return arr
+
+    # def flat_to_xyz_occupied(self, bits: np.ndarray, h: int, w: int, l: int)-> np.ndarray:
+    #     """Returns the xyz coordinates of non-zero elements of a 3D array
+    #     that has been flattened into a bit representation"""
+    #     flat = np.unpackbits(bits)[:h*w*l]
+    #     flat_indices = np.flatnonzero(flat)
+    #     coords = np.array(np.unravel_index(flat_indices,(h, w, l))).T
+    #     return coords
     
     # def create_distance_matrix(self,trap_coords: np.ndarray, 
     #                            hole_location: np.ndarray, 
@@ -316,16 +318,26 @@ class Box(_temp,_ThermalParameters):
     #     h = holes[None,:,:]
     #     self.dist = np.linalg.norm(e-h,axis=2)
 
-    def create_distance_matrix(self,trap_coords: np.ndarray, 
+    def create_distance_matrix(self,trap_coords: np.ndarray,
                                hole_coords: np.ndarray) -> None:
-       
-        # e = trap_coords[:,None,:]
-        # h = hole_coords[None,:,:]
-        # self.dist = np.linalg.norm(e-h,axis=2)
-        
-        self.dist = cdist(trap_coords, hole_coords)
-        self.dist_ee = cdist(trap_coords, trap_coords)
+
+        if self.boundary == "periodic":
+            self.dist    = self._min_image_dist(trap_coords, hole_coords)
+            self.dist_ee = self._min_image_dist(trap_coords, trap_coords)
+        elif self.boundary == "padded":
+            self.dist = cdist(trap_coords, hole_coords)
+            self.dist_ee = cdist(trap_coords, trap_coords)
+        else:
+            raise ValueError(f"Invalid boundary condition: {self.boundary}")
         np.fill_diagonal(self.dist_ee, 1e-20)
+
+    def _min_image_dist(self, coords_a: np.ndarray, coords_b: np.ndarray) -> np.ndarray:
+        """Compute pairwise Euclidean distances using the minimum-image
+        convention for a cubic box of side length self.dimension."""
+        L = self.dimension
+        delta = coords_a[:, None, :] - coords_b[None, :, :]
+        delta -= L * np.round(delta / L)            # round=0 if delta<L/2, round=1 if delta>L/2, round=-1 if delta<-L/2
+        return np.linalg.norm(delta, axis=2)
 
         # m = self.dist.mean()
         # s = self.dist.std()
@@ -386,27 +398,28 @@ class Box(_temp,_ThermalParameters):
 
     def trap_new_electron(self):
         """Function that randomly chooses a new electron trap.
-        A index is chosen at random and then the nearest unavailable 
+        A index is chosen at random and then the nearest unavailable
         electron hole is selected and added to the crystal"""
         if self.t_cnt >= self.N:
             return
         avail = np.flatnonzero(self.occ_trap==0)
         t_index = self.rng.choice(avail)
         # nn = self.nearest[t_index][~np.isin(self.nearest[t_index],np.flatnonzero(self.occ_hole))]
-        # if len(nn) > 0 : 
+        # if len(nn) > 0 :
         #     h_index = nn[0]
         # else:
         if self.h_cnt < self.HN:
-            
+
             avail = np.flatnonzero(self.occ_hole==0)
             h_index = self.rng.choice(avail)
-            
-            self.occ_hole[h_index] = 1 
-            self.h_cnt += 1 
 
-        self.occ_trap[t_index] = 1 
+            self.occ_hole[h_index] = 1
+            self.h_cnt += 1
+
+        self.occ_trap[t_index] = 1
         self.define_new_d_full()
-        self.t_cnt += 1 
+        self.t_cnt += 1
+        self.event_code = 1  # EVENT_CODES["fill"]
 
       
     # def remove_electron(self):
@@ -430,102 +443,52 @@ class Box(_temp,_ThermalParameters):
     #     self.t_cnt -= 1 
     #     self.h_cnt -= 1 
 
-    def remove_electron(self):
+    # def remove_electron(self):
+    #     h_index = np.flatnonzero(self.occ_hole)[self.selected_index]
+    #     t_index = np.flatnonzero(self.occ_trap)[self.exec_index]
+    #     self.occ_hole[h_index] = 0
+    #     self.occ_trap[t_index] = 0
+    #     h_cnt -= 1
+    #     t_cnt -= 1
 
-        h_index = np.flatnonzero(self.occ_hole)[self.selected_index]
-        t_index = np.flatnonzero(self.occ_trap)[self.exec_index]
-
-        self.occ_hole[h_index] = 0
-        self.occ_trap[t_index] = 0
-
-        h_cnt -= 1
-        t_cnt -= 1
-
-    def move_electron(self):
-        dest_index = np.where(self.occ_trap==0)[0][self.selected_index]
-        t_index = np.flatnonzero(self.occ_trap)[self.exec_index]
-
-        self.occ_trap[dest_index] = 1
-        self.occ_trap[t_index] = 0
+    # def move_electron(self):
+    #     dest_index = np.where(self.occ_trap==0)[0][self.selected_index]
+    #     t_index = np.flatnonzero(self.occ_trap)[self.exec_index]
+    #     self.occ_trap[dest_index] = 1
+    #     self.occ_trap[t_index] = 0
 
     def operate_electron(self):
-
+        """
+        Execute a fading transition for the selected electron.
+        Collects rates from all active TransitionProcess objects, selects
+        one channel via cumulative probability, and dispatches to its
+        execute() method.
+        """
         if self.t_cnt <= 0:
             return
-        
-        len_recom = self.h_cnt; len_retrap = self.N - self.t_cnt
 
-        t_index = np.flatnonzero(self.occ_trap)[self.exec_index]
-        lifetime = np.array([])
+        rate_blocks = []
+        process_map = []       # list: (process, start_offset, end_offset)
+        offset = 0
 
-        if self.d.size != 0:        # Prerequisite for recombination
-            lifetime = np.hstack((lifetime, self.F1 * self._tau_gs_tun_recom[self.exec_index,:], 
-                              self.F2 * self._tau_es_tun_recom[self.exec_index,:]))
-        else:
-            lifetime = np.hstack((lifetime, 1.e-20 * np.ones(len_recom*2)))
+        for proc in self._processes:
+            r = proc.rates(self, self.exec_index)
+            if r.size > 0:
+                rate_blocks.append(r)
+                process_map.append((proc, offset, offset + r.size))
+                offset += r.size
 
+        if offset == 0:
+            return
 
-        if self.d_ee.size != 0:     # Prerequisite for retrapping
-            lifetime = np.hstack((lifetime, self.F1 * self._tau_gs_tun_retrap[self.exec_index,:] * self.retrap_pre_tun, 
-                              self.F2 * self._tau_es_tun_retrap[self.exec_index,:]  * self.retrap_pre_tun))
-        else:
-            lifetime = np.hstack((lifetime, 1.e-20 * np.ones(len_retrap*2)))
+        all_rates = np.concatenate(rate_blocks)
+        cum_prob = np.cumsum(all_rates) / all_rates.sum()
+        idx = int(np.min(np.argwhere(cum_prob >= self.rng.random())))
 
-        lifetime = np.hstack((lifetime, self.F1 * self._tau_gs_con, self.F2 * self._tau_es_con))
-
-        possibility_list = np.cumsum(lifetime) / np.sum(lifetime)
-        rand = self.rng.random()
-        idx  = np.min(np.argwhere(possibility_list >= rand))
-
-        if idx < len_recom*2:         # Recombination event takes place
-
-            h_idx = idx % len_recom
-            avail_h = np.flatnonzero(self.occ_hole)
-            h_index = avail_h[h_idx]
-            self.occ_hole[h_index] = 0
-            self.occ_trap[t_index] = 0
-            self.t_cnt -= 1 
-            self.h_cnt -= 1 
-            print("Recombination via tunneling between electron {} and hole {} at T={}K".format(t_index,h_index,self.T))
-
-        elif idx < (len_recom + len_retrap)*2:     # Retrapping event takes place
-
-            t_idx = (idx - 2 * len_recom) % len_retrap
-            avail_t = np.where(self.occ_trap == 0)[0]
-            dest_idx = avail_t[t_idx]
-            self.occ_trap[dest_idx] = 1
-            self.occ_trap[t_index] = 0
-            print("Retrapping via tunneling from electron {} to trap {} at T={}K".format(t_index,dest_idx,self.T))
-
-        else:    # Excitation to conduction band takes place
-
-            self._tau_cb_mob = np.array([])
-
-            if self.d.size != 0:
-                self._tau_cb_mob = np.append(self._tau_cb_mob, self._cb_mob(self.d[self.exec_index,:]))
-
-            if self.d_ee.size != 0:
-                self._tau_cb_mob = np.append(self._tau_cb_mob, self._cb_mob(self.d_ee[self.exec_index,:]) * self.retrap_pre_CB)
-
-            possibility_list_2 = np.cumsum(self._tau_cb_mob) / np.sum(self._tau_cb_mob)
-            R2 = self.rng.random()
-            idx2 = np.min(np.argwhere(possibility_list_2 >= R2))
-
-            if idx2 < len_recom:       # Recombination
-                avail_h = np.flatnonzero(self.occ_hole)
-                h_index = avail_h[idx2]
-                self.occ_trap[t_index] = 0
-                self.occ_hole[h_index] = 0
-                self.t_cnt -= 1
-                self.h_cnt -= 1
-                print("Recombination via CB from electron {} to hole {} at T={}K".format(t_index,h_index,self.T))
-            else:                           # Retrapping
-                t_idx2 = idx2 - len_recom
-                avail_t = np.where(self.occ_trap == 0)[0]
-                dest_idx2 = avail_t[t_idx2]
-                self.occ_trap[t_index] = 0
-                self.occ_trap[dest_idx2] = 1
-                print("Retrapping via CB from electron {} to trap {} at T={}K".format(t_index,dest_idx2,self.T))
+        for proc, start, end in process_map:
+            if idx < end:
+                proc.execute(self, self.exec_index, idx - start)
+                break
 
         self.define_new_d_full()
 
@@ -549,20 +512,16 @@ class Box(_temp,_ThermalParameters):
 
 
     def timestep(self, dt) -> None:
-        """Moves time forward by dt and updates the 
+        """Moves time forward by dt and updates the
         Temperature if needed. If the temperature has not changed
         the lifetimes are simply reduced by dt"""
         super().timestep(dt)
-        if self.T_chng or self.event_bool:
+        if self.T_chng or self.event_code != 0: # self.event_bool
             self.recalc_times_full()
             self.select_electron()
-            # self.recalc_times()
-            # self.random_fill_fade()
         else:
             self.fill -= dt
-            self.fade -= dt
-        
-        # self.random_fill_fade()
+            self.exec_time -= dt
 
     # def recalc_times(self):
     #     """Recalcualtes the lifetimes and fill times"""
@@ -570,27 +529,9 @@ class Box(_temp,_ThermalParameters):
     #     self._lifetimes = self._fade(self.T,self.d)
 
     def recalc_times_full(self):
-        """Recalculates the lifetimes and fill times for the full distance matrix"""
+        """Recalculates fill time. Transition rates are computed
+        on demand by the process objects."""
         self._filltime = self._fill(self.N, self.t_cnt, self.D_dot)
-
-        if self.d.size != 0:
-            self._tau_gs_tun_recom = self._gs_tun(self.d)
-            self._tau_es_tun_recom = self._es_tun(self.d)
-        else:
-            self._tau_gs_tun_recom = np.zeros(0)
-            self._tau_es_tun_recom = np.zeros(0)
-        
-        if self.d_ee.size != 0:
-            self._tau_gs_tun_retrap = self._gs_tun(self.d_ee)
-            self._tau_es_tun_retrap = self._es_tun(self.d_ee)
-        else:
-            self._tau_gs_tun_retrap = np.zeros(0)
-            self._tau_es_tun_retrap = np.zeros(0)
-        
-        self._tau_gs_con = self._gs_con(self.T)
-        self._tau_es_con = self._es_con(self.T)
-        
-        # self._tau_cb_mob = self._cb_mob(self.mu)
 
     # def random_fill_fade(self) -> None:
     #     """Generates new random fill and fade times"""
@@ -611,37 +552,30 @@ class Box(_temp,_ThermalParameters):
     #         self.fade_index = int(np.argmin(f)) 
 
     def select_electron(self) -> None:
+        """Generate execution time for filling and fading transitions.
 
+        For fading, the overall rate for each occupied electron is
+        computed by summing bulk_rates_sum() across all active processes,
+        then an exponential random time is drawn for each electron and
+        the fastest one is selected.
         """
-        Generate execution time for filling and fading transition, in the fading
-        transitions the overall lifetime of each electron is calculated and the
-        general execution time for each electron is generated 
-        """
-
         if (self.h_cnt < self.HN) and self._filltime > 0:
-            self.fill = self.rng.exponential(self._filltime) 
-        else: 
+            self.fill = self.rng.exponential(self._filltime)
+        else:
             self.fill = 1e20
 
         if self.t_cnt == 0:
             self.exec_time = 1e20
             self.exec_index = None
         else:
-            self.F1 = 1. / (1 + np.exp(-self.E_loc/(cnst.k_b_ev * self.T)))
-            self.F2 = 1. / (1 + np.exp( self.E_loc/(cnst.k_b_ev * self.T)))
+            self.F1 = 1. / (1 + np.exp(-self.E_loc / (cnst.k_b_ev * self.T)))
+            self.F2 = 1. / (1 + np.exp( self.E_loc / (cnst.k_b_ev * self.T)))
 
-            gs_lifetime = self._tau_gs_con * np.ones(self.d.shape[0])
-            es_lifetime = self._tau_es_con * np.ones(self.d.shape[0])
+            total_rate = np.zeros(self.t_cnt)
+            for proc in self._processes:
+                total_rate += proc.bulk_rates_sum(self)
 
-            if self.d.size != 0:
-                gs_lifetime += self._tau_gs_tun_recom.sum(axis=1)
-                es_lifetime += self._tau_es_tun_recom.sum(axis=1)
-                
-            if self.d_ee.size != 0:
-                gs_lifetime += self._tau_gs_tun_retrap.sum(axis=1)
-                es_lifetime += self._tau_es_tun_retrap.sum(axis=1)
-
-            f = self.rng.exponential(1/(self.F1 * gs_lifetime + self.F2 * es_lifetime))
+            f = self.rng.exponential(1.0 / total_rate)
             self.exec_time = np.min(f)
             self.exec_index = int(np.argmin(f))
 
