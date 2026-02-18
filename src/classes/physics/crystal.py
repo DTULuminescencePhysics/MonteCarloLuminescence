@@ -56,7 +56,7 @@ class Box(_temp,_ThermalParameters):
     rng: np.random.Generator = field(init=False)
     F1: float = field(init=False)
     F2: float = field(init=False)
-    retrap_pre_tun: float|None = field(default=0.01)
+    retrap_pre_tun: float|None = field(default=0)
     retrap_pre_CB: float|None = field(default=1)
     boundary: str = field(default="padded")
     event_code: int = field(init=False, default=0)

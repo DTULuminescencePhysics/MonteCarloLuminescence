@@ -128,7 +128,7 @@ def clean_up_results(results, output_file_name, crystal):
     for i in range(S):
         t = results[i, 0, :lengths[i]]
         c = results[i, 3, :lengths[i]]
-        event_mask = c >= 2   # only transition events (exclude no_event / fill)
+        event_mask = c >= 1   # only transition events (exclude no_event)
         all_codes.append(c[event_mask])
         all_times.append(t[event_mask])
     all_codes = np.concatenate(all_codes)
