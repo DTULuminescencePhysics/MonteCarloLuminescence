@@ -795,7 +795,7 @@ class ReverseJmpMCMC:
         # self.lines[0].set_alpha(1)
         # self.lines[0].set_color("black")
         # add new line
-        line, = self.ax.plot(x, y, color="blue", alpha=1.0, label = it)
+        line, = self.ax.plot(x, y, color="blue", alpha_ES=1.0, label = it)
         self.lines.append(line)
         self.ax.legend()
         self.fig.canvas.draw_idle()
@@ -811,15 +811,15 @@ class ReverseJmpMCMC:
         self.ax.set_ylabel("Temperature")
         self.lines = []
         if isinstance(self.MC_crystal, MCBase): 
-            self.ax.plot(self.t_common,(self.MC_crystal.crystal.Tat(self.t_common)-273.15), color="black", alpha=1.0, label="Actual")
+            self.ax.plot(self.t_common,(self.MC_crystal.crystal.Tat(self.t_common)-273.15), color="black", alpha_ES=1.0, label="Actual")
             self.true_T = (self.MC_crystal.crystal.Tat(self.t_common)-273.15)
         else:
-            self.ax.plot(self.t_common,self.MC_crystal[0].crystal.Tat(self.t_common), color="black", alpha=1.0, label="Actual")
+            self.ax.plot(self.t_common,self.MC_crystal[0].crystal.Tat(self.t_common), color="black", alpha_ES=1.0, label="Actual")
             self.true_T = (self.MC_crystal[0].crystal.Tat(self.t_common)-273.15)
         # self.lines.append(line)
         plt.show(block=False)
 
-        # line, = self.ax.plot(self.t_common,self.obs, color="black", alpha=1.0)
+        # line, = self.ax.plot(self.t_common,self.obs, color="black", alpha_ES=1.0)
         # self.lines.append(line)
         
         # plt.show(block=False)

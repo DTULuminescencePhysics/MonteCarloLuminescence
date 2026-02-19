@@ -10,15 +10,15 @@ class KineticModel:
         self.s = s  # escape frequency (s⁻¹)
         self.B = self.s
         self.b = b # attempt to tunnel frequency
-        self.alpha = self.set_alpha() # tunneling rate constant (1/m)
+        self.alpha_ES = self.set_alpha() # tunneling rate constant (1/m)
         self.unitless = unitless
         self.z = 1.8
         if set_urho: 
             self.urho = rho 
-            self.rho = self.rho_def(rho,self.alpha)
+            self.rho = self.rho_def(rho,self.alpha_ES)
         else: 
             self.rho = rho 
-            self.urho = self.urho_def(rho,self.alpha)
+            self.urho = self.urho_def(rho,self.alpha_ES)
 
         self.n0 = n0
         self.T_init = T 
@@ -27,16 +27,16 @@ class KineticModel:
         
     def set_alpha(self):
         """Square tunneling potential"""
-        alpha = 2*np.sqrt(2*cnst.m_e*self.E_loc*cnst.ev_to_j)/ cnst.h_bar
-        return alpha
+        alpha_ES = 2*np.sqrt(2*cnst.m_e*self.E_loc*cnst.ev_to_j)/ cnst.h_bar
+        return alpha_ES
     
-    def urho_def(self, rho:float, alpha: float) -> float:
-        """Calculate the unitless density urho given alpha (in 1/m)"""
-        urho = (4*np.pi* rho/3)/np.power(alpha,3)
+    def urho_def(self, rho:float, alpha_ES: float) -> float:
+        """Calculate the unitless density urho given alpha_ES (in 1/m)"""
+        urho = (4*np.pi* rho/3)/np.power(alpha_ES,3)
         return urho
     
-    def rho_def(self,urho:float,alpha: float) -> float:
-        rho = urho*np.power(alpha,3)*(3/(np.pi*4))
+    def rho_def(self,urho:float,alpha_ES: float) -> float:
+        rho = urho*np.power(alpha_ES,3)*(3/(np.pi*4))
         return rho
     
     def ur(self, r: float) -> float:
@@ -52,7 +52,7 @@ class KineticModel:
         
     def Tau_r(self,r):
         """Calculate the tunneling rate for a given distance r"""
-        return np.exp(self.alpha*r)/self.s 
+        return np.exp(self.alpha_ES*r)/self.s 
     
     def Tau_ur(self,ur):
         """Calculate the unitless tunneling rate for a given distance r"""

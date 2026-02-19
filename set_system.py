@@ -11,7 +11,7 @@ class _ThermalParameters(CrystalPhysics):
 
     E_loc:   float                  # Energy gap between ground and excited state
     b :      float                  # attmpt to tunnel frequency
-    alpha:   float | None = field(default=None)
+    alpha_ES:   float | None = field(default=None)
     alpha_GS:float | None = field(default=None)
     E_cb:    float | None = field(default=None) # Conduction band energy
     s :      float | None = field(default=None) # Escape frequency
@@ -25,12 +25,12 @@ class _ThermalParameters(CrystalPhysics):
 
     def __post_init__(self):
 
-        if self.alpha is None:
-            self.alpha = self.set_alpha()
+        if self.alpha_ES is None:
+            self.alpha_ES = self.set_alpha()
         if self.rho is not None and self.urho is None:
-            self.urho_from_rho(self.alpha)
+            self.urho_from_rho(self.alpha_ES)
         elif self.urho is not None and self.rho is None:
-            self.rho_from_urho(self.alpha)
+            self.rho_from_urho(self.alpha_ES)
 
         if self.D_dot is not None:
             self.D_dot /= time_to_seconds[self.Dd_unit]
@@ -61,8 +61,8 @@ class _ThermalParameters(CrystalPhysics):
     
     def set_alpha(self):
         """Square tunneling potential"""
-        alpha = 2*np.sqrt(2*cnst.m_e*self.E_loc*cnst.ev_to_j)/ cnst.h_bar
-        return alpha 
+        alpha_ES = 2*np.sqrt(2*cnst.m_e*self.E_loc*cnst.ev_to_j)/ cnst.h_bar
+        return alpha_ES 
     
     def set_rho(self,rho):
         self.rho = rho
@@ -70,10 +70,10 @@ class _ThermalParameters(CrystalPhysics):
     def set_urho(self,urho):
         self.urho = urho 
 
-    def urho_from_rho(self,alpha):
+    def urho_from_rho(self,alpha_ES):
         if self.rho is not None:
-            self.urho = self.rho*(((4*np.pi)/3)/np.power(alpha,3))
+            self.urho = self.rho*(((4*np.pi)/3)/np.power(alpha_ES,3))
 
-    def rho_from_urho(self,alpha):
+    def rho_from_urho(self,alpha_ES):
         if self.urho is not None:
-            self.rho = self.urho*(np.power(alpha,3)*(3/(np.pi*4)))
+            self.rho = self.urho*(np.power(alpha_ES,3)*(3/(np.pi*4)))

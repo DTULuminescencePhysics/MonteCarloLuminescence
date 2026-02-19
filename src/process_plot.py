@@ -122,7 +122,6 @@ def clean_up_results(results, output_file_name, crystal):
     ratio_results[1,:] = crystal.Tat(ratio_results[0,:])
     ratio_results[1,:] -= 273.15
 
-    # ── Dominant event type per steady_time bin ──────────────────────
     all_codes = []
     all_times = []
     for i in range(S):
@@ -144,7 +143,6 @@ def clean_up_results(results, output_file_name, crystal):
             dominant_names.append(EVENT_NAMES[0])
     header.append("dominant_event_type")
 
-    # ── Write ratio CSV with mixed numeric + string columns ─────────
     if os.path.exists(f"{ratio_file}.csv"):
         os.remove(f"{ratio_file}.csv")
     with open(f"{ratio_file}.csv", "w") as f:
@@ -155,7 +153,6 @@ def clean_up_results(results, output_file_name, crystal):
 
     del ratio_results
 
-    # ── Luminescence binning (unchanged logic, uses channel 2) ──────
     cnt = 0
     lum_results = np.zeros((int(3+additional), time_union.size))
     lum_results[0,:] = time_union
@@ -204,8 +201,8 @@ def plot_time_label(ax, unit: str = "s") -> None:
         ax.set_xlabel("Time (s)")
  
 def ratio_vs(x: np.ndarray, ratio: np.ndarray, ax, colour: str = "black", 
-             line: str = 'solid',label: str | None = None, alpha:float=1.0):
-    ax.plot(x,ratio, color=colour, label = label, ls = line, alpha=alpha)
+             line: str = 'solid',label: str | None = None, alpha_ES:float=1.0):
+    ax.plot(x,ratio, color=colour, label = label, ls = line, alpha=alpha_ES)
 
 
 def plot_forward_ratio(file_name:str, data: np.ndarray, times: np.ndarray, T_unit:str, headers = None):
@@ -254,12 +251,10 @@ def _load_ratio_csv(path: str):
     """Load the ratio CSV, skipping the trailing string column."""
     with open(path) as f:
         header_line = f.readline()
-    # Count numeric columns by reading first data line
     with open(path) as f:
         f.readline()  # skip header
         first_data = f.readline().strip()
     parts = first_data.split(",")
-    # Find how many leading columns are numeric
     ncols = 0
     for p in parts:
         try:
@@ -347,7 +342,7 @@ def plot_analytic_comp_MC_single(analytic_file: str, MC_file: str, T_unit: str =
     fig=plt.figure(figsize=(3.37,5.055))
     ax=fig.add_axes((0.,0.,2.,1.))
 
-    ratio_vs(a_times,A_data[:,-1],ax,colors[0],lines[0],"Analytic",alpha=0.25)
+    ratio_vs(a_times,A_data[:,-1],ax,colors[0],lines[0],"Analytic",alpha_ES=0.25)
     ratio_vs(mc_times,MC_data[:,-1],ax,colors[1],lines[0],"MC")
     plot_time_label(ax, T_unit)
     ax.set_ylabel("n/N Trap ratio")
@@ -377,7 +372,7 @@ def plot_analytic_comp_MC_multi(analytic_file: list[str], MC_file: list[str], T_
         file = analytic_file[i]
         data = np.loadtxt(file, delimiter=",")
         times = time_sequence(data[:,0], T_unit)
-        ratio_vs(times,data[:,1:],ax,colors[i%7],lines[j],f"Analytic Experiment no.{i+1}",alpha=0.5)
+        ratio_vs(times,data[:,1:],ax,colors[i%7],lines[j],f"Analytic Experiment no.{i+1}",alpha_ES=0.5)
 
     plot_time_label(ax, T_unit)
     ax.set_ylabel("n/N Trap ratio")
@@ -411,7 +406,7 @@ def smoothed_with_running_mean(ax, x: np.ndarray ,y: np.ndarray , k: int = 5):
     rmy, rmx = running_mean(y, k, x)
 
     ratio_vs(rmx,rmy,ax,colors[2],lines[0],f"Running Mean, k={k}")
-    ratio_vs(x,y,ax,colors[0],lines[0],"Raw data",alpha=0.5)
+    ratio_vs(x,y,ax,colors[0],lines[0],"Raw data",alpha_ES=0.5)
 
     
 def smoothed_with_savgol(ax, x: np.ndarray ,y: np.ndarray , win: int = 50, pol: int =3):
@@ -420,7 +415,7 @@ def smoothed_with_savgol(ax, x: np.ndarray ,y: np.ndarray , win: int = 50, pol: 
     sg = savgol_filter(y, win, pol)
 
     ratio_vs(x,sg,ax,colors[2],lines[0],f" Savitzky-Golay Filter, window={win}, order={pol}")
-    ratio_vs(x,y,ax,colors[0],lines[0],"Raw data",alpha=0.5)
+    ratio_vs(x,y,ax,colors[0],lines[0],"Raw data",alpha_ES=0.5)
 
 
 def smoothed_with_lfilter(ax, x: np.ndarray ,y: np.ndarray, fs: float = 1000.0, fc: float = 30.0, order: int = 4):
@@ -435,7 +430,7 @@ def smoothed_with_lfilter(ax, x: np.ndarray ,y: np.ndarray, fs: float = 1000.0, 
     b = [1.0/fc]*int(fc)
     y_lf = lfilter(b,order,y)
     ratio_vs(x,y_lf,ax,colors[4],lines[0],"lf")
-    ratio_vs(x,y,ax,colors[0],lines[0],"Raw data",alpha=0.5)
+    ratio_vs(x,y,ax,colors[0],lines[0],"Raw data",alpha_ES=0.5)
 
 
 def base_smoothing(filename:str, x: np.ndarray ,y: np.ndarray, S_type:str, T_unit:str = "s", y_label:str ="n/N Trap ratio", 
@@ -481,7 +476,7 @@ def plot_analytic_comp_MC_smoothed(analytic_file: str, MC_file: str, T_unit: str
     ax=fig.add_axes((0.,0.,2.,1.))
 
     smoothed_with_running_mean(ax, mc_times, MC_data[:,-1], 2000)
-    ratio_vs(a_times,A_data[:,-1],ax,"m",lines[1],"Analytic",alpha=0.25)
+    ratio_vs(a_times,A_data[:,-1],ax,"m",lines[1],"Analytic",alpha_ES=0.25)
 
    
     plot_time_label(ax, T_unit)

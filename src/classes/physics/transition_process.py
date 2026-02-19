@@ -32,18 +32,19 @@ def is_luminescence(code: int) -> bool:
     return code >= 2 and code % 2 == 0
 
 
-# Protocol for outcomes of operations on charge carriers
+# Protocol for operations on trapped charge carriers
 
 @runtime_checkable
-class Outcome(Protocol):
+class Operation(Protocol):
     """Protocol for a terminal state mutation after a transition is selected."""
     event_code: int
 
-    def execute(self, box: Box, t_index: int, local_idx: int) -> None:
-        """Mutate box state.
+    def execute(self, box: Box, t_index: int, local_index: int) -> None:
+        """
+        Mutate box state.
 
-        t_index   : absolute index into occ_trap (already resolved)
-        local_idx : index into the outcome's target pool
+        t_index     : absolute index into occ_trap (already resolved)
+        local_index : index of the target sites into the operation
                     (occupied holes for recombination, empty traps for retrapping)
         """
         pass
@@ -52,12 +53,12 @@ class Outcome(Protocol):
 # Concrete classes for operation on charge carriers
 
 @dataclass(slots=True)
-class RecombinationOutcome:
+class RecombinationOperation:
     """Electron and hole annihilate; both are removed from the crystal."""
     event_code: int
 
-    def execute(self, box: Box, t_index: int, local_idx: int) -> None:
-        h_index = np.flatnonzero(box.occ_hole)[local_idx]
+    def execute(self, box: Box, t_index: int, local_index: int) -> None:
+        h_index = np.flatnonzero(box.occ_hole)[local_index]
         box.occ_hole[h_index] = 0
         box.occ_trap[t_index] = 0
         box.t_cnt -= 1
@@ -66,16 +67,15 @@ class RecombinationOutcome:
 
 
 @dataclass(slots=True)
-class RetrappingOutcome:
+class RetrappingOperation:
     """Electron moves from its current trap to an unoccupied trap."""
     event_code: int
 
-    def execute(self, box: Box, t_index: int, local_idx: int) -> None:
-        dest_index = np.where(box.occ_trap == 0)[0][local_idx]
+    def execute(self, box: Box, t_index: int, local_index: int) -> None:
+        dest_index = np.where(box.occ_trap == 0)[0][local_index]
         box.occ_trap[t_index] = 0
         box.occ_trap[dest_index] = 1
         box.event_code = self.event_code
-
 
 
 # Protocol for all transition processes
@@ -83,12 +83,12 @@ class RetrappingOutcome:
 @runtime_checkable
 class TransitionProcess(Protocol):
     """
-    Protocol for a single transition channel in the MC simulation.
+    Protocol for a single transition process in the MC simulation.
 
-    Each process knows:
-      1. How to compute its rate array for one electron (rates)
-      2. How to compute summed rates for ALL electrons at once (bulk_rates_sum)
-      3. How to execute the state change when selected (execute)
+    Each transition possesses three member functions:
+    rates(self, Box, int) -> Arraylike: Compute transistion rates for a given electron to all possible targets
+    bulk_rates_sum(self, Box) -> Arraylike: Compute cumulative rates for all possible transition events
+    execute(self, Box, int, int) -> None: Choose and execute a transition based on random number generation
     """
 
     name: str
@@ -126,7 +126,7 @@ class TunnelingRecombination:
     name: str
     rate_fn: Callable[[ArrayLike], ArrayLike]
     pop_factor_key: str                               # "F1"/"F2" depending on GS/ES
-    outcome: RecombinationOutcome
+    operation: Operation
 
     def rates(self, box: Box, exec_index: int) -> ArrayLike:
         if box.d.size == 0:
@@ -142,7 +142,7 @@ class TunnelingRecombination:
 
     def execute(self, box: Box, exec_index: int, local_idx: int) -> None:
         t_index = np.flatnonzero(box.occ_trap)[exec_index]
-        self.outcome.execute(box, t_index, local_idx)
+        self.operation.execute(box, t_index, local_idx)
 
 
 @dataclass(slots=True)
@@ -153,7 +153,7 @@ class TunnelingRetrapping:
     rate_fn: Callable[[ArrayLike], ArrayLike]
     pop_factor_key: str
     pre_factor: float
-    outcome: RetrappingOutcome
+    operation: Operation
 
     def rates(self, box: Box, exec_index: int) -> ArrayLike:
         if box.d_ee.size == 0:
@@ -169,7 +169,7 @@ class TunnelingRetrapping:
 
     def execute(self, box: Box, exec_index: int, local_idx: int) -> None:
         t_index = np.flatnonzero(box.occ_trap)[exec_index]
-        self.outcome.execute(box, t_index, local_idx)
+        self.operation.execute(box, t_index, local_idx)
 
 
 @dataclass(slots=True)
@@ -183,8 +183,8 @@ class ConductionBandExcitation:
     pop_factor_key: str
     cb_mob_fn: Callable[[ArrayLike], ArrayLike]  # CB mobility
     retrap_pre_CB: float
-    recom_outcome: RecombinationOutcome
-    retrap_outcome: RetrappingOutcome
+    recom_operation: Operation
+    retrap_operation: Operation
 
     def rates(self, box: Box, exec_index: int) -> ArrayLike:
         F = getattr(box, self.pop_factor_key)
@@ -218,6 +218,6 @@ class ConductionBandExcitation:
         idx2 = int(np.min(np.argwhere(prob >= box.rng.random())))
 
         if idx2 < n_recom:
-            self.recom_outcome.execute(box, t_index, idx2)
+            self.recom_operation.execute(box, t_index, idx2)
         else:
-            self.retrap_outcome.execute(box, t_index, idx2 - n_recom)
+            self.retrap_operation.execute(box, t_index, idx2 - n_recom)

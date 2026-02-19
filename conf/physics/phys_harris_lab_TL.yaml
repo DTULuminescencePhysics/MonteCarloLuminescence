@@ -5,7 +5,7 @@ dimension : 7.5e-9   # Approximate dimension of test crystal to be used null use
 
 E_loc    : 0.8 
 b        : 1e12
-alpha    : 9e9 
+alpha_ES    : 9e9 
 alpha_GS : 9e12
 E_cb     : 2.0 
 s        : 1e12 #7.5e13

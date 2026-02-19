@@ -7,5 +7,6 @@ reps      : 10     # Number of Monte Carlo simulations to repeat
 mc        : True
 ac        : False
 boundary  : periodic  # "padded" (default) or "periodic"
+n_jobs    : 10        # parallel workers (1 = sequential)
 
  

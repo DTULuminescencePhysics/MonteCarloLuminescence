@@ -5,13 +5,14 @@ import numpy as np
 from src.classes.physics.transitions import Transitions
 from src.classes.physics.transition_process import (
     TunnelingRecombination, TunnelingRetrapping, ConductionBandExcitation,
-    RecombinationOutcome, RetrappingOutcome,
+    RecombinationOperation, RetrappingOperation,
     EVENT_CODES,
 )
 from src.helper_functions import ArrayLike, _return_like_input
 from src.classes.constants import cnst
 
-# ── Filling Registry ──────────────────────────────────────────────────────────
+
+# Fill registry
 
 @Transitions.register_fill("dose")
 def build_fill_dose(D0: float) -> Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]:
@@ -34,10 +35,7 @@ def build_fill_none() -> Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]:
     return f
 
 
-# ── Process Registry ──────────────────────────────────────────────────────────
-# Each builder receives raw physics kwargs and constructs both the rate
-# callable and the TransitionProcess objects in a single step.
-# State mutations are delegated to RecombinationOutcome / RetrappingOutcome.
+# Process registry
 
 @Transitions.register_process("ground_state_tunnel")
 def _build_gs_tunnel_procs(alpha_GS: float, b: float,
@@ -45,20 +43,20 @@ def _build_gs_tunnel_procs(alpha_GS: float, b: float,
     rate_fn = lambda r: b * np.exp(-alpha_GS * r)
     return [
         TunnelingRecombination("GS tunneling", rate_fn, "F1",
-            outcome=RecombinationOutcome(EVENT_CODES["GS_tun_recom"])),
+            operation=RecombinationOperation(EVENT_CODES["GS_tun_recom"])),
         TunnelingRetrapping("GS tunneling", rate_fn, "F1", retrap_pre_tun,
-            outcome=RetrappingOutcome(EVENT_CODES["GS_tun_retrap"])),
+            operation=RetrappingOperation(EVENT_CODES["GS_tun_retrap"])),
     ]
 
 @Transitions.register_process("excited_state_tunnel")
-def _build_es_tunnel_procs(alpha: float, b: float,
+def _build_es_tunnel_procs(alpha_ES: float, b: float,
                             retrap_pre_tun: float = 0.01, **kw):
-    rate_fn = lambda r: b * np.exp(-alpha * r)
+    rate_fn = lambda r: b * np.exp(-alpha_ES * r)
     return [
         TunnelingRecombination("ES tunneling", rate_fn, "F2",
-            outcome=RecombinationOutcome(EVENT_CODES["ES_tun_recom"])),
+            operation=RecombinationOperation(EVENT_CODES["ES_tun_recom"])),
         TunnelingRetrapping("ES tunneling", rate_fn, "F2", retrap_pre_tun,
-            outcome=RetrappingOutcome(EVENT_CODES["ES_tun_retrap"])),
+            operation=RetrappingOperation(EVENT_CODES["ES_tun_retrap"])),
     ]
 
 @Transitions.register_process("ground_state_to_cb")
@@ -68,8 +66,8 @@ def _build_gs_cb_proc(E_cb: float, s: float, mu: float,
     mob_fn  = lambda r: np.exp(-(r / mu) ** 2)
     return [ConductionBandExcitation("GS->CB", rate_fn, "F1", mob_fn,
                                      retrap_pre_CB,
-                                     recom_outcome=RecombinationOutcome(EVENT_CODES["GS_CB_recom"]),
-                                     retrap_outcome=RetrappingOutcome(EVENT_CODES["GS_CB_retrap"]))]
+                                     recom_operation=RecombinationOperation(EVENT_CODES["GS_CB_recom"]),
+                                     retrap_operation=RetrappingOperation(EVENT_CODES["GS_CB_retrap"]))]
 
 @Transitions.register_process("excited_state_to_cb")
 def _build_es_cb_proc(E_loc: float, E_cb: float, s: float, mu: float,
@@ -78,5 +76,5 @@ def _build_es_cb_proc(E_loc: float, E_cb: float, s: float, mu: float,
     mob_fn  = lambda r: np.exp(-(r / mu) ** 2)
     return [ConductionBandExcitation("ES->CB", rate_fn, "F2", mob_fn,
                                      retrap_pre_CB,
-                                     recom_outcome=RecombinationOutcome(EVENT_CODES["ES_CB_recom"]),
-                                     retrap_outcome=RetrappingOutcome(EVENT_CODES["ES_CB_retrap"]))]
+                                     recom_operation=RecombinationOperation(EVENT_CODES["ES_CB_recom"]),
+                                     retrap_operation=RetrappingOperation(EVENT_CODES["ES_CB_retrap"]))]
