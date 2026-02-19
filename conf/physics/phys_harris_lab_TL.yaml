@@ -5,7 +5,7 @@ dimension : 7.5e-9   # Approximate dimension of test crystal to be used null use
 
 E_loc    : 0.8 
 b        : 1e12
-alpha_ES    : 9e9 
+alpha_ES : 9e9 
 alpha_GS : 9e12
 E_cb     : 2.0 
 s        : 1e12 #7.5e13
@@ -17,5 +17,6 @@ mu       : 1000
 Dd_unit   : s # Ka 
 phys_type : null
 
-retrap_pre_tun: 0
-retrap_pre_CB: 1
+retrap_pre_tun: 0.5
+retrap_pre_CB: 0.5
+retrap_mask_factor: 0.9

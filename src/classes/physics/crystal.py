@@ -58,6 +58,7 @@ class Box(_temp,_ThermalParameters):
     F2: float = field(init=False)
     retrap_pre_tun: float|None = field(default=0)
     retrap_pre_CB: float|None = field(default=1)
+    retrap_mask_factor: float = field(default=0.8)
     boundary: str = field(default="padded")
     event_code: int = field(init=False, default=0)
 
@@ -378,14 +379,14 @@ class Box(_temp,_ThermalParameters):
         # self.d = np.ma.array(self.dist,mask=mask).min(axis=1).compressed()
 
     def define_new_d_full(self):
-        """Updates the distance matrix between occupied electron trap and 
+        """Updates the distance matrix between occupied electron trap and
         occupied hole trap pair and the distance between occupied electron trap
         and unoccupied electron trap"""
         row_m = self.occ_trap.astype(bool)
         col_m = self.occ_hole.astype(bool)
         full = self.dist[row_m][:,col_m]
         # self.d = full
-        if full.size == 0: 
+        if full.size == 0:
             self.d = np.zeros(0)
             return
         self.d = full   # .min(axis=1)
@@ -394,6 +395,19 @@ class Box(_temp,_ThermalParameters):
         self.d_ee = self.dist_ee[row_m][:, col_m]
         if self.d_ee.size == 0:
             self.d_ee = np.zeros(0)
+            return
+
+        if self.retrap_mask_factor > 0.0:       # Retrapping is suppressed within a distance threshold
+            threshold = self.retrap_mask_factor * self.d.min()
+            mask = self.d_ee < threshold
+
+            # If every empty trap in a row is masked, preserve the nearest one.
+            all_masked_rows = mask.all(axis=1)    
+            if all_masked_rows.any():
+                nearest_col = self.d_ee.argmin(axis=1)
+                for row_i in np.flatnonzero(all_masked_rows):
+                    mask[row_i, nearest_col[row_i]] = False
+            self.d_ee = np.where(mask, np.inf, self.d_ee)
         
 
     def trap_new_electron(self):
