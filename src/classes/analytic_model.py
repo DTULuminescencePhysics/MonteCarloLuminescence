@@ -39,7 +39,7 @@ class analytical_crystal(_temp,_ThermalParameters):
             temp_cfg = T_override
 
         init_fields = {f.name for f in fields(cls) if f.init}
-        array_fields = {"times", "dT_step", "dT", "T_inf", "k"}
+        array_fields = {"times", "temps", "dT"}
 
         kwargs: Dict[str, Any] = {}
         kwargs['unitless'] = unitless

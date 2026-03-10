@@ -2,9 +2,8 @@ from __future__ import annotations
 from src.errors import ErrorOutputHandler
 from omegaconf import DictConfig
 import numpy as np
-from src.classes.thermoC.RJMCMC import ReverseJmpMCMC
+from src.classes.thermoC.RJMCMC import ReverseJumpMCMC
 from src.classes.thermoC.inverse_modeling_mc import InverseMC
-
 
 def extract_comparison(file_names: str|list[str],experiments: int) -> np.ndarray:
     """Extracts final ratios from either Monte Carlo or Analytical run file(s)"""
@@ -27,6 +26,7 @@ def set_observation_values(cfg: DictConfig | list[DictConfig],
     or loading them from the configuration data"""
     if extract:
         if file_names is not None:
+            print(file_names)
             obs = extract_comparison(file_names, experiments)
         else: 
             obs = np.zeros(1)
@@ -50,31 +50,35 @@ def RJMCMC_control_functions(cfg: DictConfig | list[DictConfig],
     """Function that controls the Reverse Jump Markov Chain Monte Carlo method used for 
     thermochronometry"""
     obs = set_observation_values(cfg, experiments, err, file_names, extract)
-    sigma = obs*0.1
+    # sigma = obs*0.1
     if experiments == 1:
         duration = cfg.temp.duration
         seed = cfg.setup.seed
+        chron = cfg.chronology 
     else:
         duration = cfg[0].temp.duration
         seed = cfg[0].setup.seed
+        chron = cfg[0].chronology 
 
-    rjmcmc_obj = ReverseJmpMCMC(obs,iters=1000,T_target=0,
-                                duration=duration,seed=seed,
-                                tolerance=5,min_gap=0.001,
-                                non_increasing=True,p_geom=0.5,
-                                k_max=100,
-                                init_step_mean=10,
-                                init_step_sd=50 ,
-                                init_dT_mean=500,
-                                init_dT_sd=200, 
-                                init_T0_mean=100,
-                                init_T0_sd=10, T0_max=150,T0_min=50)
+    rjmcmc_obj = ReverseJumpMCMC.from_config(seed,obs,duration,chron,err)
 
-    rjmcmc_obj.intialise_run(cfg,experiments,err)
-    rjmcmc_obj.rjmcmc_temperature()
+    rjmcmc_obj.initialise_run(cfg,experiments,err)
+    if chron.rjmcmc.burn_in.burn:
+        rjmcmc_obj.burn_in_tune(chron.rjmcmc.burn_in.max_steps,chron.rjmcmc.burn_in.window,
+                     chron.rjmcmc.burn_in.overall_accept_target,
+                     chron.rjmcmc.burn_in.per_move_accept_target,
+                     chron.rjmcmc.burn_in.birth_death_min,
+                     chron.rjmcmc.burn_in.min_move_prob, chron.rjmcmc.burn_in.max_adjust_factor,
+                     chron.rjmcmc.burn_in.target_k_internal, chron.rjmcmc.burn_in.k_window,
+                     chron.rjmcmc.burn_in.patience_windows, chron.rjmcmc.burn_in.verbose)
+    
+    out = rjmcmc_obj.run()
+    # print("Acceptance:", out["acceptance"])
+    # print("Final profile points:", out["final"].as_points())
+
 
 def MC_control_functions(cfg: DictConfig | list[DictConfig], 
-                                  experiments: int, err: ErrorOutputHandler,
+                                experiments: int, err: ErrorOutputHandler,
                                 file_names: str|None = None, extract: bool = True):
     """Function that controls the monte carlo method used for thermochronometry"""
    
@@ -90,8 +94,8 @@ def MC_control_functions(cfg: DictConfig | list[DictConfig],
     inverse_obj = InverseMC(obs=obs,sigma=sigma,iters=1000,
                             T0_min=50,T0_max=150,T_target=0,
                             duration=duration,seed=seed,
-                            dT_min=0,dT_max=1000,tolerance=5,
-                            n_steps_min=0,n_steps_max=100)
+                            tolerance=5,n_steps_min=0,
+                            n_steps_max=10, trend='either')
 
     inverse_obj.intialise_run(cfg,experiments,err)
     inverse_obj.run_back_simulation()
@@ -106,7 +110,7 @@ def repeition_compare(cfg: DictConfig,
     sigma = obs*0.1
     inverse_obj = InverseMC(obs,sigma,1000,50,150,0,cfg.temp.duration,0,800,n_steps_min=0,n_steps_max=10)
     inverse_obj.MC_crystal = MCBase.from_config(cfg)
-    inverse_obj.MC_crystal.RJMCMC_initialise()
+    inverse_obj.MC_crystal.thermochron_initialise()
 
     reps = 5000
     running_ratio = np.zeros((reps,7))

@@ -6,8 +6,8 @@ from src.errors import ErrorOutputHandler
 from src.filesystem import CONFIG_DIR
 from src.helper_functions import cfg_list_check, cfg_temperature_check
 from src.MC_analytic_control import monte_carlo_control_functions, analytic_control_functions
-from src.process_plot import plot_analytic_comp_MC
 from src.back_tracing import MC_control_functions,RJMCMC_control_functions
+from src.classes.output.graph import MainPlot 
 
 
 @hydra.main(config_path=CONFIG_DIR,config_name="config", version_base=None)
@@ -20,15 +20,15 @@ def main(cfg: DictConfig):
     run_num, runs = cfg_list_check(cfg,err)
     # run_num=1 
     # runs = runs[0]
+    pl = MainPlot(unit=cfg.temp.unit,celsius=cfg.temp.celsius)
     err.checkpoint()
     if cfg.setup.mc:
-        mc_file = monte_carlo_control_functions(runs,run_num,err)
+        monte_carlo_control_functions(runs,run_num,pl,err)
     if cfg.setup.ac:
-        ac_file = analytic_control_functions(runs,run_num,err)
+        analytic_control_functions(runs,run_num,pl,err)
 
-    if cfg.setup.mc and cfg.setup.ac:
-        plot_analytic_comp_MC(run_num,ac_file,mc_file,cfg.temp.unit)
-    
+    pl.plot_forward()
+    comp_file = f"{pl.forward_ratio_file[0]}.csv"
     if cfg.setup.TC:
-        RJMCMC_control_functions(runs,run_num,err,ac_file)
-        MC_control_functions(runs,run_num,err,ac_file)
+        RJMCMC_control_functions(runs,run_num,err,comp_file)
+        # MC_control_functions(runs,run_num,err,comp_file)

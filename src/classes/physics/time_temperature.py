@@ -70,7 +70,7 @@ class _temp(_time, TimeTempProfile):
             if self.dT is not None:
                 self.dT = self.dT / time_to_seconds[self.unit]
 
-        if self.kind is None:
+        if self.kind is None or self.kind == "linearsteps":
                 self.kind = "linearsteps"
                 e = 1e-9
   
@@ -87,20 +87,13 @@ class _temp(_time, TimeTempProfile):
         
       
         
-      
-
-       
-
-          
-
-
-    def set_temperature_profile(self, kind: str, T_profile: dict) -> None:
+    def set_temperature_profile(self, kind: str, times: np.ndarray, temps: np.ndarray) -> None:
         """Sets a new TimeTempProfile"""
         self.kind = kind 
-        for k, v in T_profile.items():
-            if hasattr(self,k):
-                setattr(self,k,v)
-        
+        self.times = times 
+        self.temps = temps
+        self.T0 = self.temps[0]
+        self.duration = self.times[-1]
         self.unit_celsius_checker()
         TimeTempProfile.__init__(self,**vars(self))
         self.T = self(self.time)

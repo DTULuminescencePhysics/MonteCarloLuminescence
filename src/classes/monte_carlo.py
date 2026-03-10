@@ -34,7 +34,7 @@ class MCBase:
     
    
     @classmethod
-    def RJMCMC_setup(cls, cfg: DictConfig, reps: int, seed: int) -> "MCBase":
+    def thermochron_setup(cls, cfg: DictConfig, reps: int, seed: int) -> "MCBase":
         crs = Box.from_config(cfg)
       
         return cls(reps, seed, cfg.setup.t_pcnt, cfg.setup.h_pcnt, crs, data_path = "RJMCMC_prelim_results.dat")
@@ -154,7 +154,7 @@ class MCBase:
             os.remove(self.data_path)
 
 
-    def RJMCMC_initialise(self): 
+    def thermochron_initialise(self): 
         if os.path.exists(self.data_path):
             os.remove(self.data_path)
 
@@ -162,12 +162,12 @@ class MCBase:
         self.results[:,:,:] = np.nan
         self.results.flush()
 
-    def RJMCMC_cleanup(self): 
+    def thermochron_cleanup(self): 
         if os.path.exists(self.data_path):
             os.remove(self.data_path)
 
 
-    def RJMCMC_simulation(self, t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None):
+    def thermochron_simulation(self, t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None):
         def last_non_nan(arr,div):
             valid = np.where(~np.isnan(arr))[0]
             if valid.size > 0:
