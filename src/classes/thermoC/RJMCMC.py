@@ -6,6 +6,7 @@ from src.classes.monte_carlo import MCBase
 from omegaconf import DictConfig
 from src.errors import ErrorOutputHandler
 from src.classes.output.graph import chronologyPlot
+from src.classes.output.temp_results_file import chronology_results
 from src.helper_functions import _as_1d_array
 from typing import  Literal, Optional, Dict, Any, List, Tuple,  Mapping
 
@@ -400,6 +401,8 @@ class ReverseJumpMCMC:
 
         self._move_weights = np.array([p_birth, p_death, p_move_time, p_move_temp, p_move_endpoints], dtype=float)
         self._normalize_move_weights()
+
+        self.result_store = chronology_results(self.iters,self.max_internal,"w+")
     
     @classmethod
     def from_config(cls, seed: int, obs: np.ndarray, duration: float, cfg: DictConfig, err: ErrorOutputHandler) -> "ReverseJumpMCMC":
@@ -433,37 +436,18 @@ class ReverseJumpMCMC:
 
     def store_profile(self, it: int|None, prof:TemperatureProfile, accpt:bool)-> None:
         if it is None:
-            return 
-        self.Temp_points[it,0:prof.k_nodes]=prof.temps
-        self.time_points[it,0:prof.k_nodes]=prof.times
-        self.accepted[it]=accpt
-        self.Temp_points.flush()
-        self.time_points.flush()
-        self.accepted.flush()
-        print(it)
-        print(self.Temp_points[it,:])
-        print(self.time_points[it,:])
+            return
+        self.result_store.write_result(it,prof.times,prof.temps,accpt,self.current_logp)
+
         if accpt: 
             self.update_tracker(it)
 
-
     def initialise_run(self, cfg: DictConfig | list[DictConfig], experiments:int, err: ErrorOutputHandler) -> None:
         self.set_random_generator()
-        self.Temp_points = np.memmap("T_points.dat", dtype=np.float32, mode='w+', shape=(self.iters+1,self.max_internal+2))
-        self.time_points = np.memmap("time_points.dat", dtype=np.float32, mode='w+', shape=(self.iters+1,self.max_internal+2))
-        self.accepted = np.memmap("accepted.dat",dtype=np.bool_,mode='w+',shape=(self.iters+1))
-        self.Temp_points[:,:] = -100
-        self.time_points[:,:] = -100
-        self.accepted[:] = False
         if experiments == 1 and isinstance(cfg, DictConfig):
             err.output("Setting up temperature profiles")
             unit = cfg.temp.unit
             celsius = celsius=cfg.temp.celsius
-            to_save = np.array(cfg.temp.temps)
-            self.Temp_points[-1,0:to_save.size] = to_save
-            to_save = np.array(cfg.temp.times)
-            self.time_points[-1,0:to_save.size] = to_save
-            del(to_save)
             err.output("Temperature profile setup complete")
             err.output("Setting up simulation crystal...")
             self.MC_crystal = MCBase.from_config(cfg)
@@ -473,11 +457,6 @@ class ReverseJumpMCMC:
             err.output("Setting up temperature profiles")
             unit = cfg[0].temp.unit
             celsius=cfg[0].temp.celsius
-            to_save = np.array(cfg[0].temp.temps)
-            self.Temp_points[-1,0:to_save.size] = to_save
-            to_save = np.array(cfg[0].temp.times)
-            self.time_points[-1,0:to_save.size] = to_save
-            del(to_save)
 
             err.output("Temperature profile setup complete")
             self.MC_crystal = []
@@ -489,7 +468,7 @@ class ReverseJumpMCMC:
                 err.output("Crystal setup complete.")
 
         self.pl = chronologyPlot(duration=self.timeSpan.hi,unit=unit,celsius=celsius)
-        self.pl.set_profile_files("T_points.dat","time_points.dat","accepted.dat",(self.iters+1,self.max_internal+2))
+        self.pl.set_profile_files(self.iters,self.max_internal)
         if isinstance(self.MC_crystal, MCBase):
             self.pl.setup_simulation_tracker(self.MC_crystal.crystal.Tat(self.pl.t_common_unit))
         else:
@@ -536,21 +515,17 @@ class ReverseJumpMCMC:
 
         return 
 
-    def run(self, store_logp: bool = False,) -> Dict[str, Any]:
+    def run(self) -> Dict[str, Any]:
     
-        logps: List[float] = []
         for i in range(self.iters):
             self.step(i)
-            # if i%100 ==0: 
+            if i%100 ==0:
+                self.result_store.flush() 
          
-            if store_logp:
-                logps.append(float(self.current_logp))
 
-        
+        self.result_store.flush()
         self.pl.save_close_tracker()
-        self.Temp_points.flush()
-        self.time_points.flush()
-        self.accepted.flush()
+       
         self.pl.make_weighting_plot(n_bins=50,n_samples=10000)     
         
         out: Dict[str, Any] = {
@@ -559,8 +534,6 @@ class ReverseJumpMCMC:
             "move_probs": self.move_probs.copy(),
             "sigmas": self.get_sigmas(),
         }
-        if store_logp:
-            out["logp"] = np.array(logps, dtype=float)
        
         return out
 

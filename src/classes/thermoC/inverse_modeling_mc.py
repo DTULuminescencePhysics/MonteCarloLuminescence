@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from src.classes.monte_carlo import MCBase
 from omegaconf import DictConfig
 from src.errors import ErrorOutputHandler
+from src.classes.output.temp_results_file import chronology_results
 from src.classes.output.graph import chronologyPlot
 @dataclass
 class InverseMC:
@@ -25,7 +26,7 @@ class InverseMC:
     accepted: np.memmap = field(init=False)
     MC_crystal: MCBase | list[MCBase] = field(init=False)
     pl : chronologyPlot = field(init=False)
-    
+    result_store : chronology_results = field(init=False) 
     def set_random_generator(self):
         self.rng = np.random.default_rng(self.seed)
 
@@ -108,28 +109,18 @@ class InverseMC:
             
             temps = np.concatenate(([T0], Tem, [T_final]))
            
+            self.result_store.write_result(i,times,temps,False,0.0)
            
-            self.time_points[i,0:times.size] = times
-            self.Temp_points[i,0:temps.size] = temps
             
        
             
     def intialise_temp_profiles(self) -> None : 
 
-
-        self.Temp_points = np.memmap("T_points.dat", dtype=np.float32, mode='w+', shape=(self.iters+1,self.n_steps_max+2))
-        self.time_points = np.memmap("time_points.dat", dtype=np.float32, mode='w+', shape=(self.iters+1,self.n_steps_max+2))
-        self.accepted = np.memmap("accepted.dat",dtype=np.bool_,mode='w+',shape=(self.iters+1))
-        self.Temp_points[:,:] = -1
-        self.time_points[:,:] = -1
-        self.accepted[:] = False
+        self.result_store = chronology_results(self.iters,self.n_steps_max,"w+")
         self.generate_random_profile()
-        self.Temp_points.flush()
-        self.time_points.flush()
-        self.accepted.flush()
+        self.result_store.flush()
         
-
-
+        
     def likeliness_score(self,res):
         
         L = np.exp(-0.5*np.sum((np.square(res-self.obs))/(np.square(self.sigma))))
@@ -152,11 +143,6 @@ class InverseMC:
             unit = cfg.temp.unit
             celsius = celsius=cfg.temp.celsius
             self.intialise_temp_profiles()
-            to_save = np.array(cfg.temp.temps)
-            self.Temp_points[-1,0:to_save.size] = to_save
-            to_save = np.array(cfg.temp.times)
-            self.time_points[-1,0:to_save.size] = to_save
-            del(to_save)
             err.output("Temperature profile setup complete")
             err.output("Setting up simulation crystal...")
             self.MC_crystal = MCBase.from_config(cfg)
@@ -167,11 +153,6 @@ class InverseMC:
             unit = cfg[0].temp.unit
             celsius=cfg[0].temp.celsius
             self.intialise_temp_profiles()
-            to_save = np.array(cfg[0].temp.temps)
-            self.Temp_points[-1,0:to_save.size] = to_save
-            to_save = np.array(cfg[0].temp.times)
-            self.time_points[-1,0:to_save.size] = to_save
-            del(to_save)
             err.output("Temperature profile setup complete")
             self.MC_crystal = []
             for i in range(experiments):    
@@ -182,7 +163,8 @@ class InverseMC:
                 err.output("Crystal setup complete.")
 
         self.pl = chronologyPlot(duration=self.duration,unit=unit,celsius=celsius)
-        self.pl.set_profile_files("T_points.dat","time_points.dat","accepted.dat",(self.iters+1,self.n_steps_max+2))
+        self.pl.set_profile_files(self.iters,self.n_steps_max)
+
         if isinstance(self.MC_crystal, MCBase):
             self.pl.setup_simulation_tracker(self.MC_crystal.crystal.Tat(self.pl.t_common_unit))
         else:
@@ -193,12 +175,11 @@ class InverseMC:
         if isinstance(self.MC_crystal,MCBase):
             ratio = np.zeros(1)
             for i in range(self.iters):
-                self.MC_crystal.crystal.set_temperature_profile("linearsteps",self.time_points[i][self.time_points[i]>=0], 
-                                                                self.Temp_points[i][self.time_points[i]>=0])
+                self.MC_crystal.crystal.set_temperature_profile("linearsteps",self.result_store.get_time(i),self.result_store.get_temp(i))
+
                 ratio[0] = self.MC_crystal.inverse_modeling_simulation()
                 if self.likeliness_score(ratio):
-                    self.accepted[i] = True
-                    self.accepted.flush()
+                    self.result_store.set_true(i)
                     count += 1
                     self.pl.add_result(self.MC_crystal.crystal.Tat(self.pl.t_common_unit),count)
 
@@ -208,12 +189,12 @@ class InverseMC:
             ratio = np.zeros(len(self.MC_crystal))
             for i in range(self.iters):
                 for j in range(len(self.MC_crystal)):
-                    self.MC_crystal[j].crystal.set_temperature_profile("linearsteps",self.time_points[i][self.time_points[i]>=0], 
-                                                                self.Temp_points[i][self.time_points[i]>=0])
+                    self.MC_crystal[j].crystal.set_temperature_profile("linearsteps",self.result_store.get_time(i),self.result_store.get_temp(i))
+
                     ratio[j] = self.MC_crystal[j].inverse_modeling_simulation()
 
                 if self.likeliness_score(ratio):
-                    self.accepted[i] = True
+                    self.result_store.set_true(i)
                     count += 1
                     self.pl.add_result(self.MC_crystal[0].crystal.Tat(self.pl.t_common_unit),count)
                 print(f"Number of accepted profiles is {count} after {i+1} trials out of {self.iters}") 
@@ -221,9 +202,7 @@ class InverseMC:
             for j in range(len(self.MC_crystal)):
                 self.MC_crystal[j].clean_up()
         
-        # self.Temp_points.flush()
-        # self.time_points.flush()
-        # self.accepted.flush()
+        self.result_store.flush()
         self.pl.save_close_tracker()
         
         self.pl.make_weighting_plot(n_bins=50,n_samples=10000)
