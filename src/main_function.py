@@ -7,7 +7,9 @@ from src.filesystem import CONFIG_DIR
 from src.helper_functions import cfg_list_check, cfg_temperature_check
 from src.MC_analytic_control import monte_carlo_control_functions, analytic_control_functions
 from src.back_tracing import MC_control_functions,RJMCMC_control_functions
-from src.classes.output.graph import MainPlot 
+from src.classes.output.graph import MainPlot
+from src.classes.output.results_file import output_file
+from src.classes.output.graph import chronologyPlot
 
 
 @hydra.main(config_path=CONFIG_DIR,config_name="config", version_base=None)
@@ -22,6 +24,7 @@ def main(cfg: DictConfig):
     # runs = runs[0]
     pl = MainPlot(unit=cfg.temp.unit,celsius=cfg.temp.celsius)
     err.checkpoint()
+    results = output_file("results.hdf5",cfg)
     if cfg.setup.mc:
         monte_carlo_control_functions(runs,run_num,pl,err)
     if cfg.setup.ac:
@@ -30,5 +33,7 @@ def main(cfg: DictConfig):
     pl.plot_forward()
     comp_file = f"{pl.forward_ratio_file[0]}.csv"
     if cfg.setup.TC:
-        RJMCMC_control_functions(runs,run_num,err,comp_file)
+        RJMCMC_control_functions(results,runs,run_num,err,comp_file)
         # MC_control_functions(runs,run_num,err,comp_file)
+        cp = chronologyPlot(0.5,unit=cfg.temp.unit,celsius=cfg.temp.celsius)
+        cp.make_weighting_plot(results)

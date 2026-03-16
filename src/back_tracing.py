@@ -4,6 +4,11 @@ from omegaconf import DictConfig
 import numpy as np
 from src.classes.thermoC.RJMCMC import ReverseJumpMCMC
 from src.classes.thermoC.inverse_modeling_mc import InverseMC
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.classes.output.results_file import output_file
+
 
 def extract_comparison(file_names: str|list[str],experiments: int) -> np.ndarray:
     """Extracts final ratios from either Monte Carlo or Analytical run file(s)"""
@@ -44,7 +49,7 @@ def set_observation_values(cfg: DictConfig | list[DictConfig],
     return obs
 
 
-def RJMCMC_control_functions(cfg: DictConfig | list[DictConfig], 
+def RJMCMC_control_functions(output: output_file, cfg: DictConfig | list[DictConfig], 
                                   experiments: int, err: ErrorOutputHandler, 
                                   file_names: str | list[str] |None = None, extract: bool = True):
     """Function that controls the Reverse Jump Markov Chain Monte Carlo method used for 
@@ -52,14 +57,17 @@ def RJMCMC_control_functions(cfg: DictConfig | list[DictConfig],
     obs = set_observation_values(cfg, experiments, err, file_names, extract)
     # sigma = obs*0.1
     if experiments == 1:
+        output.chronology_data_initial_build(cfg)
         duration = cfg.temp.duration
         seed = cfg.setup.seed
         chron = cfg.chronology 
     else:
+        output.chronology_data_initial_build(cfg[0])
         duration = cfg[0].temp.duration
         seed = cfg[0].setup.seed
         chron = cfg[0].chronology 
 
+    
     rjmcmc_obj = ReverseJumpMCMC.from_config(seed,obs,duration,chron,err)
 
     rjmcmc_obj.initialise_run(cfg,experiments,err)
@@ -72,12 +80,12 @@ def RJMCMC_control_functions(cfg: DictConfig | list[DictConfig],
                      chron.rjmcmc.burn_in.target_k_internal, chron.rjmcmc.burn_in.k_window,
                      chron.rjmcmc.burn_in.patience_windows, chron.rjmcmc.burn_in.verbose)
     
-    out = rjmcmc_obj.run()
-    # print("Acceptance:", out["acceptance"])
-    # print("Final profile points:", out["final"].as_points())
+    rjmcmc_obj.run()
+    output.chronological_results(rjmcmc_obj.result_store)
+    rjmcmc_obj.result_store.delete_stores()
+    
 
-
-def MC_control_functions(cfg: DictConfig | list[DictConfig], 
+def MC_control_functions(output: output_file, cfg: DictConfig | list[DictConfig], 
                                 experiments: int, err: ErrorOutputHandler,
                                 file_names: str|None = None, extract: bool = True):
     """Function that controls the monte carlo method used for thermochronometry"""
@@ -85,9 +93,11 @@ def MC_control_functions(cfg: DictConfig | list[DictConfig],
     obs = set_observation_values(cfg, experiments, err, file_names, extract)
     sigma = obs*0.1
     if experiments == 1:
+        output.chronology_data_initial_build(cfg)
         duration = cfg.temp.duration
         seed = cfg.setup.seed
     else:
+        output.chronology_data_initial_build(cfg[0])
         duration = cfg[0].temp.duration
         seed = cfg[0].setup.seed
 
@@ -99,7 +109,8 @@ def MC_control_functions(cfg: DictConfig | list[DictConfig],
 
     inverse_obj.intialise_run(cfg,experiments,err)
     inverse_obj.run_back_simulation()
-
+    output.chronological_results(inverse_obj.result_store)
+    inverse_obj.result_store.delete_stores()
 
 def repeition_compare(cfg: DictConfig, 
                                   experiments: int, err: ErrorOutputHandler, 

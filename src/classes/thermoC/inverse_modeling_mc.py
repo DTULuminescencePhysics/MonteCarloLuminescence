@@ -5,7 +5,7 @@ from src.classes.monte_carlo import MCBase
 from omegaconf import DictConfig
 from src.errors import ErrorOutputHandler
 from src.classes.output.temp_results_file import chronology_results
-from src.classes.output.graph import chronologyPlot
+from src.classes.output.graph import chronologyPlot_running
 @dataclass
 class InverseMC:
     obs: np.ndarray
@@ -25,7 +25,7 @@ class InverseMC:
     time_points: np.memmap = field(init=False)
     accepted: np.memmap = field(init=False)
     MC_crystal: MCBase | list[MCBase] = field(init=False)
-    pl : chronologyPlot = field(init=False)
+    pl : chronologyPlot_running = field(init=False)
     result_store : chronology_results = field(init=False) 
     def set_random_generator(self):
         self.rng = np.random.default_rng(self.seed)
@@ -111,9 +111,7 @@ class InverseMC:
            
             self.result_store.write_result(i,times,temps,False,0.0)
            
-            
-       
-            
+                    
     def intialise_temp_profiles(self) -> None : 
 
         self.result_store = chronology_results(self.iters,self.n_steps_max,"w+")
@@ -162,7 +160,7 @@ class InverseMC:
                 self.MC_crystal[i].thermochron_initialise()
                 err.output("Crystal setup complete.")
 
-        self.pl = chronologyPlot(duration=self.duration,unit=unit,celsius=celsius)
+        self.pl = chronologyPlot_running(duration=self.duration,unit=unit,celsius=celsius)
         self.pl.set_profile_files(self.iters,self.n_steps_max)
 
         if isinstance(self.MC_crystal, MCBase):
@@ -204,8 +202,7 @@ class InverseMC:
         
         self.result_store.flush()
         self.pl.save_close_tracker()
-        
-        self.pl.make_weighting_plot(n_bins=50,n_samples=10000)
+
         
 
 

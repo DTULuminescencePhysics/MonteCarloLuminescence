@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from src.classes.monte_carlo import MCBase
 from omegaconf import DictConfig
 from src.errors import ErrorOutputHandler
-from src.classes.output.graph import chronologyPlot
+from src.classes.output.graph import chronologyPlot_running
 from src.classes.output.temp_results_file import chronology_results
 from src.helper_functions import _as_1d_array
 from typing import  Literal, Optional, Dict, Any, List, Tuple,  Mapping
@@ -467,7 +467,7 @@ class ReverseJumpMCMC:
                 self.MC_crystal[i].thermochron_initialise()
                 err.output("Crystal setup complete.")
 
-        self.pl = chronologyPlot(duration=self.timeSpan.hi,unit=unit,celsius=celsius)
+        self.pl = chronologyPlot_running(duration=self.timeSpan.hi,unit=unit,celsius=celsius)
         self.pl.set_profile_files(self.iters,self.max_internal)
         if isinstance(self.MC_crystal, MCBase):
             self.pl.setup_simulation_tracker(self.MC_crystal.crystal.Tat(self.pl.t_common_unit))
@@ -515,7 +515,7 @@ class ReverseJumpMCMC:
 
         return 
 
-    def run(self) -> Dict[str, Any]:
+    def run(self) -> None:
     
         for i in range(self.iters):
             self.step(i)
@@ -526,16 +526,6 @@ class ReverseJumpMCMC:
         self.result_store.flush()
         self.pl.save_close_tracker()
        
-        self.pl.make_weighting_plot(n_bins=50,n_samples=10000)     
-        
-        out: Dict[str, Any] = {
-            "acceptance": self.acceptance_rates(),
-            "final": self.current.copy(),
-            "move_probs": self.move_probs.copy(),
-            "sigmas": self.get_sigmas(),
-        }
-       
-        return out
 
     def acceptance_rates(self) -> Dict[str, float]:
         rates: Dict[str, float] = {}
