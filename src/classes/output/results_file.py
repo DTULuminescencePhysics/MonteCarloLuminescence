@@ -159,14 +159,25 @@ class output_file:
         burn_in_attrs = {
             "max_steps": cfg.chronology.rjmcmc.burn_in.max_steps,
             "window": cfg.chronology.rjmcmc.burn_in.window,
-            "overall_accept_target": cfg.chronology.rjmcmc.burn_in.overall_accept_target,
-            "per_move_accept_target": cfg.chronology.rjmcmc.burn_in.per_move_accept_target,
-            "birth_death_min": cfg.chronology.rjmcmc.burn_in.birth_death_min,
-            "min_move_prob": cfg.chronology.rjmcmc.burn_in.min_move_prob,
-            "max_adjust_factor": cfg.chronology.rjmcmc.burn_in.max_adjust_factor,
-            "target_k_internal": cfg.chronology.rjmcmc.burn_in.target_k_internal,
-            "k_window": cfg.chronology.rjmcmc.burn_in.k_window,
             "patience_windows": cfg.chronology.rjmcmc.burn_in.patience_windows,
+            "adjustment_factor": cfg.chronology.rjmcmc.burn_in.adjustment_factor,
+            "eta_sigma": cfg.chronology.rjmcmc.burn_in.eta_sigma,
+            "eta_prob": cfg.chronology.rjmcmc.burn_in.eta_prob,
+            "min_move_prob": cfg.chronology.rjmcmc.burn_in.min_move_prob,
+            "max_move_prob": cfg.chronology.rjmcmc.burn_in.max_move_prob,
+            "centre_pull": cfg.chronology.rjmcmc.burn_in.centre_pull,
+            "overall_check": cfg.chronology.rjmcmc.burn_in.overall_check,
+            "individual_check": cfg.chronology.rjmcmc.burn_in.individual_check,
+            "overall_accept_target": cfg.chronology.rjmcmc.burn_in.overall_accept_target,
+            "birth_accept_target": cfg.chronology.rjmcmc.burn_in.birth_accept_target,
+            "death_accept_target": cfg.chronology.rjmcmc.burn_in.death_accept_target,
+            "move_time_accept_target": cfg.chronology.rjmcmc.burn_in.move_time_accept_target,
+            "move_temp_accept_target": cfg.chronology.rjmcmc.burn_in.move_temp_accept_target,
+            "move_endpoints_accept_target": cfg.chronology.rjmcmc.burn_in.move_endpoints_accept_target,
+            "sigma_birth_bounds": cfg.chronology.rjmcmc.burn_in.sigma_birth_bounds,
+            "sigma_time_bounds": cfg.chronology.rjmcmc.burn_in.sigma_time_bounds,
+            "sigma_temp_bounds": cfg.chronology.rjmcmc.burn_in.sigma_temp_bounds,
+            "sigma_endpoints_bounds": cfg.chronology.rjmcmc.burn_in.sigma_endpoints_bounds,
             "verbose": cfg.chronology.rjmcmc.burn_in.verbose,
         }
         with h5py.File(self.name,"a") as f:
@@ -190,14 +201,23 @@ class output_file:
                     burn_in = rjmcmc.require_group("burn_in")
                     self.write_attrs_if_not_none(burn_in, burn_in_attrs)
 
-    def burn_in_update(self,sigmas:Dict[str, float]):
+    def burn_in_update(self,sigmas:Dict[str, float],probs:Dict[str, float]):
 
         with h5py.File(self.name,"a") as f:     
             chron = f.require_group("chronology")
             rjmcmc = chron.require_group("RJMCMC")
             parameters = rjmcmc.require_group("parameters")
-            for name, value in sigmas.items():
-                parameters.attrs[name] = value
+            parameters.attrs["p_birth"] =  probs["birth"]
+            parameters.attrs["p_death"] =  probs["death"]
+            parameters.attrs["p_move_time"] =  probs["move_time"]
+            parameters.attrs["p_move_temp"] =  probs["move_temp"]
+            parameters.attrs["p_move_endpoints"] =  probs["move_endpoints"]
+            parameters.attrs["sigma_birth"] =  sigmas["birth"]
+            parameters.attrs["sigma_temp"] =  sigmas["move_temp"]
+            parameters.attrs["sigma_time_frac"] =  sigmas["move_time"]
+            parameters.attrs["sigma_endpoints"] =  sigmas["move_endpoints"]
+
+           
 
     def chronological_results(self,chronology_results:chronology_results):
         acc = chronology_results.accepted
@@ -213,7 +233,6 @@ class output_file:
                     acc_offsets[j]=offsets[i-1]
                     acc_offsets[j+1]=offsets[i]
                 j+=2
-
 
         with h5py.File(self.name,"a") as f:     
             chron = f.require_group("chronology")
@@ -269,6 +288,18 @@ class output_file:
 
         return (T_min), (T_max)
 
+    def tempertature_profile_get_temps(self,):
 
+        with h5py.File(self.name,"r") as f: 
+            temps = f["inputs/temperature"].attrs["temps"] 
+        
+        return temps
+    
+    def tempertature_profile_get_times(self,):
 
+        with h5py.File(self.name,"r") as f: 
+            times =  f["inputs/temperature"].attrs["times"]
+           
+        
+        return times
 

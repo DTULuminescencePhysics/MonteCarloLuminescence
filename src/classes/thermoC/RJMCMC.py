@@ -8,7 +8,7 @@ from src.errors import ErrorOutputHandler
 from src.classes.output.graph import chronologyPlot_running
 from src.classes.output.temp_results_file import chronology_results
 from src.helper_functions import _as_1d_array
-from typing import  Literal, Optional, Dict, Any, List, Tuple,  Mapping
+from typing import  Literal, Optional, Dict, List, Tuple
 
 
 MonotonicMode = Literal["free", "increasing", "decreasing"]
@@ -21,7 +21,20 @@ class Bounds:
     hi: float
 
     def contains(self, x: float) -> bool:
-        return self.lo <= x <= self.hi
+        return np.isfinite(x) and (self.lo <= x <= self.hi)
+    
+    @property
+    def midpoint(self):
+        return 0.5*(self.lo+self.hi)
+    @property    
+    def width(self,):
+        return self.hi - self.lo
+    @property
+    def half_width(self,):
+        return 0.5*self.width
+    
+    def _rand_in_bounds(self,rng: np.random.Generator):
+        return float(rng.uniform(self.lo, self.hi))
 
 @dataclass
 class TemperatureProfile:
@@ -271,7 +284,6 @@ class log_prior_prob:
 
    
     def prior(self, profile: TemperatureProfile) -> float:
-        return 0.0
         times = profile.times
         temps = profile.temps
         k = profile.n_internal
@@ -292,11 +304,10 @@ class log_prior_prob:
             lp += self.log_mix_step_creep_sum(dT[short])
 
         lp += self.dimension_prior(k)
-       
+      
         lp += self.barrier_cluster_prior(dt)
        
         lp += self.wiggle_prior(temps)
-      
         return float(lp)
 
     
@@ -399,9 +410,14 @@ class ReverseJumpMCMC:
 
         self.move_names = ["birth", "death", "move_time", "move_temp", "move_endpoints"]
 
-        self._move_weights = np.array([p_birth, p_death, p_move_time, p_move_temp, p_move_endpoints], dtype=float)
+        self.p_birth = float(p_birth)
+        self.p_death = float(p_death)
+        self.p_move_time = float(p_move_time)
+        self.p_move_temp = float(p_move_temp)
+        self.p_move_endpoints = float(p_move_endpoints)
+                                      
+        self.move_probs = np.array((self.p_birth,self.p_death,self.p_move_time,self.p_move_temp,self.p_move_endpoints))
         self._normalize_move_weights()
-
         self.result_store = chronology_results(self.iters,self.max_internal,"w+")
     
     @classmethod
@@ -481,10 +497,10 @@ class ReverseJumpMCMC:
             raise ValueError("Initial profile has non-finite target_log_prob; check constraints or your target.")
         self._reset_move_stats()
 
-
     def step(self, it: int|None = None) -> None:
         move = self.rng.choice(self.move_names, p=self.move_probs)
-        self.attempted[move] += 1
+        self.attempt_success[move]["selected"] += 1
+
         if move == "birth":
             prop, log_q_fwd, log_q_bwd = self._propose_birth()
         elif move == "death":
@@ -499,6 +515,7 @@ class ReverseJumpMCMC:
         if prop is None:
             return
 
+        self.attempt_success[move]["usable"] += 1
         prop_logp = self._log_target(prop)
         
         if not np.isfinite(prop_logp):
@@ -508,7 +525,7 @@ class ReverseJumpMCMC:
         if np.log(self.rng.random()) < log_alpha:
             self.current = prop
             self.current_logp = prop_logp
-            self.attempt_success[move] += 1
+            self.attempt_success[move]["accepted"] += 1
             self.store_profile(it,prop,True)
         else:
             self.store_profile(it,prop,False)
@@ -527,28 +544,103 @@ class ReverseJumpMCMC:
         self.pl.save_close_tracker()
        
 
-    def acceptance_rates(self) -> Dict[str, float]:
-        rates: Dict[str, float] = {}
+    def acceptance_rates(self) -> Dict[str, Dict[str,float]]:
+        rates = { 
+            name: {
+                "usable":   0.0, 
+                "accepted": 0.0, 
+            }
+            for name in self.move_names
+        }
+       
         for m in self.move_names:
-            att = self.attempted[m]
-            rates[m] = (self.attempt_success[m] / att) if att > 0 else 0.0
+            att = self.attempt_success[m]["selected"] 
+            rates[m]["usable"] = self.attempt_success[m]["usable"]/att if att > 0 else 0.0
+            rates[m]["accepted"] = self.attempt_success[m]["accepted"]/att if att > 0 else 0.0
+
         return rates
+
+    def set_sigmas(self, sigmas:Dict[str, float]) -> None:
+        self.sigma_birth = float(sigmas["birth"])
+        self.sigma_temp = float(sigmas["move_temp"])
+        self.sigma_time_frac = float(sigmas["move_time"])
+        self.sigma_endpoints = float(sigmas["move_endpoints"])
 
     def get_sigmas(self) -> Dict[str, float]:
         return {
-            "sigma_birth": float(self.sigma_birth),
-            "sigma_temp": float(self.sigma_temp),
-            "sigma_time_frac": float(self.sigma_time_frac),
-            "sigma_endpoints": float(self.sigma_endpoints),
+            "birth": float(self.sigma_birth),
+            "move_temp": float(self.sigma_temp),
+            "move_time": float(self.sigma_time_frac),
+            "move_endpoints": float(self.sigma_endpoints),
         }
+    def set_probs(self, probs:Dict[str, float]|None = None) -> None: 
+        if probs is None:
+            self.p_birth = self.move_probs[0]
+            self.p_death = self.move_probs[1]
+            self.p_move_time = self.move_probs[2]
+            self.p_move_temp =  self.move_probs[3]
+            self.p_move_endpoints = self.move_probs[4]
+        else:
+            self.p_birth = float(probs["birth"])
+            self.p_death = float(probs["death"])
+            self.p_move_time = float(probs["move_time"])
+            self.p_move_temp =  float(probs["move_temp"])
+            self.p_move_endpoints = float(probs["move_endpoints"])
+            self.move_probs[0] = self.p_birth 
+            self.move_probs[1] = self.p_death 
+            self.move_probs[2] = self.p_move_time 
+            self.move_probs[3] = self.p_move_temp 
+            self.move_probs[4] = self.p_move_endpoints
+
+
+    def get_probs(self) -> Dict[str, float]:
+        return {
+            "birth": float(self.p_birth),
+            "death": float(self.p_death),
+            "move_time": float(self.p_move_time),
+            "move_temp": float(self.p_move_temp),
+            "move_endpoints": float(self.p_move_endpoints),
+        }
+    
+    def burn_in_setup(self, overall_bounds:Tuple[float,float]=(0.15,0.45), 
+                      birth_accept_target: Optional[Tuple[float,float]] = None, death_accept_target: Optional[Tuple[float,float]] = None,
+                      move_time_accept_target: Optional[Tuple[float,float]] = None, move_temp_accept_target: Optional[Tuple[float,float]] = None,
+                      move_endpoints_accept_target: Optional[Tuple[float,float]] = None,
+                      sigma_birth_bounds: Optional[Tuple[float,float]] = None, sigma_time_bounds: Optional[Tuple[float,float]] = None,
+                      sigma_temp_bounds: Optional[Tuple[float,float]] = None, sigma_endpoints_bound: Optional[Tuple[float,float]] = None, 
+                      ) -> Tuple[Bounds,Dict[str,Bounds],Dict[str,Bounds]]:
+        
+       
+        overall_accept_target = Bounds(overall_bounds[0],overall_bounds[1])
+       
+        per_move_accept_target = {
+            "birth": Bounds(birth_accept_target[0],birth_accept_target[1]) if birth_accept_target is not None else overall_accept_target,
+            "death": Bounds(death_accept_target[0],death_accept_target[1]) if death_accept_target is not None else overall_accept_target,
+            "move_time": Bounds(move_time_accept_target[0],move_time_accept_target[1]) if move_time_accept_target is not None else overall_accept_target, 
+            "move_temp": Bounds(move_temp_accept_target[0],move_temp_accept_target[1]) if move_temp_accept_target is not None else overall_accept_target,
+            "move_endpoints": Bounds(move_endpoints_accept_target[0],move_endpoints_accept_target[1]) if move_endpoints_accept_target is not None else overall_accept_target
+        }
+
+        per_move_sigma_bounds = {
+            "birth": Bounds(sigma_birth_bounds[0],sigma_birth_bounds[1]) if sigma_birth_bounds is not None else Bounds(1e-4,1e2),
+            "move_time": Bounds(sigma_time_bounds[0],sigma_time_bounds[1]) if sigma_time_bounds is not None else Bounds(1e-4,1e2), 
+            "move_temp": Bounds(sigma_temp_bounds[0],sigma_temp_bounds[1]) if sigma_temp_bounds is not None else Bounds(1e-3,1e2),
+            "move_endpoints": Bounds(sigma_endpoints_bound[0],sigma_endpoints_bound[1]) if sigma_endpoints_bound is not None else Bounds(1e-4,1e1)
+        }
+
+        return overall_accept_target, per_move_accept_target, per_move_sigma_bounds
+
     # ---------------- Burn-in tuning ----------------
-    def burn_in_tune(self, max_steps: int, window: int = 250,
-                     overall_accept_target: Optional[Tuple[float, float]] = None,
-                     per_move_accept_target: Optional[Mapping[str, Tuple[float, float]]] = None,
-                     birth_death_min: Optional[float] = None,
-                     min_move_prob: float = 0.03, max_adjust_factor: float = 2.0,
-                     target_k_internal: Optional[float] = None, k_window: int = 500,
-                     patience_windows: int = 2, verbose: bool = True,) -> Dict[str, Any]:
+    def burn_in_tune(self, max_steps: int, window: int,
+                     eta_sigma0: float, eta_prob0:float, overall_check: bool,
+                     individual_check:bool, overall_bounds: Tuple[float,float] = (0.15,0.45),
+                     birth_accept_target: Optional[Tuple[float,float]] = None, death_accept_target: Optional[Tuple[float,float]] = None,
+                     move_time_accept_target: Optional[Tuple[float,float]] = None, move_temp_accept_target: Optional[Tuple[float,float]] = None,
+                     move_endpoints_accept_target: Optional[Tuple[float,float]] = None,
+                     sigma_birth_bounds: Optional[Tuple[float,float]] = None, sigma_time_bounds: Optional[Tuple[float,float]] = None,
+                     sigma_temp_bounds: Optional[Tuple[float,float]] = None, sigma_endpoints_bound: Optional[Tuple[float,float]] = None,
+                     min_move_prob: float = 0.03, max_move_prob:float = 0.8, centre_pull: float = 0.25,
+                     adjustment_factor: float = 0.6, patience_windows: int = 2, verbose: bool = True,) -> None:
         """
         Run burn-in and *adapt* move probabilities + proposal scales and stops when 
         criteria is met.
@@ -567,20 +659,17 @@ class ReverseJumpMCMC:
             raise ValueError("max_steps must be > 0")
         if window <= 0:
             raise ValueError("window must be > 0")
-        if overall_accept_target is None and per_move_accept_target is None and birth_death_min is None:
-            raise ValueError("Provide at least one stopping criterion (overall/per-move/birth_death_min).")
-
-        # validate move names
-        valid_moves = set(self.move_names)
-        if per_move_accept_target is not None:
-            bad = set(per_move_accept_target.keys()) - valid_moves
-            if bad:
-                raise ValueError(f"Unknown move(s) in per_move_accept_target: {sorted(bad)}")
-
-        # reset stats so acceptance measurements are meaningful for burn-in
+        
+        overall_accept_target, per_move_accept_target, per_move_sigma_bounds = self.burn_in_setup(overall_bounds, birth_accept_target, 
+                                                                                                  death_accept_target, move_time_accept_target,
+                                                                                                  move_temp_accept_target, move_endpoints_accept_target,
+                                                                                                  sigma_birth_bounds, sigma_time_bounds,
+                                                                                                  sigma_temp_bounds, sigma_endpoints_bound)
+        p_range = Bounds(min_move_prob,max_move_prob)
+        move_sigmas = self.get_sigmas()
+        move_probs  = self.get_probs()
         self._reset_move_stats()
 
-        k_hist: List[int] = []
         consecutive_ok = 0
         steps_done = 0
         n_windows = int(np.ceil(max_steps / window))
@@ -590,185 +679,159 @@ class ReverseJumpMCMC:
             if steps_this <= 0:
                 break
 
-            # run this window
             for _ in range(steps_this):
                 self.step()
                 steps_done += 1
-                if target_k_internal is not None:
-                    k_hist.append(self.current.n_internal)
-                    if len(k_hist) > k_window:
-                        k_hist.pop(0)
 
-            # compute acceptance metrics
             per_move_rates = self.acceptance_rates()
             overall_rate = self._overall_acceptance_rate()
 
-            # --- check stopping criteria ---
-            ok = self._meets_acceptance_criteria(
-                overall_rate=overall_rate,
-                per_move_rates=per_move_rates,
-                overall_accept_target=overall_accept_target,
-                per_move_accept_target=per_move_accept_target,
-                birth_death_min=birth_death_min,
-            )
-
+            ok = self._meets_acceptance_criteria(overall_rate, per_move_rates,
+                                                 overall_check, individual_check,
+                                                 overall_accept_target, per_move_accept_target)
+            
             if ok:
                 consecutive_ok += 1
             else:
                 consecutive_ok = 0
 
-            # --- adapt (only if we haven't satisfied patience yet) ---
+            eta_sigma = eta_sigma0 / ((w+1) ** adjustment_factor)
+            eta_prob = eta_prob0 / ((w+1) ** adjustment_factor)
+         
             if consecutive_ok < patience_windows:
-                lohi_default = overall_accept_target or (0.15, 0.45)
-                lo, hi = lohi_default
-
-                # Tune sigmas
-                self.sigma_temp = self._tune_sigma(self.sigma_temp, per_move_rates["move_temp"], lo, hi, max_adjust_factor)
-                self.sigma_time_frac = self._tune_sigma(self.sigma_time_frac, per_move_rates["move_time"], lo, hi, max_adjust_factor)
-                self.sigma_endpoints = self._tune_sigma(self.sigma_endpoints, per_move_rates["move_endpoints"], lo, hi, max_adjust_factor)
-                # use average of birth/death to tune sigma_birth
-                self.sigma_birth = self._tune_sigma(
-                    self.sigma_birth,
-                    0.5 * (per_move_rates["birth"] + per_move_rates["death"]),
-                    lo,
-                    hi,
-                    max_adjust_factor,
-                )
-                # Tune move probabilities (favor moves with healthier acceptance)
-                scores = np.zeros(len(self.move_names), dtype=float)
-                denom = max(1e-12, (lo + hi) / 2.0)
-                for i, name in enumerate(self.move_names):
-                    a = per_move_rates[name]
-                    if a <= 0 or not np.isfinite(a):
-                        scores[i] = 0.1
-                    else:
-                        scores[i] = float(np.clip(a / denom, 0.1, 3.0))
-
-                # Optional: dimension targeting via birth/death weights
-                if target_k_internal is not None and len(k_hist) >= 20:
-                    k_avg = float(np.mean(k_hist))
-                    drift = k_avg - float(target_k_internal)
-                    shift = np.clip(drift / max(1.0, float(target_k_internal)), -0.5, 0.5)
-                    scores[0] *= float(np.exp(-shift))  # birth
-                    scores[1] *= float(np.exp(+shift))  # death
-
-                self._move_weights = self._move_weights * scores
-                self._normalize_move_weights()
-                self._clamp_move_probs(min_move_prob=min_move_prob)
-                self._normalize_move_weights(from_probs=True)
-
-            if verbose:
-                mp = {n: float(p) for n, p in zip(self.move_names, self.move_probs)}
-                msg = (
+                if verbose:
+                    msg = (
                     f"[burn_in window {w+1}/{n_windows}] "
                     f"steps={steps_done}/{max_steps} "
                     f"overall_acc={overall_rate:.3f} "
-                    f"per_move_acc={{" + ", ".join(f"{k}:{per_move_rates[k]:.3f}" for k in self.move_names) + "}} "
+                    f"per_move_acc={{" + ", ".join(f"{k}:{per_move_rates[k]["accepted"]:.3f}" for k in self.move_names) + "}} "
                     f"ok={ok} consec_ok={consecutive_ok}/{patience_windows} "
-                    f"move_probs={{" + ", ".join(f"{k}:{mp[k]:.3f}" for k in self.move_names) + "}} "
+                    )
+
+                for m in self.move_names:
+                    score = 0.5 * self.attempt_success[m]["usable"] + 0.5 * self.attempt_success[m]["accepted"]
+                    move_probs[m] = self._adapt_prob_weight(move_probs[m],score,eta_prob,p_range)
+
+                print(per_move_rates["birth"]["accepted"],per_move_rates["death"]["accepted"])
+                new_bith = 0.5*(per_move_rates["birth"]["accepted"] + per_move_rates["death"]["accepted"])
+                print(new_bith)
+                per_move_rates["birth"]["accepted"] = new_bith
+                print(per_move_rates["birth"]["accepted"])
+                for key in move_sigmas:
+                    print(key)
+                    # if not per_move_accept_target[key].contains(per_move_rates[key]["accepted"]):
+                    move_sigmas[key] = self._tune_sigma(move_sigmas[key], eta_sigma, per_move_rates[key]["accepted"], 
+                                                        per_move_accept_target[key], per_move_sigma_bounds[key], centre_pull)
+
+                self.set_sigmas(move_sigmas)
+
+                if self.current.n_internal <= self.min_internal + 1:
+                    self.p_birth *= 1.10
+                    self.p_death *= 0.90
+                elif self.current.n_internal >= self.max_internal - 1:
+                    self.p_birth *= 0.90
+                    self.p_death *= 1.10       
+                
+             
+                self.set_probs(move_probs)
+              
+                self._normalize_move_weights()
+                move_probs = self.get_probs()
+
+         
+            if verbose:
+                msg2 = ( f"move_probs={{p_birth:{self.p_birth:.4g}, p_death:{self.p_death:.4g}, "
+                    f"p_move_temp:{self.p_move_temp:.4g}, p_move_time:{self.p_move_time:.4g},"
+                    f"p_move_endpoints:{self.p_move_endpoints:.4g}}}"
                     f"sigmas={{sigma_birth:{self.sigma_birth:.4g}, sigma_temp:{self.sigma_temp:.4g}, "
                     f"sigma_time_frac:{self.sigma_time_frac:.4g}, sigma_endpoints:{self.sigma_endpoints:.4g}}}"
                 )
-                if target_k_internal is not None and len(k_hist) >= 5:
-                    msg += f" k_avg={float(np.mean(k_hist)):.3f}"
-                print(msg)
+                
+                print(msg+msg2)
 
-            # IMPORTANT: reset move stats so next window rates are local to the window
             self._reset_move_stats()
 
-            # stop early if criteria held for patience_windows consecutive windows
             if consecutive_ok >= patience_windows:
                 break
 
-        return {
-            "stopped_early": consecutive_ok >= patience_windows,
-            "steps_done": steps_done,
-            "move_probs": self.move_probs.copy(),
-            "sigmas": self.get_sigmas(),
-            "final_schedule": self.current.copy(),
-            "final_log_target": float(self.current_logp),
-        }
-
     def _overall_acceptance_rate(self) -> float:
-        total_att = sum(self.attempted.values())
-        total_acc = sum(self.attempt_success.values())
+        total_att=0
+        total_acc=0
+        for m in self.move_names:
+            total_att += self.attempt_success[m]["selected"]
+            total_acc += self.attempt_success[m]["accepted"]
+        
         return (total_acc / total_att) if total_att > 0 else 0.0
-
-    @staticmethod
-    def _in_band(x: float, lo: float, hi: float) -> bool:
-        return np.isfinite(x) and (lo <= x <= hi)
-
-    def _meets_acceptance_criteria(self, overall_rate: float,
-        per_move_rates: Dict[str, float], overall_accept_target: Optional[Tuple[float, float]],
-        per_move_accept_target: Optional[Mapping[str, Tuple[float, float]]], 
-        birth_death_min: Optional[float],) -> bool:
        
-        # Overall band
-        if overall_accept_target is not None:
-            lo, hi = overall_accept_target
-            if not self._in_band(overall_rate, lo, hi):
-                return False
 
-        # Per-move bands
-        if per_move_accept_target is not None:
-            for move, (lo, hi) in per_move_accept_target.items():
-                if move not in per_move_rates:
+    def _meets_acceptance_criteria(self, overall_rate: float, per_move_rates: Dict[str, Dict[str,float]], 
+                                   overall_check: bool, individual_check: bool, overall_accept_target: Bounds, 
+                                   per_move_accept_target: Dict[str,Bounds],) -> bool:
+
+        
+        if overall_check and overall_accept_target.contains(overall_rate):
+            return False
+        
+        if individual_check:
+            for m in self.move_names: 
+                if not per_move_accept_target[m].contains(per_move_rates[m]["accepted"]):
                     return False
-                if not self._in_band(per_move_rates[move], lo, hi):
-                    return False
+        
+        return True 
 
-        # Birth/death minimums
-        if birth_death_min is not None:
-            if not np.isfinite(birth_death_min) or birth_death_min < 0 or birth_death_min >= 1:
-                raise ValueError("birth_death_min must be in [0,1).")
-            if per_move_rates.get("birth", 0.0) < birth_death_min:
-                return False
-            if per_move_rates.get("death", 0.0) < birth_death_min:
-                return False
-
-        return True
 
     @staticmethod
-    def _tune_sigma(sigma: float, acc: float, lo: float, hi: float, max_adjust: float) -> float:
-        # multiplicative tuning, capped
-        if not np.isfinite(acc) or acc <= 0:
-            factor = 1.0 / max_adjust
-        elif acc < lo:
-            factor = 1.0 / np.sqrt(max_adjust)  # reduce step
-        elif acc > hi:
-            factor = np.sqrt(max_adjust)        # increase step
+    def _tune_sigma(sigma: float, eta: float, acc: float, target_range: Bounds, 
+                    range_bounds: Bounds, centre_pull: float) -> float:
+
+        if target_range.contains(acc):
+            new_sigma = sigma
+        # if not np.isfinite(acc) or acc <= 0:
+        #     factor = 1.0 / eta
+        # elif acc < target_range.lo:
+        #     factor = 1.0 / np.sqrt(eta)  # reduce step
+        # elif acc > target_range.hi:
+        #     factor = np.sqrt(eta)        # increase step
+        # else:
+        #     factor = 1.0
+        # new_sigma = float(max(1e-12, sigma * factor))
+
+        # new_sigma = min(max(new_sigma, range_bounds.lo), range_bounds.hi)
+        # print("1",new_sigma)
         else:
-            factor = 1.0
-        new_sigma = float(max(1e-12, sigma * factor))
+            new_sigma = np.exp(np.log(sigma) + eta * (acc-target_range.midpoint))
+            new_sigma = min(max(new_sigma, range_bounds.lo), range_bounds.hi)
+        # print("3",new_sigma)
+        # if range_bounds.contains(new_sigma) and centre_pull > 0.0:
+        #     edge_factor = abs(new_sigma - range_bounds.midpoint) / range_bounds.half_width
+        #     pull_strength = centre_pull * eta * edge_factor
+        #     new_sigma = new_sigma + pull_strength * (range_bounds.midpoint - new_sigma)
+        #     # new_sigma = min(max(new_sigma, range_bounds.lo),  range_bounds.hi)
+        #     print("4",new_sigma)
+        print(sigma,new_sigma)
         return new_sigma
 
-    def _normalize_move_weights(self, *, from_probs: bool = False) -> None:
-        if from_probs:
-            # treat self.move_probs as source, rebuild weights proportionally
-            w = np.array(self.move_probs, dtype=float)
-        else:
-            w = np.array(self._move_weights, dtype=float)
+    @staticmethod
+    def _adapt_prob_weight(p: float, usable_rate: float, eta: float, range: Bounds):
+        logit = np.log(max(p, 1e-12))
+        logit_new = logit + eta * (usable_rate - 0.5)
+        p_new = np.exp(logit_new)
+        return min(max(p_new, range.lo), range.hi)
 
-        if np.any(w < 0) or np.allclose(w.sum(), 0):
-            raise ValueError("Move weights must be non-negative and not all zero.")
-        w = w / w.sum()
-        self.move_probs = w
-
-        # keep weights aligned to probs for later multiplicative updates
-        self._move_weights = w.copy()
-
-    def _clamp_move_probs(self, *, min_move_prob: float) -> None:
-        if not (0.0 <= min_move_prob < 1.0):
-            raise ValueError("min_move_prob must be in [0,1).")
-        p = self.move_probs.copy()
-        p = np.maximum(p, min_move_prob)
-        p = p / p.sum()
-        self.move_probs = p
-        self._move_weights = p.copy()
+    def _normalize_move_weights(self) -> None:
+        tot = np.sum(self.move_probs)
+        self.move_probs = self.move_probs/tot
+        self.set_probs()
 
     def _reset_move_stats(self) -> None:
-        self.attempt_success = {m: 0 for m in self.move_names}
-        self.attempted = {m: 0 for m in self.move_names}
+        self.attempt_success = { 
+            name: {
+                "selected": 0, 
+                "usable":   0, 
+                "accepted": 0, 
+            }
+            for name in self.move_names
+        }
 
         # ---------------- Target / Likelihood / Prior ----------------
 
@@ -787,7 +850,6 @@ class ReverseJumpMCMC:
                 crystal.set_temperature_profile("linearsteps",profile.times.copy(),profile.temps.copy())
                 result[i] = crystal.thermochron_simulation(t,t_pcnt,h_pcnt)
                 i+=1 
-
         return result
 
     def _log_target(self, profile: TemperatureProfile) -> float:
@@ -805,17 +867,14 @@ class ReverseJumpMCMC:
 
         return ll + lp
 
-    
     # ---------------- Initialization & Constraints ----------------
 
     def _make_initial_profile(self,) -> TemperatureProfile:
 
         k_init = self.rng.integers(self.min_internal,self.max_internal)
-      
+        T0 = self.T0_bounds._rand_in_bounds(self.rng)
+        Tf = self.Tf_bounds._rand_in_bounds(self.rng)
 
-        T0 = self._rand_in_bounds(self.T0_bounds)
-        Tf = self._rand_in_bounds(self.Tf_bounds)
-      
         if not self.T_global_bounds.contains(T0) or not self.T_global_bounds.contains(Tf):
             raise ValueError("Endpoint bounds must be within global temperature bounds (or adjust checks).")
 
@@ -892,9 +951,6 @@ class ReverseJumpMCMC:
             y = np.minimum.accumulate(y)
         return y
 
-    def _rand_in_bounds(self, b: Bounds) -> float:
-        return float(self.rng.uniform(b.lo, b.hi))
-
     # ---------- Proposals ----------
 
     def _propose_birth(self) -> Tuple[Optional[TemperatureProfile], float, float]:
@@ -909,18 +965,15 @@ class ReverseJumpMCMC:
         tL, tR = float(s.times[seg_idx]), float(s.times[seg_idx + 1])
         if not (tR > tL):
             return None, 0.0, 0.0
-        # Sample new time uniformly within the segment
         t_new = float(self.rng.uniform(tL, tR))
-        # Sample new temperature around interpolated value
+
         mu = s.interpolate(t_new)
     
         T_new = float(mu + self.rng.normal(0.0, self.sigma_birth))
-        
-        # Enforce global temperature bounds via rejection (to keep proposal density well-defined)
+       
         if not self.T_global_bounds.contains(T_new):
             return None, 0.0, 0.0
 
-        # Insert node
         times_new = np.insert(s.times, seg_idx + 1, t_new)
         temps_new = np.insert(s.temps, seg_idx + 1, T_new)
         prop = TemperatureProfile(times_new, temps_new)
@@ -928,20 +981,14 @@ class ReverseJumpMCMC:
         if not self._is_valid(prop):
             return None, 0.0, 0.0
 
-        # Forward proposal density:
-        # q_birth = P(select birth move) * P(select segment=1/n_seg) * U(t_new|[tL,tR]) * N(T_new|mu,sigma_birth)
-        # The move probability cancels in MH because we condition on chosen move type, but
-        # we DO include the birth/death choice inside log_q if you want strict correctness
-        # under different p_birth/p_death. Here: include only within-move part.
+     
         log_q_fwd = (
-            -np.log(n_seg)  # choose segment
-            -np.log(tR - tL)  # uniform time
-            + self._log_norm_pdf(T_new, mu, self.sigma_birth)  # normal temp
+            -np.log(n_seg) 
+            -np.log(tR - tL)  
+            + self._log_norm_pdf(T_new, mu, self.sigma_birth) 
         )
 
-        # Backward (death) proposal density from prop back to s:
-        # choose which internal knot to delete uniformly among internal nodes
-        log_q_bwd = -np.log(prop.n_internal)  # choose that node
+        log_q_bwd = -np.log(prop.n_internal)
 
         return prop, float(log_q_fwd), float(log_q_bwd)
 
@@ -950,15 +997,13 @@ class ReverseJumpMCMC:
         if s.n_internal <= self.min_internal:
             return None, 0.0, 0.0
 
-        # Choose internal knot uniformly to remove (exclude endpoints)
+      
         internal_indices = np.arange(1, s.k_nodes - 1)
         rm_idx = int(self.rng.choice(internal_indices))
 
-        # For backward birth density, we need the segment in the reduced profile that would generate this point.
         t_rm = float(s.times[rm_idx])
         T_rm = float(s.temps[rm_idx])
 
-        # Remove it
         times_new = np.delete(s.times, rm_idx)
         temps_new = np.delete(s.temps, rm_idx)
         prop = TemperatureProfile(times_new, temps_new)
@@ -966,16 +1011,13 @@ class ReverseJumpMCMC:
         if not self._is_valid(prop):
             return None, 0.0, 0.0
 
-        # Forward (death) density:
-        log_q_fwd = -np.log(s.n_internal)  # choose knot to remove
+       
+        log_q_fwd = -np.log(s.n_internal)
 
-        # Backward (birth) density from prop back to s:
-        # Determine which segment contains t_rm in prop
         seg_idx = int(np.searchsorted(prop.times, t_rm, side="right") - 1)
         seg_idx = int(np.clip(seg_idx, 0, prop.k_nodes - 2))
         tL, tR = float(prop.times[seg_idx]), float(prop.times[seg_idx + 1])
         if not (tL < t_rm < tR):
-            # numeric edge-case; if it's equal, reverse mapping is ambiguous
             return None, 0.0, 0.0
 
         mu = prop.interpolate(t_rm)
@@ -1062,7 +1104,6 @@ class ReverseJumpMCMC:
         if not self._is_valid(prop):
             return None, 0.0, 0.0
 
-        # Symmetric RW
         return prop, 0.0, 0.0
 
     # ---------- Utilities ----------

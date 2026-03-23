@@ -73,12 +73,18 @@ def RJMCMC_control_functions(output: output_file, cfg: DictConfig | list[DictCon
     rjmcmc_obj.initialise_run(cfg,experiments,err)
     if chron.rjmcmc.burn_in.burn:
         rjmcmc_obj.burn_in_tune(chron.rjmcmc.burn_in.max_steps,chron.rjmcmc.burn_in.window,
-                     chron.rjmcmc.burn_in.overall_accept_target,
-                     chron.rjmcmc.burn_in.per_move_accept_target,
-                     chron.rjmcmc.burn_in.birth_death_min,
-                     chron.rjmcmc.burn_in.min_move_prob, chron.rjmcmc.burn_in.max_adjust_factor,
-                     chron.rjmcmc.burn_in.target_k_internal, chron.rjmcmc.burn_in.k_window,
-                     chron.rjmcmc.burn_in.patience_windows, chron.rjmcmc.burn_in.verbose)
+                         chron.rjmcmc.burn_in.eta_sigma, chron.rjmcmc.burn_in.eta_prob,
+                         chron.rjmcmc.burn_in.overall_check, chron.rjmcmc.burn_in.individual_check,
+                         chron.rjmcmc.burn_in.overall_accept_target,chron.rjmcmc.burn_in.birth_accept_target,
+                         chron.rjmcmc.burn_in.move_time_accept_target,chron.rjmcmc.burn_in.move_time_accept_target,
+                         chron.rjmcmc.burn_in.move_temp_accept_target, chron.rjmcmc.burn_in.move_endpoints_accept_target,
+                         chron.rjmcmc.burn_in.sigma_birth_bounds, chron.rjmcmc.burn_in.sigma_time_bounds,
+                         chron.rjmcmc.burn_in.sigma_temp_bounds, chron.rjmcmc.burn_in.sigma_endpoints_bounds,
+                         chron.rjmcmc.burn_in.min_move_prob, chron.rjmcmc.burn_in.max_move_prob,
+                         chron.rjmcmc.burn_in.centre_pull, chron.rjmcmc.burn_in.adjustment_factor, 
+                         chron.rjmcmc.burn_in.patience_windows, chron.rjmcmc.burn_in.verbose)       
+
+        output.burn_in_update(rjmcmc_obj.get_sigmas(),rjmcmc_obj.get_probs())
     
     rjmcmc_obj.run()
     output.chronological_results(rjmcmc_obj.result_store)

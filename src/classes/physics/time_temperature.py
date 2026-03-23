@@ -72,7 +72,7 @@ class _temp(_time, TimeTempProfile):
 
         if self.kind is None or self.kind == "linearsteps":
                 self.kind = "linearsteps"
-                e = 1e-9
+                e = 1e-13
   
                 order = np.argsort(self.times, kind="mergesort")
                 self.times = self.times[order]
