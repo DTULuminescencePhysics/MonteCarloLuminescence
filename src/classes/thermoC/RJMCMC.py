@@ -1,6 +1,6 @@
 from __future__ import annotations
 import numpy as np
-from math import lgamma
+from math import lgamma, factorial
 from dataclasses import dataclass, field
 from src.classes.monte_carlo import MCBase
 from omegaconf import DictConfig
@@ -72,245 +72,15 @@ class TemperatureProfile:
         w = (t - t0) / (t1 - t0)
         return float(y0 + w * (y1 - y0))
 
-class log_likelihood: 
-    def __init__(self, mode: LikelihoodMode, sigma: float, observation: np.ndarray, 
-                 cov: np.ndarray | None, nud: float | None, err: ErrorOutputHandler) -> None:
-
-        self.mode = mode
-        self.observation = _as_1d_array(observation)
-        if np.any(~np.isfinite(self.observation)):
-            err.error("ValueError observation must be finite.", fatal=True)
-        self.sigma=sigma
-        match self.mode:
-            case "Gaussian":
-                self.log_norm = -0.5 * np.log(2.0 * np.pi * self.sigma * self.sigma)
-            case"FullGaussian":
-                if cov is not None:
-                    self.cov = cov
-                    if self.cov.ndim != 2 or self.cov.shape[0] != self.cov.shape[1]:
-                        err.error("ValueError cov must be square", fatal=True)
-                    sign, logdet = np.linalg.slogdet(self.cov)
-                    if sign <= 0:
-                        err.error("ValueError cov must be positive definite", fatal=True)
-                    self.inv_cov = np.linalg.inv(self.cov)
-                    d = self.cov.shape[0]
-                    self.cnst = -0.5 * (d * np.log(2.0 * np.pi) + logdet)
-                else: 
-                    err.error("cov not set which is required for Full Gaussian Error", fatal=True)
-            case "student-t":
-                if nud is not None:
-                    self.nud = nud
-                    self.cnst = (lgamma((self.nud + 1.0) / 2.0)
-                            - lgamma(self.nud / 2.0)
-                            - 0.5 * np.log(self.nud * np.pi)
-                            - np.log(self.sigma)
-                            )
-                else: 
-                    err.error("nud must be a float", fatal=True)
-            case "L1": 
-                self.cnst = -np.log(2.0*self.sigma)
-            case "L1L2Hybrid":
-                if nud is not None:
-                    self.nud = nud
-                else:
-                    err.error("nud must be a float", fatal=True)
-
-    @classmethod
-    def from_config(cls,cfg:DictConfig, obs:np.ndarray, err: ErrorOutputHandler) -> "log_likelihood":
-        if cfg.cov is not None:
-            return cls(cfg.mode,cfg.sigma,obs,cfg.cov,None,err)
-        if cfg.nud is not None: 
-            return cls(cfg.mode,cfg.sigma,obs,None,cfg.nud,err)
-        
-        return cls(cfg.mode,cfg.sigma,obs,None,None,err)
-         
-
+@dataclass
+class log_likelihood:
+    observation: np.ndarray
+    sigma: np.ndarray
 
     def _ll(self, pred:np.ndarray) -> float:
-        match self.mode:
-            case "Gaussian":
-                r = (pred.ravel() - self.observation)
-                error = np.sum(self.log_norm - 0.5 * np.power((r / self.sigma), 2))
-            case"FullGaussian":
-                r = (pred.ravel() - self.observation)
-                error = float(self.cnst - 0.5 * (r @ self.inv_cov @ r))
-            case "student-t":
-                r = (pred.ravel() - self.observation.ravel())
-                z2 = np.power((r / self.sigma), 2)
-                error = float(r.size * self.cnst - 0.5 * (self.nud + 1.0) * np.sum(np.log1p(z2 / self.nud)))
-            case "L1": 
-                r = (pred.ravel() - self.observation.ravel())
-                error = float(r.size * self.cnst - np.sum(np.abs(r) / self.sigma))
-            case "L1L2Hybrid":
-                r = (pred.ravel() - self.observation.ravel()) / self.sigma 
-                a = np.abs(r)
-                quad = a <= self.nud
-                loss = np.where(quad, 0.5 * r**2, self.nud * (a - 0.5 * self.nud))
-                error = float(-np.sum(loss))  # "log-likelihood"-style score 
-            case "Bernoulli":
-                p = np.clip(pred.ravel(), self.sigma, 1 - self.sigma)
-                error = float(np.sum(self.observation * np.log(p) + (1 - self.observation) * np.log(1 - p)))
-
-        return error
-
-@dataclass
-class log_prior_prob:
-    """
-    Class containing code to calculate log prior probability. 
-    Has five possible penalties 
-    1) Discourage lots of internal points 
-        :float lam_k:  is the expected number of points
-
-    2) Discourage wiggles in temperature profile 
-    3) But allow for step changes in temperature
-        :float sigma_curv: curvature scale (bigger = less smoothing)
-        :float nu_curv: df for Student-t; smaller => heavier tails => step changes allowed
-        :float curve_C: Student-t constant which is calculated once on initialisation fully normalised 
-
-    4) Set a minimum size for changes in time
-        :float dt_min: minimum time step size
-        :float p_creep: probability of "small change" mode on short dt (keep small!)
-        :float sigma_creep: std dev of small-change mode (temp units)
-        :float nu_step: df for step component
-        :float sigma_step: scale for step component (temp units) -- allows large jumps
-        :float dT_min_change: if dt <= dt_min, require at least this |dT|
-        :bool hard_reject_short_dt: if True, return -inf when dt<=dt_min and |dT|<dT_min_change
-        :float step_C: Student-t constant which is calculated once on initialisation fully normalised
-        :float creep_C: Normal constant 
-
-    5) Discourage lots of small changes in time overall
-        :float gap_barrier_alpha: increase to discourage tiny gaps more strongly
-        :float gap_barrier_power: 2 is usually fine
-        :float eps: epsilon to stop overflow
-   
-    """
-    lam_k: float = 8.0 
-    
-    sigma_curv: float = 25.0          
-    nu_curv: float = 3.0
-    
-    dt_min: float = 1.0
-    p_creep: float = 0.05        
-    sigma_creep: float = 2.0      
-    nu_step: float = 3.0          
-    sigma_step: float = 30.0    
-    dT_min_change: float = 10.0  
-    hard_reject_short_dt: bool = False
-
-    gap_barrier_alpha: float = 1e-2   
-    gap_barrier_power: float = 2.0
-    eps:float = 1e-12 
-    
-    curv_C: float = field(init=False)         
-    step_C: float = field(init=False)
-    creep_C: float = field(init=False)
-    
-    def __post_init__(self) -> None:
-        self.curv_C = (lgamma((self.nu_curv + 1.0) / 2.0)
-                       - lgamma(self.nu_curv / 2.0)
-                       - 0.5 * np.log(self.nu_curv * np.pi)
-                       - np.log(self.sigma_curv)
-                       )
-        self.step_C = (lgamma((self.nu_step + 1.0) / 2.0)
-                       - lgamma(self.nu_step / 2.0)
-                       - 0.5 * np.log(self.nu_step * np.pi)
-                       - np.log(self.sigma_step)
-                       )
-        
-        self.creep_C = (-0.5 * np.log(2.0 * np.pi) - np.log(self.sigma_creep))
-
-    @classmethod
-    def from_config(cls,cfg: DictConfig) -> "log_prior_prob":
-
-        return cls(cfg.lam_k, cfg.sigma_curv,cfg.nu_curv,
-                   cfg.dt_min,cfg.p_creep,cfg.sigma_creep,
-                   cfg.dT_min_change,cfg.hard_reject_short_dt,
-                   cfg.gap_barrier_alpha,cfg.gap_barrier_power,cfg.eps)     
-        
-    def log_student_t_pdf(self, x: np.ndarray, nu: float, sigma: float, C: float) -> np.ndarray:
-        """
-        Elementwise log Student-t pdf with df=nu, loc=0, scale=sigma (fully normalized via C).
-        Returns an array of log pdf values.
-        """
-        x = np.asarray(x, dtype=float).ravel()
-       
-        z2 = np.power((x / sigma), 2)
-        return (C - ((0.5 * (nu + 1.0)) * np.log1p((z2 / nu))))
+        return (np.sum(np.power(((self.observation-pred)/self.sigma),2))*(-0.5))
 
 
-    def log_normal_pdf(self, x: np.ndarray, sigma: float, C: float) -> np.ndarray:
-        """
-        Elementwise log Normal(0, sigma^2) pdf (fully normalized via C).
-        Returns an array of log pdf values.
-        """
-        x = np.asarray(x, dtype=float).ravel()
-        
-        z2 = np.power((x / sigma), 2)
-        return  (C - 0.5 * (z2))
-
-    def log_mix_step_creep_sum(self, dT: np.ndarray) -> float:
-        """
-        For each short interval, dT ~ mixture:
-            with prob p_creep: Normal(0, sigma_creep)
-            with prob 1-p_creep: StudentT(0, scale_step, nu_step)
-        Returns sum log pdf across elements (done stably).
-        """
-        dT = np.asarray(dT, dtype=float).ravel()
-        if dT.size == 0:
-            return 0.0
-
-        logN = self.log_normal_pdf(dT,self.sigma_creep,self.creep_C)
-        logT = self.log_student_t_pdf(dT, self.nu_step, self.sigma_step, self.step_C)
-
-        a = np.log(self.p_creep) + logN
-        b = np.log(1.0 - self.p_creep) + logT
-        m = np.maximum(a, b)
-        return np.sum(m + np.log(np.exp(a - m) + np.exp(b - m)))
-
-
-    def dimension_prior(self, k:int) -> float:
-        return ((k * np.log(self.lam_k)) - lgamma(k + 1)-self.lam_k)
-
-    def barrier_cluster_prior(self, dt:np.ndarray) -> float:
-        return -self.gap_barrier_alpha*np.sum(np.power((dt+self.eps),-self.gap_barrier_power))
-    
-    def wiggle_prior(self, temps: np.ndarray) -> float: 
-        if temps.size < 3:
-            return 0.0
-        
-        d2 = temps[2:] - 2.0 * temps[1:-1] + temps[:-2]
-        stpdfs = self.log_student_t_pdf(d2,self.nu_curv,self.sigma_curv,self.curv_C)
-        return np.sum(stpdfs)
-
-   
-    def prior(self, profile: TemperatureProfile) -> float:
-        times = profile.times
-        temps = profile.temps
-        k = profile.n_internal
-
-        dt = np.diff(times)
-        if np.any(dt <= 0) or np.any(~np.isfinite(dt)):
-            return -np.inf
-        dT = np.diff(temps)
-
-        lp = 0.0
-        short = dt <= self.dt_min
-        if np.any(short):
-            if self.hard_reject_short_dt:
-                bad = np.abs(dT[short]) < self.dT_min_change
-                if np.any(bad):
-                    return -np.inf
-                
-            lp += self.log_mix_step_creep_sum(dT[short])
-
-        lp += self.dimension_prior(k)
-      
-        lp += self.barrier_cluster_prior(dt)
-       
-        lp += self.wiggle_prior(temps)
-        return float(lp)
-
-    
 class ReverseJumpMCMC:
     """
     Reversible Jump MCMC over temperature profiles (variable number of internal points).
@@ -371,11 +141,11 @@ class ReverseJumpMCMC:
 
     def __init__(self, iters: int, seed: int, timeSpan: Bounds, T0_bounds: Bounds,
                  Tf_bounds: Bounds, T_global_bounds: Bounds, monotonic: MonotonicMode,
-                 likelihood_log_prob: log_likelihood, prior_log_prob: log_prior_prob,
+                 likelihood_log_prob: log_likelihood,
                  min_internal: int = 0, max_internal: int = 200,
                  p_birth: float = 0.20, p_death: float = 0.20, p_move_time: float = 0.25, 
                  p_move_temp: float = 0.25, p_move_endpoints: float = 0.10,
-                 sigma_birth: float = 1.0, sigma_temp: float = 0.5, sigma_time_frac: float = 0.15,
+                 sigma_birth: float = 1.0, sigma_t_birth: float = 1.0, sigma_temp: float = 0.5, sigma_time_frac: float = 0.15,
                  sigma_endpoints: float = 0.5) -> None:
         
         if timeSpan.hi <= 0:
@@ -398,9 +168,9 @@ class ReverseJumpMCMC:
         self.monotonic = monotonic
 
         self.likelihood_log_prob = likelihood_log_prob
-        self.prior_log_prob = prior_log_prob
 
         self.sigma_birth = float(sigma_birth)
+        self.sigma_t_birth = float(sigma_t_birth)
         self.sigma_temp = float(sigma_temp)
         self.sigma_time_frac = float(sigma_time_frac)
         self.sigma_endpoints = float(sigma_endpoints)
@@ -426,18 +196,18 @@ class ReverseJumpMCMC:
         timeSpan = Bounds(0,duration)
         T0_bounds = Bounds(cfg.T0_lo,cfg.T0_hi)
         Tf_bounds= Bounds(cfg.T_Target-cfg.T_tolerance,cfg.T_Target+cfg.T_tolerance)
-        T_max = max(cfg.T0_hi,cfg.T_Target)
-        T_min = min(cfg.T0_lo,cfg.T_Target)
+        T_max = max(T0_bounds.hi,Tf_bounds.hi)
+        T_min = min(T0_bounds.lo,Tf_bounds.lo)
         T_global_bounds= Bounds(T_min-cfg.T_tolerance,T_max+cfg.T_tolerance)
-
-        likelihood_log_prob= log_likelihood.from_config(cfg.rjmcmc.log_likelihood,obs,err)
-        prior_log_prob= log_prior_prob.from_config(cfg.rjmcmc.log_prior_prob)
+        likelihood_log_prob= log_likelihood(obs,cfg.rjmcmc.log_likelihood.sigma)
+        
 
         return cls(cfg.iters, seed, timeSpan, T0_bounds, Tf_bounds, T_global_bounds, 
-                   cfg.monotonic, likelihood_log_prob, prior_log_prob, cfg.min_internal,cfg.max_internal, 
+                   cfg.monotonic, likelihood_log_prob, cfg.min_internal,cfg.max_internal, 
                    cfg.rjmcmc.parameters.p_birth, cfg.rjmcmc.parameters.p_death, 
                    cfg.rjmcmc.parameters.p_move_time, cfg.rjmcmc.parameters.p_move_temp, 
-                   cfg.rjmcmc.parameters.p_move_endpoints, cfg.rjmcmc.parameters.sigma_birth, 
+                   cfg.rjmcmc.parameters.p_move_endpoints, cfg.rjmcmc.parameters.sigma_birth,
+                   cfg.rjmcmc.parameters.sigma_t_birth, 
                    cfg.rjmcmc.parameters.sigma_temp, cfg.rjmcmc.parameters.sigma_time_frac,
                    cfg.rjmcmc.parameters.sigma_endpoints)
 
@@ -517,6 +287,7 @@ class ReverseJumpMCMC:
 
         self.attempt_success[move]["usable"] += 1
         prop_logp = self._log_target(prop)
+
         
         if not np.isfinite(prop_logp):
             return
@@ -539,7 +310,6 @@ class ReverseJumpMCMC:
             if i%100 ==0:
                 self.result_store.flush() 
          
-
         self.result_store.flush()
         self.pl.save_close_tracker()
        
@@ -560,20 +330,22 @@ class ReverseJumpMCMC:
 
         return rates
 
-    def set_sigmas(self, sigmas:Dict[str, float]) -> None:
+    def _set_sigmas(self, sigmas:Dict[str, float]) -> None:
         self.sigma_birth = float(sigmas["birth"])
+        self.sigma_t_birth = float(sigmas["birth_t"])
         self.sigma_temp = float(sigmas["move_temp"])
         self.sigma_time_frac = float(sigmas["move_time"])
         self.sigma_endpoints = float(sigmas["move_endpoints"])
 
-    def get_sigmas(self) -> Dict[str, float]:
+    def _get_sigmas(self) -> Dict[str, float]:
         return {
             "birth": float(self.sigma_birth),
+            "birth_t": float(self.sigma_t_birth),
             "move_temp": float(self.sigma_temp),
             "move_time": float(self.sigma_time_frac),
             "move_endpoints": float(self.sigma_endpoints),
         }
-    def set_probs(self, probs:Dict[str, float]|None = None) -> None: 
+    def _set_probs(self, probs:Dict[str, float]|None = None) -> None: 
         if probs is None:
             self.p_birth = self.move_probs[0]
             self.p_death = self.move_probs[1]
@@ -592,8 +364,7 @@ class ReverseJumpMCMC:
             self.move_probs[3] = self.p_move_temp 
             self.move_probs[4] = self.p_move_endpoints
 
-
-    def get_probs(self) -> Dict[str, float]:
+    def _get_probs(self) -> Dict[str, float]:
         return {
             "birth": float(self.p_birth),
             "death": float(self.p_death),
@@ -666,8 +437,8 @@ class ReverseJumpMCMC:
                                                                                                   sigma_birth_bounds, sigma_time_bounds,
                                                                                                   sigma_temp_bounds, sigma_endpoints_bound)
         p_range = Bounds(min_move_prob,max_move_prob)
-        move_sigmas = self.get_sigmas()
-        move_probs  = self.get_probs()
+        move_sigmas = self._get_sigmas()
+        move_probs  = self._get_probs()
         self._reset_move_stats()
 
         consecutive_ok = 0
@@ -723,7 +494,7 @@ class ReverseJumpMCMC:
                     move_sigmas[key] = self._tune_sigma(move_sigmas[key], eta_sigma, per_move_rates[key]["accepted"], 
                                                         per_move_accept_target[key], per_move_sigma_bounds[key], centre_pull)
 
-                self.set_sigmas(move_sigmas)
+                self._set_sigmas(move_sigmas)
 
                 if self.current.n_internal <= self.min_internal + 1:
                     self.p_birth *= 1.10
@@ -733,10 +504,10 @@ class ReverseJumpMCMC:
                     self.p_death *= 1.10       
                 
              
-                self.set_probs(move_probs)
+                self._set_probs(move_probs)
               
                 self._normalize_move_weights()
-                move_probs = self.get_probs()
+                move_probs = self._get_probs()
 
          
             if verbose:
@@ -821,7 +592,7 @@ class ReverseJumpMCMC:
     def _normalize_move_weights(self) -> None:
         tot = np.sum(self.move_probs)
         self.move_probs = self.move_probs/tot
-        self.set_probs()
+        self._set_probs()
 
     def _reset_move_stats(self) -> None:
         self.attempt_success = { 
@@ -860,12 +631,8 @@ class ReverseJumpMCMC:
         ll = self.likelihood_log_prob._ll(y_pred) 
         if not np.isfinite(ll):
             return -np.inf
-
-        lp = self.prior_log_prob.prior(profile)
-        if not np.isfinite(lp):
-            return -np.inf
-
-        return ll + lp
+        
+        return ll
 
     # ---------------- Initialization & Constraints ----------------
 
@@ -955,22 +722,26 @@ class ReverseJumpMCMC:
 
     def _propose_birth(self) -> Tuple[Optional[TemperatureProfile], float, float]:
         s = self.current
-       
         if s.n_internal >= self.max_internal:
             return None, 0.0, 0.0
 
         # Choose an interval uniformly among segments (k_nodes-1 segments)
+        p=(s.times[1:] - s.times[:-1])/(s.times[-1]-s.times[0])
         n_seg = s.k_nodes - 1
-        seg_idx = int(self.rng.integers(0, n_seg))
+        seg_idx = self.rng.choice(n_seg, p=p)
+       
+
         tL, tR = float(s.times[seg_idx]), float(s.times[seg_idx + 1])
         if not (tR > tL):
             return None, 0.0, 0.0
-        t_new = float(self.rng.uniform(tL, tR))
-
-        mu = s.interpolate(t_new)
+        u1 = self.rng.uniform(0.0, 1.0)
     
-        T_new = float(mu + self.rng.normal(0.0, self.sigma_birth))
-       
+        t_new = tL + self.sigma_t_birth*u1*(tR-tL)
+        TL, TR = float(s.temps[seg_idx]), float(s.temps[seg_idx + 1])
+
+        u2= self.rng.uniform(-0.5, 0.5)
+        T_new = TL + u1*self.sigma_t_birth*(TR-TL)+self.sigma_birth*u2
+
         if not self.T_global_bounds.contains(T_new):
             return None, 0.0, 0.0
 
@@ -981,14 +752,18 @@ class ReverseJumpMCMC:
         if not self._is_valid(prop):
             return None, 0.0, 0.0
 
-     
         log_q_fwd = (
-            -np.log(n_seg) 
-            -np.log(tR - tL)  
-            + self._log_norm_pdf(T_new, mu, self.sigma_birth) 
+            np.log(t_new-tL)
+            +np.log(tR-t_new)
+            +np.log(self.sigma_t_birth*self.sigma_birth)
+            +np.log(self.move_probs[1])
         )
 
-        log_q_bwd = -np.log(prop.n_internal)
+        log_q_bwd = (
+            np.log(tR-tL)
+            +np.log(self.T_global_bounds.width)
+            +np.log(self.move_probs[0])
+        )
 
         return prop, float(log_q_fwd), float(log_q_bwd)
 
@@ -1002,7 +777,6 @@ class ReverseJumpMCMC:
         rm_idx = int(self.rng.choice(internal_indices))
 
         t_rm = float(s.times[rm_idx])
-        T_rm = float(s.temps[rm_idx])
 
         times_new = np.delete(s.times, rm_idx)
         temps_new = np.delete(s.temps, rm_idx)
@@ -1011,22 +785,18 @@ class ReverseJumpMCMC:
         if not self._is_valid(prop):
             return None, 0.0, 0.0
 
-       
-        log_q_fwd = -np.log(s.n_internal)
-
-        seg_idx = int(np.searchsorted(prop.times, t_rm, side="right") - 1)
-        seg_idx = int(np.clip(seg_idx, 0, prop.k_nodes - 2))
-        tL, tR = float(prop.times[seg_idx]), float(prop.times[seg_idx + 1])
-        if not (tL < t_rm < tR):
-            return None, 0.0, 0.0
-
-        mu = prop.interpolate(t_rm)
-        log_q_bwd = (
-            -np.log(prop.k_nodes - 1)  # choose segment uniformly among segments
-            -np.log(tR - tL)  # uniform time in that segment
-            + self._log_norm_pdf(T_rm, mu, self.sigma_birth)  # temp normal around interpolation
+        log_q_fwd = (
+            np.log(s.times[rm_idx+1]-s.times[rm_idx-1])
+            +np.log(self.T_global_bounds.width)
+            +np.log(self.move_probs[0])
         )
-
+        log_q_bwd = (
+            np.log(t_rm-s.times[rm_idx-1])
+            +np.log(s.times[rm_idx+1]-t_rm)
+            +np.log(self.move_probs[1])
+            +np.log(self.sigma_t_birth*self.sigma_birth)
+        )
+       
         return prop, float(log_q_fwd), float(log_q_bwd)
 
     def _propose_move_time(self) -> Tuple[Optional[TemperatureProfile], float, float]:
@@ -1042,9 +812,8 @@ class ReverseJumpMCMC:
         local = min(t_cur - t_prev, t_next - t_cur)
         if local <= 0:
             return None, 0.0, 0.0
-        step = float(self.rng.normal(0.0, self.sigma_time_frac * local))
-        t_new = t_cur + step
-
+        t_new = t_cur + self.sigma_time_frac*self.rng.normal(0.0,1.0)
+        
         # Keep strict ordering by enforcing open interval (t_prev, t_next)
         if not (t_prev < t_new < t_next):
             return None, 0.0, 0.0
@@ -1056,8 +825,16 @@ class ReverseJumpMCMC:
         if not self._is_valid(prop):
             return None, 0.0, 0.0
 
-        # Symmetric proposal (normal RW) truncated by rejection; treat as symmetric -> q cancels
-        return prop, 0.0, 0.0
+        log_q_fwd = (
+            np.log(t_new-t_prev)
+            +np.log(t_next-t_new)
+        )
+        log_q_bwd = (
+            np.log(t_cur-t_prev)
+            +np.log(t_next-t_cur)
+        )
+
+        return prop, log_q_fwd, log_q_bwd 
 
     def _propose_move_temp(self) -> Tuple[Optional[TemperatureProfile], float, float]:
         s = self.current
@@ -1067,7 +844,7 @@ class ReverseJumpMCMC:
 
         idx = int(self.rng.integers(1, s.k_nodes - 1))  # internal only
         T_cur = float(s.temps[idx])
-        T_new = float(T_cur + self.rng.normal(0.0, self.sigma_temp))
+        T_new = float(T_cur + self.sigma_temp*self.rng.normal(0.0,1.0))
         if not self.T_global_bounds.contains(T_new):
             return None, 0.0, 0.0
 
@@ -1078,7 +855,6 @@ class ReverseJumpMCMC:
         if not self._is_valid(prop):
             return None, 0.0, 0.0
 
-        # Symmetric RW (rejection makes it effectively symmetric if you reject out-of-bounds)
         return prop, 0.0, 0.0
 
     def _propose_move_endpoints(self) -> Tuple[Optional[TemperatureProfile], float, float]:
@@ -1088,13 +864,13 @@ class ReverseJumpMCMC:
 
         if self.rng.random() < 0.5:
             T0_cur = float(temps_new[0])
-            T0_new = float(T0_cur + self.rng.normal(0.0, self.sigma_endpoints))
+            T0_new = float(T0_cur + self.sigma_endpoints*self.rng.normal(0.0,1.0))
             if (not self.T0_bounds.contains(T0_new)) or (not self.T_global_bounds.contains(T0_new)):
                 return None, 0.0, 0.0
             temps_new[0] = T0_new
         else:
             Tf_cur = float(temps_new[-1])
-            Tf_new = float(Tf_cur + self.rng.normal(0.0, self.sigma_endpoints))
+            Tf_new = float(Tf_cur + self.sigma_endpoints*self.rng.normal(0.0,1.0))
             if (not self.Tf_bounds.contains(Tf_new)) or (not self.T_global_bounds.contains(Tf_new)):
                 return None, 0.0, 0.0
             temps_new[-1] = Tf_new
@@ -1105,15 +881,6 @@ class ReverseJumpMCMC:
             return None, 0.0, 0.0
 
         return prop, 0.0, 0.0
-
-    # ---------- Utilities ----------
-
-    @staticmethod
-    def _log_norm_pdf(x: float, mu: float, sigma: float) -> float:
-        if sigma <= 0:
-            raise ValueError("sigma must be > 0")
-        z = (x - mu) / sigma
-        return float(-0.5 * (np.log(2.0 * np.pi) + 2.0 * np.log(sigma) + z * z))
 
 
 

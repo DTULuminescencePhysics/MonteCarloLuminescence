@@ -6,7 +6,7 @@ T0_hi: 140.0 # Maximum T0 value
 T_tolerance: 1.0 # Allow ± T_tolerance to minimum and maximum temperatures
 monotonic: free #free, increasing or decreasing
 min_internal: 0 # minimum number of time temperature nodes
-max_internal: 100 # maximum number of time temperature nodes
+max_internal: 20 # maximum number of time temperature nodes
 
 rjmcmc:
     log_likelihood:
@@ -34,12 +34,13 @@ rjmcmc:
         p_move_time: 0.25 
         p_move_temp: 0.25 
         p_move_endpoints: 0.10
-        sigma_birth: 20.0 
+        sigma_birth: 20.0
+        sigma_t_birth: 15
         sigma_temp: 20
         sigma_time_frac: 15
         sigma_endpoints: 5
     burn_in:
-        burn: True
+        burn: False
         max_steps: 200  
         window: 100
         patience_windows: 2

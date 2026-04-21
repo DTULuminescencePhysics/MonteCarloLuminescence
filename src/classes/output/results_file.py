@@ -152,6 +152,7 @@ class output_file:
             "p_move_temp": cfg.chronology.rjmcmc.parameters.p_move_temp,
             "p_move_endpoints": cfg.chronology.rjmcmc.parameters.p_move_endpoints,
             "sigma_birth": cfg.chronology.rjmcmc.parameters.sigma_birth,
+            "sigma_t_birth": cfg.chronology.rjmcmc.parameters.sigma_t_birth,
             "sigma_temp": cfg.chronology.rjmcmc.parameters.sigma_temp,
             "sigma_time_frac": cfg.chronology.rjmcmc.parameters.sigma_time_frac,
             "sigma_endpoints": cfg.chronology.rjmcmc.parameters.sigma_endpoints,
@@ -213,6 +214,7 @@ class output_file:
             parameters.attrs["p_move_temp"] =  probs["move_temp"]
             parameters.attrs["p_move_endpoints"] =  probs["move_endpoints"]
             parameters.attrs["sigma_birth"] =  sigmas["birth"]
+            parameters.attrs["sigma_t_birth"] =  sigmas["birth_t"]
             parameters.attrs["sigma_temp"] =  sigmas["move_temp"]
             parameters.attrs["sigma_time_frac"] =  sigmas["move_time"]
             parameters.attrs["sigma_endpoints"] =  sigmas["move_endpoints"]
