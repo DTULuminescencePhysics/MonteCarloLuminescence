@@ -570,6 +570,7 @@ class ReverseJumpMCMC:
 
         per_move_sigma_bounds = {
             "birth": Bounds(sigma_birth_bounds[0],sigma_birth_bounds[1]) if sigma_birth_bounds is not None else Bounds(1e-4,1e2),
+            "birth_t": Bounds(sigma_birth_bounds[0],sigma_birth_bounds[1]) if sigma_birth_bounds is not None else Bounds(1e-4,1e2),
             "move_time": Bounds(sigma_time_bounds[0],sigma_time_bounds[1]) if sigma_time_bounds is not None else Bounds(1e-4,1e2), 
             "move_temp": Bounds(sigma_temp_bounds[0],sigma_temp_bounds[1]) if sigma_temp_bounds is not None else Bounds(1e-3,1e2),
             "move_endpoints": Bounds(sigma_endpoints_bound[0],sigma_endpoints_bound[1]) if sigma_endpoints_bound is not None else Bounds(1e-4,1e1)
@@ -653,30 +654,47 @@ class ReverseJumpMCMC:
                     f"per_move_acc={{" + ", ".join(f"{k}:{per_move_rates[k]["accepted"]:.3f}" for k in self.move_names) + "}} "
                     f"ok={ok} consec_ok={consecutive_ok}/{patience_windows} "
                     )
+                
+                if not(per_move_accept_target["move_time"].contains(per_move_rates["move_time"]["accepted"])):
+                    move_sigmas["move_time"] = self._tune_sigma(move_sigmas["move_time"], eta_sigma, per_move_rates["move_time"]["accepted"], 
+                                                        per_move_accept_target["move_time"], per_move_sigma_bounds["move_time"], centre_pull)
+                
+                if not(per_move_accept_target["move_temp"].contains(per_move_rates["move_temp"]["accepted"])):
+                    move_sigmas["move_temp"] = self._tune_sigma(move_sigmas["move_temp"], eta_sigma, per_move_rates["move_temp"]["accepted"], 
+                                                        per_move_accept_target["move_temp"], per_move_sigma_bounds["move_temp"], centre_pull)
+                
+                if not(per_move_accept_target["move_endpoints"].contains(per_move_rates["move_endpoints"]["accepted"])):
+                    move_sigmas["move_endpoints"] = self._tune_sigma(move_sigmas["move_endpoints"], eta_sigma, per_move_rates["move_endpoints"]["accepted"], 
+                                                        per_move_accept_target["move_endpoints"], per_move_sigma_bounds["move_endpoints"], centre_pull)
 
-                for m in self.move_names:
-                    score = 0.5 * self.attempt_success[m]["usable"] + 0.5 * self.attempt_success[m]["accepted"]
-                    move_probs[m] = self._adapt_prob_weight(move_probs[m],score,eta_prob,p_range)
+                if not(per_move_accept_target["birth"].contains(per_move_rates["birth"]["accepted"])):
+                    move_sigmas["birth"] = self._tune_sigma(move_sigmas["birth"], eta_sigma, per_move_rates["birth"]["accepted"], 
+                                                        per_move_accept_target["birth"], per_move_sigma_bounds["birth"], centre_pull)
+                    
+                    move_sigmas["birth_t"] = self._tune_sigma(move_sigmas["birth_t"], eta_sigma, per_move_rates["birth"]["accepted"], 
+                                                        per_move_accept_target["birth"], per_move_sigma_bounds["birth_t"], centre_pull)
 
-                print(per_move_rates["birth"]["accepted"],per_move_rates["death"]["accepted"])
-                new_bith = 0.5*(per_move_rates["birth"]["accepted"] + per_move_rates["death"]["accepted"])
-                print(new_bith)
-                per_move_rates["birth"]["accepted"] = new_bith
-                print(per_move_rates["birth"]["accepted"])
-                for key in move_sigmas:
-                    print(key)
-                    # if not per_move_accept_target[key].contains(per_move_rates[key]["accepted"]):
-                    move_sigmas[key] = self._tune_sigma(move_sigmas[key], eta_sigma, per_move_rates[key]["accepted"], 
-                                                        per_move_accept_target[key], per_move_sigma_bounds[key], centre_pull)
+
+                # for m in self.move_names:
+                #     score = 0.5 * self.attempt_success[m]["usable"] + 0.5 * self.attempt_success[m]["accepted"]
+                #     move_probs[m] = self._adapt_prob_weight(move_probs[m],score,eta_prob,p_range)
+
+                # new_bith = 0.5*(per_move_rates["birth"]["accepted"] + per_move_rates["death"]["accepted"])
+                # per_move_rates["birth"]["accepted"] = new_bith
+
+
+                # for key in move_sigmas:
+                #     move_sigmas[key] = self._tune_sigma(move_sigmas[key], eta_sigma, per_move_rates[key]["accepted"], 
+                #                                         per_move_accept_target[key], per_move_sigma_bounds[key], centre_pull)
 
                 self._set_sigmas(move_sigmas)
 
-                if self.current.n_internal <= self.min_internal + 1:
-                    self.p_birth *= 1.10
-                    self.p_death *= 0.90
-                elif self.current.n_internal >= self.max_internal - 1:
-                    self.p_birth *= 0.90
-                    self.p_death *= 1.10       
+                # if self.current.n_internal <= self.min_internal + 1:
+                #     self.p_birth *= 1.10
+                #     self.p_death *= 0.90
+                # elif self.current.n_internal >= self.max_internal - 1:
+                #     self.p_birth *= 0.90
+                #     self.p_death *= 1.10       
                 
              
                 self._set_probs(move_probs)
@@ -689,7 +707,7 @@ class ReverseJumpMCMC:
                 msg2 = ( f"move_probs={{p_birth:{self.p_birth:.4g}, p_death:{self.p_death:.4g}, "
                     f"p_move_temp:{self.p_move_temp:.4g}, p_move_time:{self.p_move_time:.4g},"
                     f"p_move_endpoints:{self.p_move_endpoints:.4g}}}"
-                    f"sigmas={{sigma_birth:{self.sigma_birth:.4g}, sigma_temp:{self.sigma_temp:.4g}, "
+                    f"sigmas={{sigma_birth:{self.sigma_birth:.4g},sigma_temp:{self.sigma_t_birth:.4g}, sigma_temp:{self.sigma_temp:.4g}, "
                     f"sigma_time_frac:{self.sigma_time_frac:.4g}, sigma_endpoints:{self.sigma_endpoints:.4g}}}"
                 )
                 
@@ -729,6 +747,9 @@ class ReverseJumpMCMC:
     @staticmethod
     def _tune_sigma(sigma: float, eta: float, acc: float, target_range: Bounds, 
                     range_bounds: Bounds, centre_pull: float) -> float:
+        
+        sigma_new = sigma * np.exp(eta * (acc - target_range.midpoint))
+        return np.clip(sigma_new, range_bounds.lo, range_bounds.hi)
 
         if target_range.contains(acc):
             new_sigma = sigma

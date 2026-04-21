@@ -31,17 +31,17 @@ rjmcmc:
     parameters:
         p_birth: 0.20 
         p_death:  0.20
-        p_move_time: 0.25 
-        p_move_temp: 0.25 
-        p_move_endpoints: 0.10
+        p_move_time: 0.20 
+        p_move_temp: 0.20 
+        p_move_endpoints: 0.20
         sigma_birth: 20.0
         sigma_t_birth: 15
         sigma_temp: 20
         sigma_time_frac: 15
         sigma_endpoints: 5
     burn_in:
-        burn: False
-        max_steps: 200  
+        burn: True
+        max_steps: 2000  
         window: 100
         patience_windows: 2
 
