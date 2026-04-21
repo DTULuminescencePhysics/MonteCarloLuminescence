@@ -1,18 +1,15 @@
 from __future__ import annotations
 import numpy as np
-from math import lgamma, factorial
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from src.classes.monte_carlo import MCBase
 from omegaconf import DictConfig
 from src.errors import ErrorOutputHandler
 from src.classes.output.graph import chronologyPlot_running
 from src.classes.output.temp_results_file import chronology_results
-from src.helper_functions import _as_1d_array
 from typing import  Literal, Optional, Dict, List, Tuple
 
 
 MonotonicMode = Literal["free", "increasing", "decreasing"]
-LikelihoodMode = Literal["Gaussian", "FullGaussian", "student-t", "L1", "L1L2Hybrid", "Bernoulli"] 
 
 @dataclass
 class Bounds:
@@ -71,6 +68,39 @@ class TemperatureProfile:
             return float(y0)
         w = (t - t0) / (t1 - t0)
         return float(y0 + w * (y1 - y0))
+    
+    def _is_valid(self,min_internal:int, max_internal:int, timeSpan:Bounds, 
+                  T_global_bounds: Bounds, T0_bounds: Bounds,
+                  Tf_bounds: Bounds, monotonic: str) -> bool:
+        if self.times.shape != self.temps.shape or self.times.ndim != 1:
+            return False
+        if self.times[0] != 0.0 or self.times[-1] != timeSpan.hi:
+            return False
+        if np.any(~np.isfinite(self.times)) or np.any(~np.isfinite(self.temps)):
+            return False
+        if np.any(np.diff(self.times) <= 0):
+            return False
+
+        if not (min_internal <= self.n_internal <= max_internal):
+            return False
+
+        if np.any(self.temps < T_global_bounds.lo) or np.any(self.temps > T_global_bounds.hi):
+            return False
+
+        if not T0_bounds.contains(float(self.temps[0])):
+            return False
+        if not Tf_bounds.contains(float(self.temps[-1])):
+            return False
+
+        if monotonic == "increasing":
+            if np.any(np.diff(self.temps) < 0):
+                return False
+        elif monotonic == "decreasing":
+            if np.any(np.diff(self.temps) > 0):
+                return False
+
+        return True
+
 
 @dataclass
 class log_likelihood:
@@ -85,7 +115,6 @@ class ReverseJumpMCMC:
     """
     Reversible Jump MCMC over temperature profiles (variable number of internal points).
 
-  
     This class handles:
       - Birth/death of internal (time, temp) nodes
       - Local time/temperature perturbations
@@ -211,23 +240,79 @@ class ReverseJumpMCMC:
                    cfg.rjmcmc.parameters.sigma_temp, cfg.rjmcmc.parameters.sigma_time_frac,
                    cfg.rjmcmc.parameters.sigma_endpoints)
 
-    def set_random_generator(self):
-        self.rng = np.random.default_rng(self.seed)
+    # ---------------- Run function & Individual step ----------------
 
-    def update_tracker(self, count:int):
-        if isinstance(self.MC_crystal, MCBase):
-            self.pl.add_result(self.MC_crystal.crystal.Tat(self.pl.t_common_unit),count)
-        else:
-            self.pl.add_result(self.MC_crystal[0].crystal.Tat(self.pl.t_common_unit),count)
+    def run(self) -> None:
+        """Main function to carry out RJMCMC"""
+        for i in range(self.iters):
+            self.step(i)
+            if i%100 ==0:
+                self.result_store.flush() 
+         
+        self.result_store.flush()
+        self.pl.save_close_tracker()
 
-    def store_profile(self, it: int|None, prof:TemperatureProfile, accpt:bool)-> None:
-        if it is None:
+    def step(self, it: int|None = None) -> None:
+        move = self.rng.choice(self.move_names, p=self.move_probs)
+        self.attempt_success[move]["selected"] += 1
+
+        if move == "birth":
+            prop, log_q_fwd, log_q_bwd = self._propose_birth()
+        elif move == "death":
+            prop, log_q_fwd, log_q_bwd = self._propose_death()
+        elif move == "move_time":
+            prop, log_q_fwd, log_q_bwd = self._propose_move_time()
+        elif move == "move_temp":
+            prop, log_q_fwd, log_q_bwd = self._propose_move_temp()
+        else: 
+            prop, log_q_fwd, log_q_bwd = self._propose_move_endpoints()
+
+        if prop is None:
             return
-        self.result_store.write_result(it,prof.times,prof.temps,accpt,self.current_logp)
 
-        if accpt: 
-            self.update_tracker(it)
+        self.attempt_success[move]["usable"] += 1
+        prop_logp = self._log_target(prop)
 
+        if not np.isfinite(prop_logp):
+            return
+       
+        log_alpha = (prop_logp - self.current_logp) + (log_q_bwd - log_q_fwd)
+        if np.log(self.rng.random()) < log_alpha:
+            self.current = prop
+            self.current_logp = prop_logp
+            self.attempt_success[move]["accepted"] += 1
+            self.store_profile(it,prop,True)
+        else:
+            self.store_profile(it,prop,False)
+
+        return 
+    
+    def _log_target(self, profile: TemperatureProfile) -> float:
+        y_pred = self._predict(profile)
+        ll = self.likelihood_log_prob._ll(y_pred) 
+        if not np.isfinite(ll):
+            return -np.inf
+        
+        return ll
+    
+    def _predict(self, profile: TemperatureProfile, t: float = 0.0, 
+                 t_pcnt: float | None = None, h_pcnt:float | None = None) -> np.ndarray:
+        if isinstance(self.MC_crystal, MCBase):
+            result = np.zeros(1)
+            self.MC_crystal.seed += self.MC_crystal.repetion
+            self.MC_crystal.crystal.set_temperature_profile("linearsteps",profile.times.copy(),profile.temps.copy())
+            result[0] =  self.MC_crystal.thermochron_simulation(t,t_pcnt,h_pcnt)
+        else: 
+            result = np.zeros(len(self.MC_crystal))
+            i=0
+            for crystal in self.MC_crystal:
+                crystal.seed += crystal.repetion
+                crystal.set_temperature_profile("linearsteps",profile.times.copy(),profile.temps.copy())
+                result[i] = crystal.thermochron_simulation(t,t_pcnt,h_pcnt)
+                i+=1 
+        return result
+    
+    # ---------------- Initialization & Constraints ----------------
     def initialise_run(self, cfg: DictConfig | list[DictConfig], experiments:int, err: ErrorOutputHandler) -> None:
         self.set_random_generator()
         if experiments == 1 and isinstance(cfg, DictConfig):
@@ -266,113 +351,204 @@ class ReverseJumpMCMC:
         if not np.isfinite(self.current_logp):
             raise ValueError("Initial profile has non-finite target_log_prob; check constraints or your target.")
         self._reset_move_stats()
+    
+    def _make_initial_profile(self,) -> TemperatureProfile:
 
-    def step(self, it: int|None = None) -> None:
-        move = self.rng.choice(self.move_names, p=self.move_probs)
-        self.attempt_success[move]["selected"] += 1
+        k_init = self.rng.integers(self.min_internal,self.max_internal)
+        T0 = self.T0_bounds._rand_in_bounds(self.rng)
+        Tf = self.Tf_bounds._rand_in_bounds(self.rng)
 
-        if move == "birth":
-            prop, log_q_fwd, log_q_bwd = self._propose_birth()
-        elif move == "death":
-            prop, log_q_fwd, log_q_bwd = self._propose_death()
-        elif move == "move_time":
-            prop, log_q_fwd, log_q_bwd = self._propose_move_time()
-        elif move == "move_temp":
-            prop, log_q_fwd, log_q_bwd = self._propose_move_temp()
-        else: 
-            prop, log_q_fwd, log_q_bwd = self._propose_move_endpoints()
+        if not self.T_global_bounds.contains(T0) or not self.T_global_bounds.contains(Tf):
+            raise ValueError("Endpoint bounds must be within global temperature bounds (or adjust checks).")
 
-        if prop is None:
-            return
-
-        self.attempt_success[move]["usable"] += 1
-        prop_logp = self._log_target(prop)
-
+        if k_init == 0:
+            times = np.array([self.timeSpan.lo, self.timeSpan.hi], dtype=float)
+            temps = np.array([T0, Tf], dtype=float)
+        else:
+            internal_times = np.linspace(self.timeSpan.lo, self.timeSpan.hi, num=k_init + 2, dtype=float)[1:-1]
+            times = np.concatenate(([self.timeSpan.lo], internal_times, [self.timeSpan.hi])).astype(float)
+            
+            base = np.linspace(T0, Tf, num=k_init + 2, dtype=float)
+            noise = self.rng.normal(0.0, self.sigma_temp, size=k_init + 2)
+            noise[0] = 0.0
+            noise[-1] = 0.0
+            temps = np.clip(base + noise, self.T_global_bounds.lo, self.T_global_bounds.hi)
+            temps[0] = T0
+            temps[-1] = Tf
+            temps = self._project_monotonic(temps)
+     
+        prfl = TemperatureProfile(times=times, temps=temps)
         
-        if not np.isfinite(prop_logp):
-            return
+        if not prfl._is_valid(self.min_internal,self.max_internal,self.timeSpan,
+                              self.T_global_bounds,self.T0_bounds,self.Tf_bounds,self.monotonic):
+            prfl.temps = np.clip(prfl.temps, self.T_global_bounds.lo, self.T_global_bounds.hi)
+            prfl.temps = self._project_monotonic(prfl.temps)
+            if not prfl._is_valid(self.min_internal,self.max_internal,self.timeSpan,
+                              self.T_global_bounds,self.T0_bounds,self.Tf_bounds,self.monotonic):
+                raise ValueError("Failed to build a valid initial profile. Check bounds/monotonic constraints.")
+        return prfl
+
+   
+    def _project_monotonic(self, temps: np.ndarray) -> np.ndarray:
+        """
+        Simple projection for monotonic modes:
+        - increasing: enforce non-decreasing by cumulative max
+        - decreasing: enforce non-increasing by cumulative min
+        - free: no-op
+
+        This is used ONLY for initialization/fallback. Proposals are rejected if invalid,
+        preserving detailed balance.
+        """
+        y = temps.copy()
+        if self.monotonic == "increasing":
+            y = np.maximum.accumulate(y)
+        elif self.monotonic == "decreasing":
+            y = np.minimum.accumulate(y)
+        return y
+
+    # ---------- Proposals ----------
+
+    def _propose_birth(self) -> Tuple[Optional[TemperatureProfile], float, float]:
+        s = self.current
+        if s.n_internal >= self.max_internal:
+            return None, 0.0, 0.0
+
+        p=(s.times[1:] - s.times[:-1])/(s.times[-1]-s.times[0])
+        n_seg = s.k_nodes - 1
+        seg_idx = self.rng.choice(n_seg, p=p)
        
-        log_alpha = (prop_logp - self.current_logp) + (log_q_bwd - log_q_fwd)
-        if np.log(self.rng.random()) < log_alpha:
-            self.current = prop
-            self.current_logp = prop_logp
-            self.attempt_success[move]["accepted"] += 1
-            self.store_profile(it,prop,True)
-        else:
-            self.store_profile(it,prop,False)
 
-        return 
-
-    def run(self) -> None:
+        tL, tR = float(s.times[seg_idx]), float(s.times[seg_idx + 1])
+        if not (tR > tL):
+            return None, 0.0, 0.0
+        u1 = self.rng.uniform(0.0, 1.0)
     
-        for i in range(self.iters):
-            self.step(i)
-            if i%100 ==0:
-                self.result_store.flush() 
-         
-        self.result_store.flush()
-        self.pl.save_close_tracker()
-       
+        t_new = tL + self.sigma_t_birth*u1*(tR-tL)
+        TL, TR = float(s.temps[seg_idx]), float(s.temps[seg_idx + 1])
 
-    def acceptance_rates(self) -> Dict[str, Dict[str,float]]:
-        rates = { 
-            name: {
-                "usable":   0.0, 
-                "accepted": 0.0, 
-            }
-            for name in self.move_names
-        }
-       
-        for m in self.move_names:
-            att = self.attempt_success[m]["selected"] 
-            rates[m]["usable"] = self.attempt_success[m]["usable"]/att if att > 0 else 0.0
-            rates[m]["accepted"] = self.attempt_success[m]["accepted"]/att if att > 0 else 0.0
+        u2= self.rng.uniform(-0.5, 0.5)
+        T_new = TL + u1*self.sigma_t_birth*(TR-TL)+self.sigma_birth*u2
 
-        return rates
+        if not self.T_global_bounds.contains(T_new):
+            return None, 0.0, 0.0
 
-    def _set_sigmas(self, sigmas:Dict[str, float]) -> None:
-        self.sigma_birth = float(sigmas["birth"])
-        self.sigma_t_birth = float(sigmas["birth_t"])
-        self.sigma_temp = float(sigmas["move_temp"])
-        self.sigma_time_frac = float(sigmas["move_time"])
-        self.sigma_endpoints = float(sigmas["move_endpoints"])
+        times_new = np.insert(s.times, seg_idx + 1, t_new)
+        temps_new = np.insert(s.temps, seg_idx + 1, T_new)
+        prop = TemperatureProfile(times_new, temps_new)
 
-    def _get_sigmas(self) -> Dict[str, float]:
-        return {
-            "birth": float(self.sigma_birth),
-            "birth_t": float(self.sigma_t_birth),
-            "move_temp": float(self.sigma_temp),
-            "move_time": float(self.sigma_time_frac),
-            "move_endpoints": float(self.sigma_endpoints),
-        }
-    def _set_probs(self, probs:Dict[str, float]|None = None) -> None: 
-        if probs is None:
-            self.p_birth = self.move_probs[0]
-            self.p_death = self.move_probs[1]
-            self.p_move_time = self.move_probs[2]
-            self.p_move_temp =  self.move_probs[3]
-            self.p_move_endpoints = self.move_probs[4]
-        else:
-            self.p_birth = float(probs["birth"])
-            self.p_death = float(probs["death"])
-            self.p_move_time = float(probs["move_time"])
-            self.p_move_temp =  float(probs["move_temp"])
-            self.p_move_endpoints = float(probs["move_endpoints"])
-            self.move_probs[0] = self.p_birth 
-            self.move_probs[1] = self.p_death 
-            self.move_probs[2] = self.p_move_time 
-            self.move_probs[3] = self.p_move_temp 
-            self.move_probs[4] = self.p_move_endpoints
+        if not prop._is_valid(self.min_internal,self.max_internal,self.timeSpan,
+                              self.T_global_bounds,self.T0_bounds,self.Tf_bounds,self.monotonic):
+            return None, 0.0, 0.0
 
-    def _get_probs(self) -> Dict[str, float]:
-        return {
-            "birth": float(self.p_birth),
-            "death": float(self.p_death),
-            "move_time": float(self.p_move_time),
-            "move_temp": float(self.p_move_temp),
-            "move_endpoints": float(self.p_move_endpoints),
-        }
+        log_q_fwd = np.log(t_new-tL) + np.log(tR-t_new) + np.log(self.sigma_t_birth*self.sigma_birth) + np.log(self.move_probs[1])
+        log_q_bwd = np.log(tR-tL) + np.log(self.T_global_bounds.width) + np.log(self.move_probs[0])
     
+
+        return prop, float(log_q_fwd), float(log_q_bwd)
+
+    def _propose_death(self) -> Tuple[Optional[TemperatureProfile], float, float]:
+        s = self.current
+        if s.n_internal <= self.min_internal:
+            return None, 0.0, 0.0
+
+      
+        internal_indices = np.arange(1, s.k_nodes - 1)
+        rm_idx = int(self.rng.choice(internal_indices))
+
+        t_rm = float(s.times[rm_idx])
+
+        times_new = np.delete(s.times, rm_idx)
+        temps_new = np.delete(s.temps, rm_idx)
+        prop = TemperatureProfile(times_new, temps_new)
+
+        if not prop._is_valid(self.min_internal,self.max_internal,self.timeSpan,
+                              self.T_global_bounds,self.T0_bounds,self.Tf_bounds,self.monotonic):
+            return None, 0.0, 0.0
+
+        log_q_fwd = np.log(s.times[rm_idx+1]-s.times[rm_idx-1]) + np.log(self.T_global_bounds.width) + np.log(self.move_probs[0])
+        log_q_bwd = np.log(t_rm-s.times[rm_idx-1]) + np.log(s.times[rm_idx+1]-t_rm) + np.log(self.move_probs[1]) + np.log(self.sigma_t_birth*self.sigma_birth)
+        
+        return prop, float(log_q_fwd), float(log_q_bwd)
+
+    def _propose_move_time(self) -> Tuple[Optional[TemperatureProfile], float, float]:
+        s = self.current
+        if s.n_internal == 0:
+            return None, 0.0, 0.0
+
+        idx = int(self.rng.integers(1, s.k_nodes - 1))
+        t_prev, t_cur, t_next = float(s.times[idx - 1]), float(s.times[idx]), float(s.times[idx + 1])
+
+        local = min(t_cur - t_prev, t_next - t_cur)
+        if local <= 0:
+            return None, 0.0, 0.0
+        t_new = t_cur + self.sigma_time_frac*self.rng.normal(0.0,1.0)
+        
+        if not (t_prev < t_new < t_next):
+            return None, 0.0, 0.0
+
+        times_new = s.times.copy()
+        times_new[idx] = t_new
+        prop = TemperatureProfile(times_new, s.temps.copy())
+
+        if not prop._is_valid(self.min_internal,self.max_internal,self.timeSpan,
+                              self.T_global_bounds,self.T0_bounds,self.Tf_bounds,self.monotonic):
+            return None, 0.0, 0.0
+
+        log_q_fwd = np.log(t_new-t_prev) + np.log(t_next-t_new)
+        log_q_bwd = np.log(t_cur-t_prev) + np.log(t_next-t_cur)
+        
+        return prop, log_q_fwd, log_q_bwd 
+
+    def _propose_move_temp(self) -> Tuple[Optional[TemperatureProfile], float, float]:
+        s = self.current
+        if s.n_internal == 0:
+            return None, 0.0, 0.0
+
+        idx = int(self.rng.integers(1, s.k_nodes - 1))  
+        T_cur = float(s.temps[idx])
+        T_new = float(T_cur + self.sigma_temp*self.rng.normal(0.0,1.0))
+        if not self.T_global_bounds.contains(T_new):
+            return None, 0.0, 0.0
+
+        temps_new = s.temps.copy()
+        temps_new[idx] = T_new
+        prop = TemperatureProfile(s.times.copy(), temps_new)
+
+        if not prop._is_valid(self.min_internal,self.max_internal,self.timeSpan,
+                              self.T_global_bounds,self.T0_bounds,self.Tf_bounds,self.monotonic):
+            return None, 0.0, 0.0
+
+        return prop, 0.0, 0.0
+
+    def _propose_move_endpoints(self) -> Tuple[Optional[TemperatureProfile], float, float]:
+        s = self.current
+      
+        temps_new = s.temps.copy()
+
+        if self.rng.random() < 0.5:
+            T0_cur = float(temps_new[0])
+            T0_new = float(T0_cur + self.sigma_endpoints*self.rng.normal(0.0,1.0))
+            if (not self.T0_bounds.contains(T0_new)) or (not self.T_global_bounds.contains(T0_new)):
+                return None, 0.0, 0.0
+            temps_new[0] = T0_new
+        else:
+            Tf_cur = float(temps_new[-1])
+            Tf_new = float(Tf_cur + self.sigma_endpoints*self.rng.normal(0.0,1.0))
+            if (not self.Tf_bounds.contains(Tf_new)) or (not self.T_global_bounds.contains(Tf_new)):
+                return None, 0.0, 0.0
+            temps_new[-1] = Tf_new
+
+        prop = TemperatureProfile(s.times.copy(), temps_new)
+
+        if not prop._is_valid(self.min_internal,self.max_internal,self.timeSpan,
+                              self.T_global_bounds,self.T0_bounds,self.Tf_bounds,self.monotonic):
+            return None, 0.0, 0.0
+
+        return prop, 0.0, 0.0
+    
+
+    # ---------------- Burn-in tuning ----------------
+
     def burn_in_setup(self, overall_bounds:Tuple[float,float]=(0.15,0.45), 
                       birth_accept_target: Optional[Tuple[float,float]] = None, death_accept_target: Optional[Tuple[float,float]] = None,
                       move_time_accept_target: Optional[Tuple[float,float]] = None, move_temp_accept_target: Optional[Tuple[float,float]] = None,
@@ -401,7 +577,6 @@ class ReverseJumpMCMC:
 
         return overall_accept_target, per_move_accept_target, per_move_sigma_bounds
 
-    # ---------------- Burn-in tuning ----------------
     def burn_in_tune(self, max_steps: int, window: int,
                      eta_sigma0: float, eta_prob0:float, overall_check: bool,
                      individual_check:bool, overall_bounds: Tuple[float,float] = (0.15,0.45),
@@ -594,6 +769,83 @@ class ReverseJumpMCMC:
         self.move_probs = self.move_probs/tot
         self._set_probs()
 
+    # ---------- Utilities ----------
+    def set_random_generator(self):
+        self.rng = np.random.default_rng(self.seed)
+
+    def update_tracker(self, count:int):
+        if isinstance(self.MC_crystal, MCBase):
+            self.pl.add_result(self.MC_crystal.crystal.Tat(self.pl.t_common_unit),count)
+        else:
+            self.pl.add_result(self.MC_crystal[0].crystal.Tat(self.pl.t_common_unit),count)
+
+    def store_profile(self, it: int|None, prof:TemperatureProfile, accpt:bool)-> None:
+        if it is None:
+            return
+        self.result_store.write_result(it,prof.times,prof.temps,accpt,self.current_logp)
+
+        if accpt: 
+            self.update_tracker(it)
+
+    def acceptance_rates(self) -> Dict[str, Dict[str,float]]:
+        rates = { 
+            name: {
+                "usable":   0.0, 
+                "accepted": 0.0, 
+            }
+            for name in self.move_names
+        }
+       
+        for m in self.move_names:
+            att = self.attempt_success[m]["selected"] 
+            rates[m]["usable"] = self.attempt_success[m]["usable"]/att if att > 0 else 0.0
+            rates[m]["accepted"] = self.attempt_success[m]["accepted"]/att if att > 0 else 0.0
+
+        return rates
+
+    def _set_sigmas(self, sigmas:Dict[str, float]) -> None:
+        self.sigma_birth = float(sigmas["birth"])
+        self.sigma_t_birth = float(sigmas["birth_t"])
+        self.sigma_temp = float(sigmas["move_temp"])
+        self.sigma_time_frac = float(sigmas["move_time"])
+        self.sigma_endpoints = float(sigmas["move_endpoints"])
+
+    def _get_sigmas(self) -> Dict[str, float]:
+        return {
+            "birth": float(self.sigma_birth),
+            "birth_t": float(self.sigma_t_birth),
+            "move_temp": float(self.sigma_temp),
+            "move_time": float(self.sigma_time_frac),
+            "move_endpoints": float(self.sigma_endpoints),
+        }
+    def _set_probs(self, probs:Dict[str, float]|None = None) -> None: 
+        if probs is None:
+            self.p_birth = self.move_probs[0]
+            self.p_death = self.move_probs[1]
+            self.p_move_time = self.move_probs[2]
+            self.p_move_temp =  self.move_probs[3]
+            self.p_move_endpoints = self.move_probs[4]
+        else:
+            self.p_birth = float(probs["birth"])
+            self.p_death = float(probs["death"])
+            self.p_move_time = float(probs["move_time"])
+            self.p_move_temp =  float(probs["move_temp"])
+            self.p_move_endpoints = float(probs["move_endpoints"])
+            self.move_probs[0] = self.p_birth 
+            self.move_probs[1] = self.p_death 
+            self.move_probs[2] = self.p_move_time 
+            self.move_probs[3] = self.p_move_temp 
+            self.move_probs[4] = self.p_move_endpoints
+
+    def _get_probs(self) -> Dict[str, float]:
+        return {
+            "birth": float(self.p_birth),
+            "death": float(self.p_death),
+            "move_time": float(self.p_move_time),
+            "move_temp": float(self.p_move_temp),
+            "move_endpoints": float(self.p_move_endpoints),
+        }
+    
     def _reset_move_stats(self) -> None:
         self.attempt_success = { 
             name: {
@@ -603,287 +855,6 @@ class ReverseJumpMCMC:
             }
             for name in self.move_names
         }
-
-        # ---------------- Target / Likelihood / Prior ----------------
-
-    def _predict(self, profile: TemperatureProfile, t: float = 0.0, 
-                 t_pcnt: float | None = None, h_pcnt:float | None = None) -> np.ndarray:
-        if isinstance(self.MC_crystal, MCBase):
-            result = np.zeros(1)
-            self.MC_crystal.seed += self.MC_crystal.repetion
-            self.MC_crystal.crystal.set_temperature_profile("linearsteps",profile.times.copy(),profile.temps.copy())
-            result[0] =  self.MC_crystal.thermochron_simulation(t,t_pcnt,h_pcnt)
-        else: 
-            result = np.zeros(len(self.MC_crystal))
-            i=0
-            for crystal in self.MC_crystal:
-                crystal.seed += crystal.repetion
-                crystal.set_temperature_profile("linearsteps",profile.times.copy(),profile.temps.copy())
-                result[i] = crystal.thermochron_simulation(t,t_pcnt,h_pcnt)
-                i+=1 
-        return result
-
-    def _log_target(self, profile: TemperatureProfile) -> float:
-        if not self._is_valid(profile):
-            return -np.inf
-
-        y_pred = self._predict(profile)
-        ll = self.likelihood_log_prob._ll(y_pred) 
-        if not np.isfinite(ll):
-            return -np.inf
-        
-        return ll
-
-    # ---------------- Initialization & Constraints ----------------
-
-    def _make_initial_profile(self,) -> TemperatureProfile:
-
-        k_init = self.rng.integers(self.min_internal,self.max_internal)
-        T0 = self.T0_bounds._rand_in_bounds(self.rng)
-        Tf = self.Tf_bounds._rand_in_bounds(self.rng)
-
-        if not self.T_global_bounds.contains(T0) or not self.T_global_bounds.contains(Tf):
-            raise ValueError("Endpoint bounds must be within global temperature bounds (or adjust checks).")
-
-        if k_init == 0:
-            times = np.array([self.timeSpan.lo, self.timeSpan.hi], dtype=float)
-            temps = np.array([T0, Tf], dtype=float)
-        else:
-            internal_times = np.linspace(self.timeSpan.lo, self.timeSpan.hi, num=k_init + 2, dtype=float)[1:-1]
-            times = np.concatenate(([self.timeSpan.lo], internal_times, [self.timeSpan.hi])).astype(float)
-            
-            base = np.linspace(T0, Tf, num=k_init + 2, dtype=float)
-            noise = self.rng.normal(0.0, self.sigma_temp, size=k_init + 2)
-            noise[0] = 0.0
-            noise[-1] = 0.0
-            temps = np.clip(base + noise, self.T_global_bounds.lo, self.T_global_bounds.hi)
-            temps[0] = T0
-            temps[-1] = Tf
-            temps = self._project_monotonic(temps)
-     
-        prfl = TemperatureProfile(times=times, temps=temps)
-        
-        if not self._is_valid(prfl):
-            prfl.temps = np.clip(prfl.temps, self.T_global_bounds.lo, self.T_global_bounds.hi)
-            prfl.temps = self._project_monotonic(prfl.temps)
-            if not self._is_valid(prfl):
-                raise ValueError("Failed to build a valid initial profile. Check bounds/monotonic constraints.")
-        
-        return prfl
-
-    def _is_valid(self, s: TemperatureProfile) -> bool:
-        if s.times.shape != s.temps.shape or s.times.ndim != 1:
-            return False
-        if s.times[0] != 0.0 or s.times[-1] != self.timeSpan.hi:
-            return False
-        if np.any(~np.isfinite(s.times)) or np.any(~np.isfinite(s.temps)):
-            return False
-        if np.any(np.diff(s.times) <= 0):
-            return False
-
-        if not (self.min_internal <= s.n_internal <= self.max_internal):
-            return False
-
-        if np.any(s.temps < self.T_global_bounds.lo) or np.any(s.temps > self.T_global_bounds.hi):
-            return False
-
-        if not self.T0_bounds.contains(float(s.temps[0])):
-            return False
-        if not self.Tf_bounds.contains(float(s.temps[-1])):
-            return False
-
-        if self.monotonic == "increasing":
-            if np.any(np.diff(s.temps) < 0):
-                return False
-        elif self.monotonic == "decreasing":
-            if np.any(np.diff(s.temps) > 0):
-                return False
-
-        return True
-
-    def _project_monotonic(self, temps: np.ndarray) -> np.ndarray:
-        """
-        Simple projection for monotonic modes:
-        - increasing: enforce non-decreasing by cumulative max
-        - decreasing: enforce non-increasing by cumulative min
-        - free: no-op
-
-        This is used ONLY for initialization/fallback. Proposals are rejected if invalid,
-        preserving detailed balance.
-        """
-        y = temps.copy()
-        if self.monotonic == "increasing":
-            y = np.maximum.accumulate(y)
-        elif self.monotonic == "decreasing":
-            y = np.minimum.accumulate(y)
-        return y
-
-    # ---------- Proposals ----------
-
-    def _propose_birth(self) -> Tuple[Optional[TemperatureProfile], float, float]:
-        s = self.current
-        if s.n_internal >= self.max_internal:
-            return None, 0.0, 0.0
-
-        # Choose an interval uniformly among segments (k_nodes-1 segments)
-        p=(s.times[1:] - s.times[:-1])/(s.times[-1]-s.times[0])
-        n_seg = s.k_nodes - 1
-        seg_idx = self.rng.choice(n_seg, p=p)
-       
-
-        tL, tR = float(s.times[seg_idx]), float(s.times[seg_idx + 1])
-        if not (tR > tL):
-            return None, 0.0, 0.0
-        u1 = self.rng.uniform(0.0, 1.0)
-    
-        t_new = tL + self.sigma_t_birth*u1*(tR-tL)
-        TL, TR = float(s.temps[seg_idx]), float(s.temps[seg_idx + 1])
-
-        u2= self.rng.uniform(-0.5, 0.5)
-        T_new = TL + u1*self.sigma_t_birth*(TR-TL)+self.sigma_birth*u2
-
-        if not self.T_global_bounds.contains(T_new):
-            return None, 0.0, 0.0
-
-        times_new = np.insert(s.times, seg_idx + 1, t_new)
-        temps_new = np.insert(s.temps, seg_idx + 1, T_new)
-        prop = TemperatureProfile(times_new, temps_new)
-
-        if not self._is_valid(prop):
-            return None, 0.0, 0.0
-
-        log_q_fwd = (
-            np.log(t_new-tL)
-            +np.log(tR-t_new)
-            +np.log(self.sigma_t_birth*self.sigma_birth)
-            +np.log(self.move_probs[1])
-        )
-
-        log_q_bwd = (
-            np.log(tR-tL)
-            +np.log(self.T_global_bounds.width)
-            +np.log(self.move_probs[0])
-        )
-
-        return prop, float(log_q_fwd), float(log_q_bwd)
-
-    def _propose_death(self) -> Tuple[Optional[TemperatureProfile], float, float]:
-        s = self.current
-        if s.n_internal <= self.min_internal:
-            return None, 0.0, 0.0
-
-      
-        internal_indices = np.arange(1, s.k_nodes - 1)
-        rm_idx = int(self.rng.choice(internal_indices))
-
-        t_rm = float(s.times[rm_idx])
-
-        times_new = np.delete(s.times, rm_idx)
-        temps_new = np.delete(s.temps, rm_idx)
-        prop = TemperatureProfile(times_new, temps_new)
-
-        if not self._is_valid(prop):
-            return None, 0.0, 0.0
-
-        log_q_fwd = (
-            np.log(s.times[rm_idx+1]-s.times[rm_idx-1])
-            +np.log(self.T_global_bounds.width)
-            +np.log(self.move_probs[0])
-        )
-        log_q_bwd = (
-            np.log(t_rm-s.times[rm_idx-1])
-            +np.log(s.times[rm_idx+1]-t_rm)
-            +np.log(self.move_probs[1])
-            +np.log(self.sigma_t_birth*self.sigma_birth)
-        )
-       
-        return prop, float(log_q_fwd), float(log_q_bwd)
-
-    def _propose_move_time(self) -> Tuple[Optional[TemperatureProfile], float, float]:
-        s = self.current
-        if s.n_internal == 0:
-            return None, 0.0, 0.0
-
-        # Pick an internal knot
-        idx = int(self.rng.integers(1, s.k_nodes - 1))
-        t_prev, t_cur, t_next = float(s.times[idx - 1]), float(s.times[idx]), float(s.times[idx + 1])
-
-        # Propose within neighbor interval using a symmetric normal step scaled by local interval
-        local = min(t_cur - t_prev, t_next - t_cur)
-        if local <= 0:
-            return None, 0.0, 0.0
-        t_new = t_cur + self.sigma_time_frac*self.rng.normal(0.0,1.0)
-        
-        # Keep strict ordering by enforcing open interval (t_prev, t_next)
-        if not (t_prev < t_new < t_next):
-            return None, 0.0, 0.0
-
-        times_new = s.times.copy()
-        times_new[idx] = t_new
-        prop = TemperatureProfile(times_new, s.temps.copy())
-
-        if not self._is_valid(prop):
-            return None, 0.0, 0.0
-
-        log_q_fwd = (
-            np.log(t_new-t_prev)
-            +np.log(t_next-t_new)
-        )
-        log_q_bwd = (
-            np.log(t_cur-t_prev)
-            +np.log(t_next-t_cur)
-        )
-
-        return prop, log_q_fwd, log_q_bwd 
-
-    def _propose_move_temp(self) -> Tuple[Optional[TemperatureProfile], float, float]:
-        s = self.current
-        if s.n_internal == 0:
-            # still can move nothing; but skip
-            return None, 0.0, 0.0
-
-        idx = int(self.rng.integers(1, s.k_nodes - 1))  # internal only
-        T_cur = float(s.temps[idx])
-        T_new = float(T_cur + self.sigma_temp*self.rng.normal(0.0,1.0))
-        if not self.T_global_bounds.contains(T_new):
-            return None, 0.0, 0.0
-
-        temps_new = s.temps.copy()
-        temps_new[idx] = T_new
-        prop = TemperatureProfile(s.times.copy(), temps_new)
-
-        if not self._is_valid(prop):
-            return None, 0.0, 0.0
-
-        return prop, 0.0, 0.0
-
-    def _propose_move_endpoints(self) -> Tuple[Optional[TemperatureProfile], float, float]:
-        s = self.current
-      
-        temps_new = s.temps.copy()
-
-        if self.rng.random() < 0.5:
-            T0_cur = float(temps_new[0])
-            T0_new = float(T0_cur + self.sigma_endpoints*self.rng.normal(0.0,1.0))
-            if (not self.T0_bounds.contains(T0_new)) or (not self.T_global_bounds.contains(T0_new)):
-                return None, 0.0, 0.0
-            temps_new[0] = T0_new
-        else:
-            Tf_cur = float(temps_new[-1])
-            Tf_new = float(Tf_cur + self.sigma_endpoints*self.rng.normal(0.0,1.0))
-            if (not self.Tf_bounds.contains(Tf_new)) or (not self.T_global_bounds.contains(Tf_new)):
-                return None, 0.0, 0.0
-            temps_new[-1] = Tf_new
-
-        prop = TemperatureProfile(s.times.copy(), temps_new)
-
-        if not self._is_valid(prop):
-            return None, 0.0, 0.0
-
-        return prop, 0.0, 0.0
-
-
-
 
 
 
