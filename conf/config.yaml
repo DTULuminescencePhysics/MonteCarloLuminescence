@@ -11,7 +11,7 @@ setup:
   seed: 1
   t_pcnt    : 1      # Ratio of filled electrons traps
   h_pcnt    : 1     # Ratio of recombination holes that are unfilled
-  reps      : 5     # Number of Monte Carlo simulations to repeat
+  reps      : 10     # Number of Monte Carlo simulations to repeat
   mc        : True   # Run monte Carlo simulations
   ac        : False  # Run analytic model 
   TC        : True  # Run thermo chronology

@@ -707,7 +707,8 @@ class ReverseJumpMCMC:
                 msg2 = ( f"move_probs={{p_birth:{self.p_birth:.4g}, p_death:{self.p_death:.4g}, "
                     f"p_move_temp:{self.p_move_temp:.4g}, p_move_time:{self.p_move_time:.4g},"
                     f"p_move_endpoints:{self.p_move_endpoints:.4g}}}"
-                    f"sigmas={{sigma_birth:{self.sigma_birth:.4g},sigma_temp:{self.sigma_t_birth:.4g}, sigma_temp:{self.sigma_temp:.4g}, "
+                    f"sigmas={{sigma_birth:{self.sigma_birth:.4g},sigma_t_birth:{self.sigma_t_birth:.4g},"
+                    f"sigma_temp:{self.sigma_t_birth:.4g}, sigma_temp:{self.sigma_temp:.4g},"
                     f"sigma_time_frac:{self.sigma_time_frac:.4g}, sigma_endpoints:{self.sigma_endpoints:.4g}}}"
                 )
                 

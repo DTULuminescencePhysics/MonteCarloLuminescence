@@ -84,7 +84,7 @@ def RJMCMC_control_functions(output: output_file, cfg: DictConfig | list[DictCon
                          chron.rjmcmc.burn_in.centre_pull, chron.rjmcmc.burn_in.adjustment_factor, 
                          chron.rjmcmc.burn_in.patience_windows, chron.rjmcmc.burn_in.verbose)       
 
-        output.burn_in_update(rjmcmc_obj.get_sigmas(),rjmcmc_obj.get_probs())
+        output.burn_in_update(rjmcmc_obj._get_sigmas(),rjmcmc_obj._get_probs())
     
     rjmcmc_obj.run()
     output.chronological_results(rjmcmc_obj.result_store)

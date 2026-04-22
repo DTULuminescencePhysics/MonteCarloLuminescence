@@ -41,7 +41,7 @@ rjmcmc:
         sigma_endpoints: 5
     burn_in:
         burn: True
-        max_steps: 2000  
+        max_steps: 20000  
         window: 100
         patience_windows: 2
 
