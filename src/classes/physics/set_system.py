@@ -12,8 +12,10 @@ import src.classes.physics.transition_profiles
 @dataclass
 class _ThermalParameters(Transitions):    # CrystalPhysics
 
-    E_loc:   float                  # Energy gap between ground and excited state
-    b :      float                  # attmpt to tunnel frequency
+    E_loc:       float                  # Energy gap between ground and excited state
+    b :          float                  # attmpt to tunnel frequency
+    E_loc_sigma: float = field(default=0.0)   # std dev of Gaussian for E_loc (eV); 0 = fixed
+    E_cb_sigma:  float = field(default=0.0)   # std dev of Gaussian for E_cb  (eV); 0 = fixed
     alpha_ES:   float | None = field(default=None)
     alpha_GS:float | None = field(default=None)
     E_cb:    float | None = field(default=None) # Conduction band energy
@@ -69,7 +71,7 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
     
     def set_transitions(self):
         
-        fill_kind = "None"
+        fill_kind = "dose" if self.D0 is not None else "none"
 
         trans_kind = ["ground_state_tunnel",
                       "excited_state_tunnel",

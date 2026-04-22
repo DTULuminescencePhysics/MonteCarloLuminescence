@@ -9,7 +9,8 @@ from src.classes.physics.time_temperature import _temp
 from src.classes.constants import mp, cnst
 from scipy.spatial.distance import cdist
 
-from src.classes.physics.set_system import _ThermalParameters 
+from src.classes.physics.set_system import _ThermalParameters
+from src.classes.physics.transition_process import EVENT_CODES 
 
 @dataclass
 class Box(_temp,_ThermalParameters):
@@ -37,29 +38,31 @@ class Box(_temp,_ThermalParameters):
     HN: int = field(init=False)
     occ_trap: np.ndarray = field(init=False)
     occ_hole: np.ndarray = field(init=False)
-    # ex_trap:  np.ndarray = field(init=False)
     trap_coords: np.ndarray = field(init=False)
     hole_coords: np.ndarray = field(init=False)
-    # precise_trap: np.ndarray = field(init=False)
-    # precise_hole: np.ndarray = field(init=False)
     nearest: np.ndarray = field(init=False)
     dist: np.ndarray = field(init=False)
     dist_ee: np.ndarray = field(init=False)
     d: np.ndarray = field(init=False)
     d_ee: np.ndarray = field(init=False)
-    _filltime: ArrayLike = field(init=False)
+    fill_time: ArrayLike = field(init=False)
     fill: ArrayLike = field(init=False)
     exec_time: ArrayLike = field(init=False)
-    # fade_index: int = field(init=False)
     exec_index: int = field(init=False)
     event_bool: bool = field(init=False,default=False)
     rng: np.random.Generator = field(init=False)
-    F1: float = field(init=False)
-    F2: float = field(init=False)
-    retrap_pre_tun: float|None = field(default=0)
-    retrap_pre_CB: float|None = field(default=1)
+    F1: np.ndarray = field(init=False)
+    F2: np.ndarray = field(init=False)
+    E_loc_array: np.ndarray = field(init=False)   # per-trap E_loc, shape (N,)
+    E_cb_array:  np.ndarray = field(init=False)   # per-trap E_cb,  shape (N,)
+    E_loc_occ:   np.ndarray = field(init=False)   # E_loc for occupied traps, shape (t_cnt,)
+    E_cb_occ:    np.ndarray = field(init=False)   # E_cb  for occupied traps, shape (t_cnt,)
+    R_tun: float|None = field(default=0)          # Retrapping cross section versus recombination of tunnelling
+    R_CB:  float|None = field(default=1)          # Retrapping cross section versus recombination of conduction band
     retrap_mask_factor: float = field(default=0.8)
     boundary: str = field(default="padded")
+    combine_when_fill: bool = field(default=False)
+    recom_pre_fill: float = field(default=1.0)
     event_code: int = field(init=False, default=0)
 
 
@@ -161,7 +164,6 @@ class Box(_temp,_ThermalParameters):
         """Returns the number of holes to generate with the boundary padding"""
         self.HN = round(self.rho*self.volume[1])
 
-
     # def topk_manhattan(self,traps, holes, k=20):
     #     """Finds the k nearest holes that are not necerssarily
     #     unique based upon the manhattan distance"""
@@ -185,6 +187,23 @@ class Box(_temp,_ThermalParameters):
         """Function that generates the trape and hole locations
         and then creates a distance matrix to store them in."""
         self.set_random_generator(seed)
+
+        # Draw E_loc and E_cb from Gaussian distributions for each trap
+        if self.E_loc is not None:
+            if self.E_loc_sigma > 0:
+                self.E_loc_array = self.rng.normal(self.E_loc, self.E_loc_sigma, self.N)
+            else:
+                self.E_loc_array = np.full(self.N, self.E_loc)
+        else:
+            self.E_loc_array = np.zeros(self.N)
+
+        if self.E_cb is not None:
+            if self.E_cb_sigma > 0:
+                self.E_cb_array = self.rng.normal(self.E_cb, self.E_cb_sigma, self.N)
+            else:
+                self.E_cb_array = np.full(self.N, self.E_cb)
+        else:
+            self.E_cb_array = np.zeros(self.N)
 
         size = np.array((self.dimension,self.dimension,self.dimension))
 
@@ -369,6 +388,10 @@ class Box(_temp,_ThermalParameters):
         """Updates the distance matrix between occupied electron trap and
         occupied hole trap pair and the distance between occupied electron trap
         and unoccupied electron trap"""
+        occ_idx = np.flatnonzero(self.occ_trap == 1)
+        self.E_loc_occ = self.E_loc_array[occ_idx]
+        self.E_cb_occ  = self.E_cb_array[occ_idx]
+
         row_m = self.occ_trap.astype(bool)
         col_m = self.occ_hole.astype(bool)
         full = self.dist[row_m][:,col_m]
@@ -398,29 +421,68 @@ class Box(_temp,_ThermalParameters):
         
 
     def trap_new_electron(self):
-        """Function that randomly chooses a new electron trap.
-        A index is chosen at random and then the nearest unavailable
-        electron hole is selected and added to the crystal"""
-        if self.t_cnt >= self.N:
+        """
+        If recombination is allowed in filling, hole and electron annihilation are treated separately
+        """
+        if not self.combine_when_fill:
+            
+            if self.t_cnt >= self.N:
+                return
+            avail_t = np.flatnonzero(self.occ_trap == 0)
+            t_index = self.rng.choice(avail_t)
+            if self.h_cnt < self.HN:
+                avail_h = np.flatnonzero(self.occ_hole == 0)
+                h_index = self.rng.choice(avail_h)
+                self.occ_hole[h_index] = 1
+                self.h_cnt += 1
+            self.occ_trap[t_index] = 1
+            self.t_cnt += 1
+            self.event_code = EVENT_CODES["fill"]
+            self.define_new_d_full()
             return
-        avail = np.flatnonzero(self.occ_trap==0)
-        t_index = self.rng.choice(avail)
-        # nn = self.nearest[t_index][~np.isin(self.nearest[t_index],np.flatnonzero(self.occ_hole))]
-        # if len(nn) > 0 :
-        #     h_index = nn[0]
-        # else:
-        if self.h_cnt < self.HN:
 
-            avail = np.flatnonzero(self.occ_hole==0)
-            h_index = self.rng.choice(avail)
+        has_unoccupied_trap = self.t_cnt < self.N
+        has_occupied_hole   = self.h_cnt > 0
+        has_occupied_trap   = self.t_cnt > 0
+        has_unoccupied_hole = self.h_cnt < self.HN
 
-            self.occ_hole[h_index] = 1
-            self.h_cnt += 1
+        pool_A_viable = has_unoccupied_trap or has_occupied_hole
+        pool_B_viable = has_occupied_trap   or has_unoccupied_hole
 
-        self.occ_trap[t_index] = 1
+        if not pool_A_viable and not pool_B_viable:
+            return
+
+        unoccupied_t = np.flatnonzero(self.occ_trap == 0) if has_unoccupied_trap else np.empty(0, int)
+        occupied_h   = np.flatnonzero(self.occ_hole == 1) if has_occupied_hole   else np.empty(0, int)
+        occupied_t   = np.flatnonzero(self.occ_trap == 1) if has_occupied_trap   else np.empty(0, int)
+        unoccupied_h = np.flatnonzero(self.occ_hole == 0) if has_unoccupied_hole else np.empty(0, int)
+
+        if pool_A_viable:
+            n_ut     = len(unoccupied_t)
+            n_oh     = len(occupied_h)
+            n_oh_eff = round(n_oh * self.recom_pre_fill)
+            choice   = self.rng.integers(0, n_ut + n_oh_eff)
+            if choice < n_ut:
+                self.occ_trap[unoccupied_t[choice]] = 1
+                self.t_cnt += 1
+            else:
+                self.occ_hole[occupied_h[(choice - n_ut) % n_oh]] = 0
+                self.h_cnt -= 1
+
+        if pool_B_viable:
+            n_ot     = len(occupied_t)
+            n_uh     = len(unoccupied_h)
+            n_ot_eff = round(n_ot * self.recom_pre_fill)
+            choice   = self.rng.integers(0, n_ot_eff + n_uh)
+            if choice < n_ot_eff:
+                self.occ_trap[occupied_t[choice % n_ot]] = 0
+                self.t_cnt -= 1
+            else:
+                self.occ_hole[unoccupied_h[choice - n_ot_eff]] = 1
+                self.h_cnt += 1
+
+        self.event_code = EVENT_CODES["fill"]
         self.define_new_d_full()
-        self.t_cnt += 1
-        self.event_code = 1  # EVENT_CODES["fill"]
 
       
     # def remove_electron(self):
@@ -521,7 +583,7 @@ class Box(_temp,_ThermalParameters):
             self.recalc_times_full()
             self.select_electron()
         else:
-            self.fill -= dt
+            self.fill_time -= dt
             self.exec_time -= dt
 
     # def recalc_times(self):
@@ -532,7 +594,13 @@ class Box(_temp,_ThermalParameters):
     def recalc_times_full(self):
         """Recalculates fill time. Transition rates are computed
         on demand by the process objects."""
-        self._filltime = self._fill(self.N, self.t_cnt, self.D_dot)
+
+        if self.D0 == None or self.D_dot == 0 or self.h_cnt >= self.HN:
+            self.fill_time = 1e20
+        else:
+            fill_rate = self._fill(self.N, self.t_cnt, self.D_dot)
+            # self._filltime = self.rng.exponential(1/fill_rate)
+            self.fill_time = self.rng.exponential(1/fill_rate)
 
     # def random_fill_fade(self) -> None:
     #     """Generates new random fill and fade times"""
@@ -560,17 +628,17 @@ class Box(_temp,_ThermalParameters):
         then an exponential random time is drawn for each electron and
         the fastest one is selected.
         """
-        if (self.h_cnt < self.HN) and self._filltime > 0:
-            self.fill = self.rng.exponential(self._filltime)
-        else:
-            self.fill = 1e20
+        # if (self.h_cnt < self.HN) and self.fill_time > 0:
+        #     self.fill = self.fill_time
+        # else:
+        #     self.fill = 1e20
 
         if self.t_cnt == 0:
             self.exec_time = 1e20
             self.exec_index = None
         else:
-            self.F1 = 1. / (1 + np.exp(-self.E_loc / (cnst.k_b_ev * self.T)))
-            self.F2 = 1. / (1 + np.exp( self.E_loc / (cnst.k_b_ev * self.T)))
+            self.F1 = 1. / (1 + np.exp(-self.E_loc_occ / (cnst.k_b_ev * self.T)))
+            self.F2 = 1. / (1 + np.exp( self.E_loc_occ / (cnst.k_b_ev * self.T)))
 
             total_rate = np.zeros(self.t_cnt)
             for proc in self._processes:

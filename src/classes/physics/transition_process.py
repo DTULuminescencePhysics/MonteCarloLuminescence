@@ -22,6 +22,7 @@ EVENT_CODES = {
     "GS_CB_retrap":     7,
     "ES_CB_recom":      8,
     "ES_CB_retrap":     9,
+    "bleach":           10,
 }
 
 EVENT_NAMES = {v: k for k, v in EVENT_CODES.items()}    # Reverse event codes
@@ -132,7 +133,7 @@ class TunnelingRecombination:
         if box.d.size == 0:
             return np.empty(0)
         F = getattr(box, self.pop_factor_key)
-        return F * self.rate_fn(box.d[exec_index, :])
+        return F[exec_index] * self.rate_fn(box.d[exec_index, :])
 
     def bulk_rates_sum(self, box: Box) -> ArrayLike:
         if box.d.size == 0:
@@ -159,7 +160,7 @@ class TunnelingRetrapping:
         if box.d_ee.size == 0:
             return np.empty(0)
         F = getattr(box, self.pop_factor_key)
-        return F * self.rate_fn(box.d_ee[exec_index, :]) * self.pre_factor
+        return F[exec_index] * self.rate_fn(box.d_ee[exec_index, :]) * self.pre_factor
 
     def bulk_rates_sum(self, box: Box) -> ArrayLike:
         if box.d_ee.size == 0:
@@ -182,17 +183,18 @@ class ConductionBandExcitation:
     rate_fn: Callable[[ArrayLike], ArrayLike]    # _gs_con or _es_con
     pop_factor_key: str
     cb_mob_fn: Callable[[ArrayLike], ArrayLike]  # CB mobility
-    retrap_pre_CB: float
+    R_CB: float
     recom_operation: Operation
     retrap_operation: Operation
 
     def rates(self, box: Box, exec_index: int) -> ArrayLike:
         F = getattr(box, self.pop_factor_key)
-        return np.atleast_1d(F * self.rate_fn(box.T))
+        bulk = self.rate_fn(box)                              # shape (t_cnt,)
+        return np.atleast_1d(F[exec_index] * bulk[exec_index])
 
     def bulk_rates_sum(self, box: Box) -> ArrayLike:
         F = getattr(box, self.pop_factor_key)
-        return F * self.rate_fn(box.T) * np.ones(box.t_cnt)
+        return F * self.rate_fn(box)                          # (t_cnt,) * (t_cnt,)
 
     def _build_cb_rates(self, box: Box, exec_index: int):
         """Return (cb_rates_array, n_recom_entries) for CB sub-selection."""
@@ -203,7 +205,7 @@ class ConductionBandExcitation:
             cb_rates = np.append(cb_rates, recom_rates)
             n_recom = recom_rates.size
         if box.d_ee.size != 0:
-            retrap_rates = self.cb_mob_fn(box.d_ee[exec_index, :]) * self.retrap_pre_CB
+            retrap_rates = self.cb_mob_fn(box.d_ee[exec_index, :]) * self.R_CB
             cb_rates = np.append(cb_rates, retrap_rates)
         return cb_rates, n_recom
 

@@ -77,9 +77,9 @@ def _run_single_rep(
                 max_dt_cnt, crystal, max_dt, max_dt_time_chk
             )
 
-        dt = min(crystal.fill, crystal.exec_time, max_dt)
+        dt = min(crystal.fill_time, crystal.exec_time, max_dt)
 
-        if dt == crystal.fill:
+        if dt == crystal.fill_time:
             crystal.trap_new_electron()
             event_code = crystal.event_code
         elif dt == crystal.exec_time:
@@ -236,10 +236,10 @@ class MCBase:
             if self.crystal.time >= self.max_dt_time_chk:
                 self.max_dt_finder()
 
-            dt = min(self.crystal.fill,self.crystal.exec_time,self.max_dt)
+            dt = min(self.crystal.fill_time,self.crystal.exec_time,self.max_dt)
 
             # self.crystal.event_bool = True
-            if dt == self.crystal.fill:
+            if dt == self.crystal.fill_time:
                 self.crystal.trap_new_electron()
                 event_code = self.crystal.event_code
             elif dt == self.crystal.exec_time:

@@ -25,6 +25,7 @@ def build_fill_dose(D0: float) -> Callable[[ArrayLike, ArrayLike, ArrayLike], Ar
             lam = 1e-20
         else:
             lam = (D_dot * diff / D0)
+            # lam = D0 / D_dot * np.log(diff/(diff-1))
         return _return_like_input(N, np.array(lam))
     return f
 
@@ -39,42 +40,42 @@ def build_fill_none() -> Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]:
 
 @Transitions.register_process("ground_state_tunnel")
 def _build_gs_tunnel_procs(alpha_GS: float, b: float,
-                            retrap_pre_tun: float = 0.01, **kw):
+                            R_tun: float = 0.01, **kw):
     rate_fn = lambda r: b * np.exp(-alpha_GS * r)
     return [
         TunnelingRecombination("GS tunneling", rate_fn, "F1",
             operation=RecombinationOperation(EVENT_CODES["GS_tun_recom"])),
-        TunnelingRetrapping("GS tunneling", rate_fn, "F1", retrap_pre_tun,
+        TunnelingRetrapping("GS tunneling", rate_fn, "F1", R_tun,
             operation=RetrappingOperation(EVENT_CODES["GS_tun_retrap"])),
     ]
 
 @Transitions.register_process("excited_state_tunnel")
 def _build_es_tunnel_procs(alpha_ES: float, b: float,
-                            retrap_pre_tun: float = 0.01, **kw):
+                            R_tun: float = 0.01, **kw):
     rate_fn = lambda r: b * np.exp(-alpha_ES * r)
     return [
         TunnelingRecombination("ES tunneling", rate_fn, "F2",
             operation=RecombinationOperation(EVENT_CODES["ES_tun_recom"])),
-        TunnelingRetrapping("ES tunneling", rate_fn, "F2", retrap_pre_tun,
+        TunnelingRetrapping("ES tunneling", rate_fn, "F2", R_tun,
             operation=RetrappingOperation(EVENT_CODES["ES_tun_retrap"])),
     ]
 
 @Transitions.register_process("ground_state_to_cb")
-def _build_gs_cb_proc(E_cb: float, s: float, mu: float,
-                      retrap_pre_CB: float = 1.0, **kw):
-    rate_fn = lambda T: s * np.exp(-E_cb / (cnst.k_b_ev * T))
+def _build_gs_cb_proc(s: float, mu: float,
+                      R_CB: float = 1.0, **kw):
+    rate_fn = lambda box: s * np.exp(-box.E_cb_occ / (cnst.k_b_ev * box.T))
     mob_fn  = lambda r: np.exp(-(r / mu) ** 2)
     return [ConductionBandExcitation("GS->CB", rate_fn, "F1", mob_fn,
-                                     retrap_pre_CB,
+                                     R_CB,
                                      recom_operation=RecombinationOperation(EVENT_CODES["GS_CB_recom"]),
                                      retrap_operation=RetrappingOperation(EVENT_CODES["GS_CB_retrap"]))]
 
 @Transitions.register_process("excited_state_to_cb")
-def _build_es_cb_proc(E_loc: float, E_cb: float, s: float, mu: float,
-                      retrap_pre_CB: float = 1.0, **kw):
-    rate_fn = lambda T: s * np.exp(-(E_cb - E_loc) / (cnst.k_b_ev * T))
+def _build_es_cb_proc(s: float, mu: float,
+                      R_CB: float = 1.0, **kw):
+    rate_fn = lambda box: s * np.exp(-(box.E_cb_occ - box.E_loc_occ) / (cnst.k_b_ev * box.T))
     mob_fn  = lambda r: np.exp(-(r / mu) ** 2)
     return [ConductionBandExcitation("ES->CB", rate_fn, "F2", mob_fn,
-                                     retrap_pre_CB,
+                                     R_CB,
                                      recom_operation=RecombinationOperation(EVENT_CODES["ES_CB_recom"]),
                                      retrap_operation=RetrappingOperation(EVENT_CODES["ES_CB_retrap"]))]
