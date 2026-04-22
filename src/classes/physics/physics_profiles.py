@@ -57,6 +57,94 @@ def build_fade_therm_tun_deloc(E_loc:float, b: float, alpha: float, E_cb: float,
         return _return_like_input(r,out)
     return f
 
+@CrystalPhysics.register_fade("therm_tunnel_delocalise_gs_tunnel")
+def build_fade_therm_tun_deloc_GS_tun(E_loc:float, b: float, alpha: float, alpha_GS: float, E_cb: float, s: float)-> Callable[[ArrayLike, ArrayLike], ArrayLike]:
+    def f(T: ArrayLike, r: ArrayLike) -> ArrayLike:
+        if isinstance(r, np.ndarray):
+            if r.size == 0:
+                return -1e20 
+        else: 
+            if r is None or r == 0: 
+                return -1e20
+                 
+        term1 = (b * np.exp(-((E_loc / (cnst.k_b_ev * T)) +(alpha * r))))
+        term2 = (s * np.exp(-E_cb / (cnst.k_b_ev * T)))
+        term3 = (b * np.exp(-alpha_GS * r))
+        out = 1/(term1 + term2 + term3)
+
+        return _return_like_input(r,out)
+    return f
+
+
+@CrystalPhysics.register_fade("All condensed thermal transitions")
+def build_full_transition_condensed(F1:float, F2:float, E_loc:float, E_cb:float, s:float, b:float, alpha:float, 
+                                    alpha_GS:float) -> Callable[[ArrayLike, ArrayLike], ArrayLike]:
+    def f(T: ArrayLike, r: ArrayLike) -> ArrayLike:
+        if isinstance(r, np.ndarray):
+            if r.size == 0:
+                return -1e20
+            
+        else:
+            if r is None or r == 0:
+                return -1e20
+        
+        term1 =  0                                                       # Excitation GS -> ES
+        term2 =  0                                                       # De-excitation ES -> GS
+        term3 = F1 * (b * np.exp(-alpha_GS * r))                         # Ground state tunnelling
+        term4 = F2 * (b * np.exp(-alpha * r))                            # Ecxited state tunnelling
+        term5 = F1 * (s * np.exp(-E_cb / (cnst.k_b_ev * T)))             # Excitation GS -> CB
+        term6 = F2 * (s * np.exp(-(E_cb-E_loc) / (cnst.k_b_ev * T)))     # Excitation ES -> CB
+
+        out = 1/(term1 + term2 + term3 + term4 + term5 + term6)
+
+        return _return_like_input(r, out)
+    return f
+
+@CrystalPhysics.register_tran("ground_state_tunnel")
+def build_gs_tunnel(alpha_GS:float, b:float) -> Callable[[ArrayLike], ArrayLike]:
+    def f(r:ArrayLike) -> ArrayLike:
+        
+        lifetime = (b * np.exp(-alpha_GS * r))
+
+        return lifetime
+    return f
+
+@CrystalPhysics.register_tran("excited_state_tunnel")
+def build_es_tunnel(alpha:float, b:float) -> Callable[[ArrayLike], ArrayLike]:
+    def f(r:ArrayLike) -> ArrayLike:
+        
+        lifetime = (b * np.exp(-alpha * r))
+
+        return lifetime
+    return f
+
+@CrystalPhysics.register_tran("ground_state_to_cb")
+def build_gs_ex_cb(E_cb:float, s:float) -> Callable[[ArrayLike], ArrayLike]:
+    def f(T:ArrayLike) -> ArrayLike:
+        
+        lifetime = (s * np.exp(-E_cb / (cnst.k_b_ev * T)))
+
+        return lifetime
+    return f
+
+@CrystalPhysics.register_tran("excited_state_to_cb")
+def build_gs_ex_cb(E_loc:float, E_cb:float, s:float) -> Callable[[ArrayLike], ArrayLike]:
+    def f(T:ArrayLike) -> ArrayLike:
+        
+        lifetime = (s * np.exp(-(E_cb - E_loc) / (cnst.k_b_ev * T)))
+
+        return lifetime
+    return f
+
+@CrystalPhysics.register_tran("cb_mobility")
+def build_cb_mobility(mu:float) -> Callable[[ArrayLike], ArrayLike]:
+    def f(r:ArrayLike) -> ArrayLike:
+        
+        lifetime = np.exp(r/mu)**2
+
+        return lifetime
+    return f
+
 # @CrystalPhysics.register_fade("therm_tunnel_delocalise")
 # def build_fade_therm_tun_deloc(E_loc:float, b: float, urho: float, E_cb: float, s: float)-> Callable[[ArrayLike, ArrayLike], ArrayLike]:
 

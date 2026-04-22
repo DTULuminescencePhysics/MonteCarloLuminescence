@@ -77,7 +77,8 @@ class output_file:
         phys_attrs = {
             "E_loc": cfg.physics.E_loc,
             "b": cfg.physics.b,
-            "alpha": cfg.physics.alpha,
+            "alpha_ES": cfg.physics.alpha_ES,
+            "alpha_GS": cfg.physics.alpha_GS,
             "E_cb": cfg.physics.E_cb,
             "s": cfg.physics.s,
             "rho": cfg.physics.rho,
@@ -85,6 +86,10 @@ class output_file:
             "D0": cfg.physics.D0,
             "D_dot": cfg.physics.D_dot,
             "Dd_unit": cfg.physics.Dd_unit,
+            "mu":cfg.physics.mu,
+            "retrap_pre_tun":cfg.physics.retrap_pre_tun,
+            "retrap_pre_CB":cfg.physics.retrap_pre_CB,
+            "retrap_mask_factor":cfg.physics.retrap_mask_factor,
         }
         temp_attrs = {
             "unit": cfg.temp.unit,

@@ -89,7 +89,7 @@ class analytical_crystal(_temp,_ThermalParameters):
                 f"The ground state to excited state energy gap is : {self.E_loc} (eV)\n"
                 f"and the conduction band gap is : {self.E_cb} (eV).\n"
                 f"Tunnelling frequency is : {self.b} (s^-1)\n"
-                f"and the tunneling rate constant is : {self.alpha} (m^-1).\n"
+                f"and the tunneling rate constant is : {self.alpha_ES} (m^-1).\n"
                 f"The escape frequecy is : {self.s} (s^-1).\n"
                 f"The crystal is dosed at rate of : {self.D_dot} (Gy/s) \n"
                 f"with a characteristic dose of : {self.D0} (Gy)\n"
