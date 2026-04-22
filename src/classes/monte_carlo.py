@@ -36,7 +36,7 @@ def _max_dt_finder(
             max_dt = crystal.times[cnt] - crystal.times[cnt - 1]
             max_dt_time_chk = crystal.times[cnt]
     elif crystal.kind == "linear":
-        max_dt = 1 / abs(crystal.dT)
+        max_dt = float(1 / abs(np.asarray(crystal.dT).flat[0]))
         max_dt_time_chk = 1e50
     elif crystal.kind == "linearsteps":
         if cnt >= crystal.times.size:
@@ -92,9 +92,9 @@ def _run_single_rep(
                 max_dt_cnt, crystal, max_dt, max_dt_time_chk
             )
 
-        dt = min(crystal.fill, crystal.exec_time, max_dt)
+        dt = min(crystal.fill_time, crystal.exec_time, max_dt)
 
-        if dt == crystal.fill:
+        if dt == crystal.fill_time:
             crystal.trap_new_electron()
             event_code = crystal.event_code
         elif dt == crystal.exec_time:
@@ -173,7 +173,7 @@ class MCBase:
             self.max_dt = self.crystal.times[0]
             self.max_dt_time_chk = self.crystal.times[0]
         elif self.crystal.kind == "linear" :
-            self.max_dt = (1/abs(self.crystal.dT))
+            self.max_dt = float(1/abs(np.asarray(self.crystal.dT).flat[0]))
             self.max_dt_time_chk = 1e50
         elif self.crystal.kind == "linearsteps":
             if self.crystal.dT[0] == 0:
@@ -201,7 +201,7 @@ class MCBase:
                 self.max_dt = (self.crystal.times[self.max_dt_cnt]-self.crystal.times[self.max_dt_cnt-1])#/100
                 self.max_dt_time_chk = self.crystal.times[self.max_dt_cnt]
         elif self.crystal.kind == "linear" :
-            self.max_dt = 1/abs(self.crystal.dT)
+            self.max_dt = float(1/abs(np.asarray(self.crystal.dT).flat[0]))
             self.max_dt_time_chk = 1e50
         elif self.crystal.kind == "linearsteps":
             if self.max_dt_cnt >= self.crystal.times.size:
@@ -281,10 +281,10 @@ class MCBase:
             if self.crystal.time >= self.max_dt_time_chk:
                 self.max_dt_finder()
 
-            dt = min(self.crystal.fill,self.crystal.exec_time,self.max_dt)
+            dt = min(self.crystal.fill_time,self.crystal.exec_time,self.max_dt)
 
             # self.crystal.event_bool = True
-            if dt == self.crystal.fill:
+            if dt == self.crystal.fill_time:
                 self.crystal.trap_new_electron()
                 event_code = self.crystal.event_code
             elif dt == self.crystal.exec_time:

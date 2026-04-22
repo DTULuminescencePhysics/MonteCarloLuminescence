@@ -1,8 +1,8 @@
 unit: s # unit of time s -- sections, y -- years, Ma -- mega-annum i.e. 1000000 years
 celsius: true # true if temperatures are given in celsius else false for kelvin 
 kind: linear # constant; linear; step; steps; lineardrops; linearsteps; exponetial
-T0: 0 # Initial temperature, always required in celsius
-duration: 120 # Duration of the experiment in the time unit specified above
+T0: 0       # Initial temperature, always required in celsius
+duration: 160 # Duration of the experiment in the time unit specified above
 times: [0.18,0.275,0.384,0.467] # times steps occur
 dT_step: [20,20,20,20] # size(s) of step(s) down either
 dT: [-5] # linear rate of change(s). If using linearsteps one more gradient than number of steps must be given
