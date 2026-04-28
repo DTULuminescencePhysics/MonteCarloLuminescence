@@ -7,21 +7,23 @@ E_loc       : 1.2
 E_cb        : 2.0
 E_loc_sigma : 0.   # std dev of Gaussian for E_loc (eV); 0 = fixed
 E_cb_sigma  : 0.   # std dev of Gaussian for E_cb  (eV); 0 = fixed
-b        : 1e12
+b        : 1.e12
 alpha_ES : 9e9
 alpha_GS : 9e12
-s        : 1e12  # 7.5e13
+s        : 1.e12  # 7.5e13
 rho      : 5.22e25  # 5.22e25
 urho     : null  # 3e-4
 D0       : 400.
 D_dot    : 0 # 7.
-mu       : 1000
+mu       : 0.1
 Dd_unit   : s # Ka 
 phys_type : null
 
-R_tun: 0.01    # Retrapping ratio for tunnelling
-R_CB: 0.01     # Retrapping ratio for conduction band transitions
+R_tun: 1.0    # Retrapping ratio for tunnelling
+R_CB: 1.0     # Retrapping ratio for conduction band transitions
 retrap_mask_factor: 0.8
+
+VRH: False    # False (Default): tunnelling, Ture: Miller-Abrahams VRH
 
 combine_when_fill: False
 recom_pre_fill: 0     # Ratio between probability of recombination to filling a vacancy

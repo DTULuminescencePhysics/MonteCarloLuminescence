@@ -39,30 +39,34 @@ def build_fill_none() -> Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]:
 # Process registry
 
 @Transitions.register_process("ground_state_tunnel")
-def _build_gs_tunnel_procs(alpha_GS: float, b: float,
-                            R_tun: float = 0.01, **kw):
+def _build_gs_tunnel_procs(alpha_GS: float, b: float, R_tun: float = 0.01,
+                            VRH: bool = False, **kw):
     rate_fn = lambda r: b * np.exp(-alpha_GS * r)
+    energy_key = "dg_ee_E" if VRH else None
     return [
         TunnelingRecombination("GS tunneling", rate_fn, "F1",
             operation=RecombinationOperation(EVENT_CODES["GS_tun_recom"])),
         TunnelingRetrapping("GS tunneling", rate_fn, "F1", R_tun,
-            operation=RetrappingOperation(EVENT_CODES["GS_tun_retrap"])),
+            operation=RetrappingOperation(EVENT_CODES["GS_tun_retrap"]),
+            energy_key=energy_key),
     ]
 
 @Transitions.register_process("excited_state_tunnel")
 def _build_es_tunnel_procs(alpha_ES: float, b: float,
-                            R_tun: float = 0.01, **kw):
+                            R_tun: float = 0.01,
+                            VRH: bool = False, **kw):
     rate_fn = lambda r: b * np.exp(-alpha_ES * r)
+    energy_key = "de_ee_E" if VRH else None
     return [
         TunnelingRecombination("ES tunneling", rate_fn, "F2",
             operation=RecombinationOperation(EVENT_CODES["ES_tun_recom"])),
         TunnelingRetrapping("ES tunneling", rate_fn, "F2", R_tun,
-            operation=RetrappingOperation(EVENT_CODES["ES_tun_retrap"])),
+            operation=RetrappingOperation(EVENT_CODES["ES_tun_retrap"]),
+            energy_key=energy_key),
     ]
 
 @Transitions.register_process("ground_state_to_cb")
-def _build_gs_cb_proc(s: float, mu: float,
-                      R_CB: float = 1.0, **kw):
+def _build_gs_cb_proc(s: float, mu: float, R_CB: float = 1.0, **kw):
     rate_fn = lambda box: s * np.exp(-box.E_cb_occ / (cnst.k_b_ev * box.T))
     mob_fn  = lambda r: np.exp(-(r / mu) ** 2)
     return [ConductionBandExcitation("GS->CB", rate_fn, "F1", mob_fn,
@@ -71,8 +75,7 @@ def _build_gs_cb_proc(s: float, mu: float,
                                      retrap_operation=RetrappingOperation(EVENT_CODES["GS_CB_retrap"]))]
 
 @Transitions.register_process("excited_state_to_cb")
-def _build_es_cb_proc(s: float, mu: float,
-                      R_CB: float = 1.0, **kw):
+def _build_es_cb_proc(s: float, mu: float, R_CB: float = 1.0, **kw):
     rate_fn = lambda box: s * np.exp(-(box.E_cb_occ - box.E_loc_occ) / (cnst.k_b_ev * box.T))
     mob_fn  = lambda r: np.exp(-(r / mu) ** 2)
     return [ConductionBandExcitation("ES->CB", rate_fn, "F2", mob_fn,

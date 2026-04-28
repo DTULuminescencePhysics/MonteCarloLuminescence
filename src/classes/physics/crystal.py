@@ -53,12 +53,17 @@ class Box(_temp,_ThermalParameters):
     rng: np.random.Generator = field(init=False)
     F1: np.ndarray = field(init=False)
     F2: np.ndarray = field(init=False)
-    E_loc_array: np.ndarray = field(init=False)   # per-trap E_loc, shape (N,)
-    E_cb_array:  np.ndarray = field(init=False)   # per-trap E_cb,  shape (N,)
-    E_loc_occ:   np.ndarray = field(init=False)   # E_loc for occupied traps, shape (t_cnt,)
-    E_cb_occ:    np.ndarray = field(init=False)   # E_cb  for occupied traps, shape (t_cnt,)
-    R_tun: float|None = field(default=0)          # Retrapping cross section versus recombination of tunnelling
-    R_CB:  float|None = field(default=1)          # Retrapping cross section versus recombination of conduction band
+    E_loc_array: np.ndarray = field(init=False)   # per-trap E_loc
+    E_cb_array:  np.ndarray = field(init=False)   # per-trap E_cb
+    E_loc_occ:   np.ndarray = field(init=False)   # E_loc for occupied traps
+    E_cb_occ:    np.ndarray = field(init=False)   # E_cb  for occupied traps
+    E_es_array:  np.ndarray = field(init=False)   # E_cb - E_loc per trap, energy depth of excited state
+    E_diff_ee:   np.ndarray = field(init=False)   # pairwise E_es diff, shape (N, N)
+    de_ee_E:     np.ndarray = field(init=False)   # masked E_es diff, shape (t_cnt, N-t_cnt)
+    E_diff_gs_ee : np.ndarray = field(init=False)  # pairwise E_cb diff, shape (N, N)
+    dg_ee_E      : np.ndarray = field(init=False)  # masked E_cb diff, shape (t_cnt, N-t_cnt)
+    R_tun: float|None = field(default=0)          # Retrapping ratio of tunnelling
+    R_CB:  float|None = field(default=1)          # Retrapping ratio versus recombination of conduction band
     retrap_mask_factor: float = field(default=0.8)
     boundary: str = field(default="padded")
     combine_when_fill: bool = field(default=False)
@@ -231,6 +236,12 @@ class Box(_temp,_ThermalParameters):
 
         self.create_distance_matrix(trap_coords,hole_coords)
         self.nearest = np.argsort(self.dist,axis=1)[:,:nn]
+
+        self.E_es_array  = self.E_cb_array - self.E_loc_array
+        self.E_diff_ee   = self.E_es_array[:, None] - self.E_es_array[None, :]
+        np.fill_diagonal(self.E_diff_ee, 0.0)
+        self.E_diff_gs_ee = self.E_cb_array[:, None] - self.E_cb_array[None, :]
+        np.fill_diagonal(self.E_diff_gs_ee, 0.0)
       
         self.occ_trap = np.zeros(self.N,dtype=np.uint8)
         self.occ_hole = np.zeros(self.HN,dtype=np.uint8)
@@ -358,19 +369,6 @@ class Box(_temp,_ThermalParameters):
         delta = coords_a[:, None, :] - coords_b[None, :, :]
         delta -= L * np.round(delta / L)            # round=0 if delta<L/2, round=1 if delta>L/2, round=-1 if delta<-L/2
         return np.linalg.norm(delta, axis=2)
-
-        # m = self.dist.mean()
-        # s = self.dist.std()
-        # self.trial= np.max(np.min(self.dist,axis=1)) + s
-        # r = 1e-9
-        # p = np.exp((-4*np.pi*self.rho*np.power(r,3))/3)*(4*np.pi*self.rho*np.power(r,2))
-        # while p > 5:
-        #     r *=10
-        #     p = np.exp((-4*np.pi*self.rho*np.power(r,3))/3)*(4*np.pi*self.rho*np.power(r,2))
-        #     print(p,r)
-       
-        # print(m,s)
-        # print(np.max(np.min(self.dist,axis=1)))
         
         
     # def distance_from_store(self) -> None:
@@ -415,9 +413,13 @@ class Box(_temp,_ThermalParameters):
         self.d = full   # .min(axis=1)
 
         col_m = np.invert(self.occ_trap.astype(bool))
-        self.d_ee = self.dist_ee[row_m][:, col_m]
+        self.d_ee    = self.dist_ee[row_m][:, col_m]
+        self.de_ee_E = self.E_diff_ee[row_m][:, col_m]
+        self.dg_ee_E = self.E_diff_gs_ee[row_m][:, col_m]
         if self.d_ee.size == 0:
-            self.d_ee = np.zeros(0)
+            self.d_ee    = np.zeros(0)
+            self.de_ee_E = np.zeros(0)
+            self.dg_ee_E = np.zeros(0)
             return
 
         if self.retrap_mask_factor > 0.0:       # Retrapping is suppressed within a distance threshold
@@ -425,17 +427,20 @@ class Box(_temp,_ThermalParameters):
             mask = self.d_ee < threshold
 
             # If every empty trap in a row is masked, preserve the nearest one.
-            all_masked_rows = mask.all(axis=1)    
+            all_masked_rows = mask.all(axis=1)
             if all_masked_rows.any():
                 nearest_col = self.d_ee.argmin(axis=1)
                 for row_i in np.flatnonzero(all_masked_rows):
                     mask[row_i, nearest_col[row_i]] = False
-            self.d_ee = np.where(mask, np.inf, self.d_ee)
+            self.d_ee    = np.where(mask, np.inf, self.d_ee)
+            self.de_ee_E = np.where(mask, 0.0,    self.de_ee_E)
+            self.dg_ee_E = np.where(mask, 0.0,    self.dg_ee_E)
         
 
     def trap_new_electron(self):
         """
-        If recombination is allowed in filling, hole and electron annihilation are treated separately
+        If recombination is allowed in filling, hole and electron 
+        annihilation are treated separately.
         """
         if not self.combine_when_fill:
             
@@ -536,9 +541,8 @@ class Box(_temp,_ThermalParameters):
     def operate_electron(self):
         """
         Execute a fading transition for the selected electron.
-        Collects rates from all active TransitionProcess objects, selects
-        one channel via cumulative probability, and dispatches to its
-        execute() method.
+        Collects rates from all active TransitionProcess objects, selects one channel via cumulative probability,
+        and dispatches to its execute() method.
         """
         if self.t_cnt <= 0:
             return
@@ -635,7 +639,6 @@ class Box(_temp,_ThermalParameters):
 
     def select_electron(self) -> None:
         """Generate execution time for filling and fading transitions.
-
         For fading, the overall rate for each occupied electron is
         computed by summing bulk_rates_sum() across all active processes,
         then an exponential random time is drawn for each electron and

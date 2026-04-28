@@ -3,6 +3,7 @@ from typing import Protocol, Callable, runtime_checkable, TYPE_CHECKING
 from dataclasses import dataclass
 import numpy as np
 from src.helper_functions import ArrayLike
+from src.classes.constants import cnst
 
 if TYPE_CHECKING:
     from src.classes.physics.crystal import Box
@@ -148,25 +149,42 @@ class TunnelingRecombination:
 
 @dataclass(slots=True)
 class TunnelingRetrapping:
-    """Distance-dependent tunneling retrapping into an unoccupied trap."""
+    """Distance-dependent tunneling retrapping into an unoccupied trap.
+    When `energy_key` is set, the spatial rate is multiplied by the
+    Miller-Abrahams variable-range-hopping Boltzmann factor
+        exp( -(dE + |dE|) / (2 * k_b * T) )
+    """
 
     name: str
     rate_fn: Callable[[ArrayLike], ArrayLike]
     pop_factor_key: str
     pre_factor: float
     operation: Operation
+    energy_key: str | None = None
+
+    def _ma_factor(self, box: Box, exec_index: int | None = None) -> ArrayLike:
+        dE = getattr(box, self.energy_key)
+        if exec_index is not None:
+            dE = dE[exec_index, :]
+        return np.exp(-(dE + np.abs(dE)) / (2.0 * cnst.k_b_ev * box.T))
 
     def rates(self, box: Box, exec_index: int) -> ArrayLike:
         if box.d_ee.size == 0:
             return np.empty(0)
         F = getattr(box, self.pop_factor_key)
-        return F[exec_index] * self.rate_fn(box.d_ee[exec_index, :]) * self.pre_factor
+        spatial = self.rate_fn(box.d_ee[exec_index, :])
+        if self.energy_key is not None:
+            spatial = spatial * self._ma_factor(box, exec_index)
+        return F[exec_index] * spatial * self.pre_factor
 
     def bulk_rates_sum(self, box: Box) -> ArrayLike:
         if box.d_ee.size == 0:
             return np.zeros(box.t_cnt)
         F = getattr(box, self.pop_factor_key)
-        return F * self.rate_fn(box.d_ee).sum(axis=1) * self.pre_factor
+        spatial = self.rate_fn(box.d_ee)
+        if self.energy_key is not None:
+            spatial = spatial * self._ma_factor(box)
+        return F * spatial.sum(axis=1) * self.pre_factor
 
     def execute(self, box: Box, exec_index: int, local_idx: int) -> None:
         t_index = np.flatnonzero(box.occ_trap)[exec_index]

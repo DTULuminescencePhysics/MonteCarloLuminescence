@@ -27,6 +27,7 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
     mu:      float | None = field(default=None) # Electron spread range in CB
     Dd_unit: str = field(default='s') # Units of Radiation s : Gy/s; ka : Gy/Ka etc.
     phys_type: str   = field(default="") # Kind of fading model
+    VRH:     bool   = field(default=False) # If True, tunneling retrapping uses Miller-Abrahams VRH
 
 
     def __post_init__(self):
