@@ -87,9 +87,11 @@ class output_file:
             "D_dot": cfg.physics.D_dot,
             "Dd_unit": cfg.physics.Dd_unit,
             "mu":cfg.physics.mu,
-            "retrap_pre_tun":cfg.physics.retrap_pre_tun,
-            "retrap_pre_CB":cfg.physics.retrap_pre_CB,
+            "retrapping_ratio_tun":cfg.physics.R_tun,
+            "retrapping_ratio_CB":cfg.physics.R_CB,
             "retrap_mask_factor":cfg.physics.retrap_mask_factor,
+            "combine_when_fill": cfg.physics.combine_when_fill,
+            "recom_pre_fill": cfg.physics.recom_pre_fill,
         }
         temp_attrs = {
             "unit": cfg.temp.unit,
@@ -111,10 +113,195 @@ class output_file:
             temp = inputs.require_group("temperature")
             self.write_attrs_if_not_none(temp, temp_attrs)
 
-    def output_data_build(self): 
+    def output_data_build(self, results: dict): 
 
+        exp_cnt = self.output_result_get_number_exp(True)
         with h5py.File(self.name,"a") as f:
-            outputs = f.require_group("outputs") 
+            res = f.require_group("outputs")
+            outputs = res.require_group(f"experiment_{exp_cnt}")
+
+            outputs.create_dataset("timeSteps",data=results["timeSteps"], **self.ds_kwargs)
+            outputs.create_dataset("temperature",data=results["temperature"], **self.ds_kwargs)
+            outputs.create_dataset("meanTrapRatio",data=results["meanTrapRatio"], **self.ds_kwargs)
+            outputs.create_dataset("stdTrapRatio",data=results["stdTrapRatio"], **self.ds_kwargs)
+            
+            outputs.create_dataset("q_low",data=results["quantiles"][0.1], **self.ds_kwargs)
+            outputs.create_dataset("q_mid",data=results["quantiles"][0.5], **self.ds_kwargs)
+            outputs.create_dataset("q_high",data=results["quantiles"][0.9], **self.ds_kwargs)
+
+            outputs.create_dataset("luminescence",data=results["luminescence"], **self.ds_kwargs)
+            outputs.create_dataset("filling",data=results["filling"], **self.ds_kwargs)
+            outputs.create_dataset("events",data=results["events"], **self.ds_kwargs)
+
+    def output_result_get_number_exp(self,set=False):
+        with h5py.File(self.name,"a") as f:
+            res = f.require_group("outputs")
+            if "experimentCount" in res.attrs:
+                if set:
+                    res.attrs["experimentCount"] =  + 1
+                exp_cnt = res.attrs["experimentCount"]
+            else: 
+                res.attrs["experimentCount"] = 1
+                exp_cnt = 1
+        return exp_cnt
+
+
+    def output_result_get_times(self, exp_cnt:int = 1): 
+
+        with h5py.File(self.name,"r") as f:  
+            times = f[f"outputs/experiment_{exp_cnt}/timeSteps"][:]
+        
+        return times
+    
+    def output_result_get_all_times(self,exp_cnt:int=1):
+        exp = self.output_result_get_times(1)
+        times = exp[:,None]
+        if exp_cnt > 1:
+            for i in range(2,(exp_cnt+1)):
+                exp = self.output_result_get_times(i) 
+                times = np.column_stack([times,exp]) 
+        return times
+
+
+    def output_result_get_temperature(self, exp_cnt:int = 1): 
+
+        with h5py.File(self.name,"r") as f:  
+            temp = f[f"outputs/experiment_{exp_cnt}/temperature"][:]
+        
+        return temp
+    
+    def output_result_get_meanTrap(self, exp_cnt:int = 1): 
+
+        with h5py.File(self.name,"r") as f:  
+            mean = f[f"outputs/experiment_{exp_cnt}/meanTrapRatio"][:]
+        
+        return mean
+    
+    def output_result_get_all_meanTrap(self,exp_cnt:int=1):
+        exp = self.output_result_get_meanTrap(1)
+        mean = exp[:,None]
+        if exp_cnt > 1:
+            for i in range(2,(exp_cnt+1)):
+                exp = self.output_result_get_meanTrap(i) 
+                mean = np.column_stack([mean,exp]) 
+        return mean
+
+    def output_result_get_stdTrap(self, exp_cnt:int = 1): 
+
+        with h5py.File(self.name,"r") as f:  
+            std = f[f"outputs/experiment_{exp_cnt}/stdTrapRatio"][:]
+        
+        return std
+    
+    def output_result_get_all_stdTrap(self,exp_cnt:int=1):
+        exp = self.output_result_get_stdTrap(1)
+        std = exp[:,None]
+        if exp_cnt > 1:
+            for i in range(2,(exp_cnt+1)):
+                exp = self.output_result_get_stdTrap(i) 
+                std = np.column_stack([std,exp]) 
+        return std
+
+    def output_result_get_quantiles(self, exp_cnt:int = 1): 
+
+        with h5py.File(self.name,"r") as f:  
+            lo = f[f"outputs/experiment_{exp_cnt}/q_low"][:]
+            mi = f[f"outputs/experiment_{exp_cnt}/q_mid"][:]
+            hi = f[f"outputs/experiment_{exp_cnt}/q_high"][:]
+
+        return lo, mi , hi
+    
+    def output_result_get_all_quantiles(self,exp_cnt:int=1):
+        explo, expmi, exphi = self.output_result_get_quantiles(1)
+        lo = explo[:,None]
+        mi = expmi[:,None]
+        hi = exphi[:,None]
+
+        if exp_cnt > 1:
+            for i in range(2,(exp_cnt+1)):
+                explo, expmi, exphi = self.output_result_get_quantiles(i) 
+                lo = np.column_stack([lo,explo]) 
+                mi = np.column_stack([mi,expmi]) 
+                hi = np.column_stack([hi,exphi]) 
+
+        return lo, mi , hi
+
+    def output_result_get_all_ratioPlot(self,quant:bool=True,st:bool=True): 
+        exp_cnt = self.output_result_get_number_exp()
+        times = self.output_result_get_all_times(exp_cnt)
+        mean = self.output_result_get_all_meanTrap(exp_cnt)
+        if quant: 
+            lo, mi, hi = self.output_result_get_all_quantiles(exp_cnt)
+        else:
+            lo=mi=hi=np.array(None) 
+        if st: 
+            std= self.output_result_get_all_stdTrap(exp_cnt)
+        else:
+            std = np.array(None) 
+
+        return exp_cnt, times, mean, lo, mi, hi, std 
+    
+    def output_result_get_lum(self, exp_cnt:int = 1): 
+
+        with h5py.File(self.name,"r") as f:  
+            lum = f[f"outputs/experiment_{exp_cnt}/luminescence"][:]
+        
+        return lum
+    
+    def output_result_get_filling(self, exp_cnt:int = 1): 
+
+        with h5py.File(self.name,"r") as f:  
+            fill = f[f"outputs/experiment_{exp_cnt}/filling"][:]
+        
+        return fill
+    
+    def output_result_get_events(self, exp_cnt:int = 1): 
+
+        with h5py.File(self.name,"r") as f:  
+            events = f[f"outputs/experiment_{exp_cnt}/events"][:]
+        
+        return events    
+    
+    def output_result_get_nonzero_events(self,exp_cnt:int = 1): 
+
+        events = self.output_result_get_events(exp_cnt)
+        nonzero_col_mask = np.any(events != 0, axis=0)
+        nonzero_col_mask[0] = False
+        event_type = np.where(nonzero_col_mask)[0]
+        nonzero_events = events[:, nonzero_col_mask]
+        return nonzero_events, event_type
+    
+    def output_result_get_all_nonzero_events(self, exp_cnt:int = 1):
+
+        exp, exptyp = self.output_result_get_nonzero_events(1)
+        nonzero_events = {1: exp}
+        event_type = {1: exptyp} 
+        if exp_cnt > 1:
+            for i in range(2,(exp_cnt+1)):
+                exp, exptyp = self.output_result_get_nonzero_events(i)
+                nonzero_events[i] = exp
+                event_type[i] = exptyp
+
+        return nonzero_events, event_type
+    
+    def output_result_get_lum_fill(self, exp_cnt:int = 1):
+        lum = self.output_result_get_lum(exp_cnt)
+        fill = self.output_result_get_filling(exp_cnt)
+        return np.column_stack([lum,fill])
+
+    def output_result_get_all_lum_fill(self, exp_cnt:int = 1):
+        exp = self.output_result_get_lum_fill(1)
+        a = ["Luminescence", "Filling"]
+        nonzero_events = {1: exp}
+        event_type = {1: a} 
+        if exp_cnt > 1:
+            for i in range(2,(exp_cnt+1)):
+                exp = self.output_result_get_lum_fill(i)
+                nonzero_events[i] = exp
+                event_type[i] = a
+
+        return nonzero_events, event_type
+
 
     def chronology_data_initial_build(self,cfg: DictConfig): 
         chron_attrs = {

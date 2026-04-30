@@ -1,7 +1,7 @@
 defaults: 
   - _self_
   - physics:  phys_harris_lab_TL # phys_King_etal_2016_k_23 #
-  - temp: temp_King_etal_2016_ii # temp_linear #temp_constant_T
+  - temp: temp_linear #temp_King_etal_2016_ii  #temp_constant_T
   - chronology: chron
   - override hydra/job_logging: custom
   - override hydra/hydra_logging: disabled
@@ -17,7 +17,7 @@ setup:
   n_jobs    : 10        # parallel workers (1 = sequential)
   mc        : True   # Run monte Carlo simulations
   ac        : False  # Run analytic model 
-  TC        : True  # Run thermo chronology
+  TC        : False  # Run thermo chronology
 
 
 hydra:

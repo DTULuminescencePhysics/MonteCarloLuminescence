@@ -14,11 +14,8 @@ mpl.rcParams['font.family']='DejaVu Sans'
 plt.rcParams['font.size']=18
 plt.rcParams['axes.linewidth']=2
 
-
-
 colors = ['g','b','k','c','m','y','r']
 lines  = ['-','--','-.',':']
-
 
 def plot_crystal(trap_coords: np.ndarray, hole_location: np.ndarray, nearest: np.ndarray, N: int, nearest_no=3):
     fig = plt.figure(figsize=(8,8))

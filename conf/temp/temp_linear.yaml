@@ -30,9 +30,6 @@
 # Again the temperature is constant until 0.384 when it steps down 60C. Temperature 
 # is a constant 40C until 0.467 when it steps down again to 20C. The temperature then
 # decreases linearly to 10C at a rate of 303 C/Ma. This rate would be calculated in the program
-unit: Ma # unit of time s -- sections, y -- years, Ma -- mega-annum i.e. 1000000 years
-
-
 unit: s # unit of time s -- sections, y -- years, Ma -- mega-annum i.e. 1000000 years
 celsius: true # true if temperatures are given in celsius else false for kelvin 
 kind: linear # constant; linear;

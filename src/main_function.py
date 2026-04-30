@@ -26,11 +26,11 @@ def main(cfg: DictConfig):
     err.checkpoint()
     results = output_file("results.hdf5",cfg)
     if cfg.setup.mc:
-        monte_carlo_control_functions(runs,run_num,pl,err)
+        monte_carlo_control_functions(runs,run_num,results,err)
     if cfg.setup.ac:
         analytic_control_functions(runs,run_num,pl,err)
 
-    pl.plot_forward()
+    pl.plot_forward(results,True,True)
     comp_file = f"{pl.forward_ratio_file[0]}.csv"
     if cfg.setup.TC:
         RJMCMC_control_functions(results,runs,run_num,err,comp_file)
