@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Form</class>
+ <widget class="QWidget" name="Form">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>300</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QHBoxLayout" name="horizontalLayout_2">
+   <item>
+    <widget class="QCheckBox" name="PlotCheck">
+     <property name="text">
+      <string/>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLineEdit" name="lineEdit"/>
+   </item>
+   <item>
+    <widget class="QComboBox" name="LineStyle">
+     <item>
+      <property name="text">
+       <string>Solid -</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Dotted :</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Dashed --</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Dashdot -,</string>
+      </property>
+     </item>
+    </widget>
+   </item>
+   <item>
+    <widget class="QComboBox" name="Colour">
+     <item>
+      <property name="text">
+       <string>Black</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Gray</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Dark red</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Red</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Orange</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Olive</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Yellow</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Green</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Cyan</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Blue</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Dark violet</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Deep pink</string>
+      </property>
+     </item>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

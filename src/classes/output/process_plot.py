@@ -1,16 +1,9 @@
 from __future__ import annotations
-import os
 import numpy as np
-import pyarrow as pa 
-import pyarrow.parquet as pq
 from math import ceil
-from typing import Tuple
 import matplotlib as mpl
 from matplotlib import pyplot as plt
-from matplotlib.ticker import FormatStrFormatter
-from scipy.signal import savgol_filter,lfilter 
 from src.classes.constants import time_to_seconds
-from src.classes.physics.transition_process import EVENT_NAMES
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.classes.output.results_file import output_file

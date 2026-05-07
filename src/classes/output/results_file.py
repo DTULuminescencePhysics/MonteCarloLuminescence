@@ -1,14 +1,11 @@
 from __future__ import annotations
-
-from dataclasses import dataclass
-from omegaconf import DictConfig
 from typing import Dict,TYPE_CHECKING
 import numpy as np
 import h5py
 
 if TYPE_CHECKING:
     from src.classes.output.temp_results_file import chronology_results
-
+    from omegaconf import DictConfig
 """
 This module will store final data sets for all simulations
 The file is split into three sections 
@@ -41,7 +38,7 @@ Record i is reconstructed with:
 
 class output_file:
 
-    def __init__(self,filename:str, cfg: DictConfig, compression: str = "gzip",
+    def __init__(self,filename:str, cfg: DictConfig | None, compression: str = "gzip",
         compression_level: int = 4,):
 
         self.name = filename 
@@ -50,8 +47,8 @@ class output_file:
             self.ds_kwargs["compression"] = compression
             if compression == "gzip":
                 self.ds_kwargs["compression_opts"] = compression_level
-
-        self.initial_file_build(cfg)
+        if cfg is not None:
+            self.initial_file_build(cfg)
 
     def write_attrs_if_not_none(self, group, attrs: dict) -> None:
         """
