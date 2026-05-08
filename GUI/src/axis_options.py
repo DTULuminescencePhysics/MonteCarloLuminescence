@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QWidget, QButtonGroup
 from PySide6.QtCore import Signal, Slot
-
+import numpy as np
 from GUI.src.designs.time_buttons import Ui_Form as TimeButtonsUi
 from GUI.src.designs.error_buttons import Ui_Form as ErrorButtonsUi
 from GUI.src.designs.event_buttons import Ui_Form as EventButtonsUi
@@ -28,14 +28,18 @@ class TimeOptions(QWidget, TimeButtonsUi):
             self.secs: "seconds",
             self.mins: "minutes",
             self.hours: "hours",
+            self.days : "days",
             self.years: "years",
+            self.ka : "ka",
             self.ma: "ma",
         }
         self.buttonGroup.setExclusive(True)
         self.buttonGroup.addButton(self.secs)
         self.buttonGroup.addButton(self.mins)
+        self.buttonGroup.addButton(self.days)
         self.buttonGroup.addButton(self.hours)
         self.buttonGroup.addButton(self.years)
+        self.buttonGroup.addButton(self.ka)
         self.buttonGroup.addButton(self.ma)
         self.secs.setChecked(True)
     
@@ -43,6 +47,57 @@ class TimeOptions(QWidget, TimeButtonsUi):
     def checked_check(self,): 
         button = self.buttonGroup.checkedButton()
         return self._button_values[button]
+    
+    @Slot(float)
+    def check_minimum_units(self, time:float):
+        self.secs.setEnabled(True)
+        self.mins.setEnabled(True)
+        self.hours.setEnabled(True)
+        self.days.setEnabled(True)
+        self.years.setEnabled(True)
+        self.ka.setEnabled(True)
+        self.ma.setEnabled(True)
+        if time < 60: #secs
+            self.mins.setEnabled(False)
+            self.hours.setEnabled(False)
+            self.days.setEnabled(False)
+            self.years.setEnabled(False)
+            self.ka.setEnabled(False)
+            self.ma.setEnabled(False)
+        elif time < 3600: #hours
+            self.days.setEnabled(False)
+            self.years.setEnabled(False)
+            self.ka.setEnabled(False)
+            self.ma.setEnabled(False)
+        elif time < 86400: #days
+            self.years.setEnabled(False)
+            self.ka.setEnabled(False)
+            self.ma.setEnabled(False)
+            self.mins.setChecked(True)
+        elif time < 31556952: #years
+            self.secs.setEnabled(False)
+            self.mins.setEnabled(False)
+            self.hours.setEnabled(False)
+            self.ka.setEnabled(False)
+            self.ma.setEnabled(False)
+            self.years.setChecked(True)
+        elif time < 3.155695200: #10 years
+            self.secs.setEnabled(False)
+            self.mins.setEnabled(False)
+            self.hours.setEnabled(False)
+            self.days.setEnabled(False)
+            self.ka.setEnabled(False)
+            self.ma.setEnabled(False)
+            self.years.setChecked(True)       
+        else: 
+            self.secs.setEnabled(False)
+            self.mins.setEnabled(False)
+            self.hours.setEnabled(False)
+            self.days.setEnabled(False)
+            self.years.setEnabled(False)
+            self.ka.setChecked(True)
+
+
         
 
 class ErrorOptions(QWidget, ErrorButtonsUi): 
@@ -134,11 +189,16 @@ class EventOptions(QWidget, EventButtonsUi):
         self.savgol_poly.valueChanged.connect(self.savgol_changed)
         self.savgol_window.valueChanged.connect(self.savgol_changed)
 
-
+        self.savgolWinVals = np.array((14,np.inf,np.inf,np.inf))
         self._button_values = {
             self.steps: "steps",
             self.lines: "lines",
         }
+    @Slot(int,int)
+    def savgol_window_max_setter(self, exp_num:int, length:int):
+        self.savgolWinVals[exp_num] = length
+        self.savgol_window.setMaximum(self.savgolWinVals.min())
+
     def savgol_changed(self):
         self.savgol_poly.setMaximum(self.savgol_window.value()-1)
         self.savgolSignal.emit(self.savgol_window.value(),self.savgol_poly.value())
@@ -184,7 +244,6 @@ class EventOptions(QWidget, EventButtonsUi):
                 self.timeUnits.model().item(5).setEnabled(False)
                 self.timeUnits.model().item(6).setEnabled(False)
                 self.timeUnits.setCurrentIndex(1)
-
             case "hours":
                 self.timeUnits.model().item(0).setEnabled(True)
                 self.timeUnits.model().item(1).setEnabled(True)
@@ -194,20 +253,38 @@ class EventOptions(QWidget, EventButtonsUi):
                 self.timeUnits.model().item(5).setEnabled(False)
                 self.timeUnits.model().item(6).setEnabled(False)
                 self.timeUnits.setCurrentIndex(2)
-            case "years":
+            case "days":
                 self.timeUnits.model().item(0).setEnabled(True)
                 self.timeUnits.model().item(1).setEnabled(True)
+                self.timeUnits.model().item(2).setEnabled(True)
+                self.timeUnits.model().item(3).setEnabled(True)
+                self.timeUnits.model().item(4).setEnabled(False)
+                self.timeUnits.model().item(5).setEnabled(False)
+                self.timeUnits.model().item(6).setEnabled(False)
+                self.timeUnits.setCurrentIndex(3)
+            case "years":
+                self.timeUnits.model().item(0).setEnabled(False)
+                self.timeUnits.model().item(1).setEnabled(False)
                 self.timeUnits.model().item(2).setEnabled(True)
                 self.timeUnits.model().item(3).setEnabled(True)
                 self.timeUnits.model().item(4).setEnabled(True)
                 self.timeUnits.model().item(5).setEnabled(False)
                 self.timeUnits.model().item(6).setEnabled(False)
                 self.timeUnits.setCurrentIndex(4)
+            case "ka": 
+                self.timeUnits.model().item(0).setEnabled(False)
+                self.timeUnits.model().item(1).setEnabled(False)
+                self.timeUnits.model().item(2).setEnabled(False)
+                self.timeUnits.model().item(3).setEnabled(False)
+                self.timeUnits.model().item(4).setEnabled(True)
+                self.timeUnits.model().item(5).setEnabled(True)
+                self.timeUnits.model().item(6).setEnabled(False)
+                self.timeUnits.setCurrentIndex(5)
             case "ma": 
-                self.timeUnits.model().item(0).setEnabled(True)
-                self.timeUnits.model().item(1).setEnabled(True)
-                self.timeUnits.model().item(2).setEnabled(True)
-                self.timeUnits.model().item(3).setEnabled(True)
+                self.timeUnits.model().item(0).setEnabled(False)
+                self.timeUnits.model().item(1).setEnabled(False)
+                self.timeUnits.model().item(2).setEnabled(False)
+                self.timeUnits.model().item(3).setEnabled(False)
                 self.timeUnits.model().item(4).setEnabled(True)
                 self.timeUnits.model().item(5).setEnabled(True)
                 self.timeUnits.model().item(6).setEnabled(True)

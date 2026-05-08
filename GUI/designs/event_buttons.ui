@@ -83,7 +83,14 @@
       </widget>
      </item>
      <item>
-      <widget class="QDoubleSpinBox" name="smootingVal"/>
+      <widget class="QDoubleSpinBox" name="smootingVal">
+       <property name="decimals">
+        <number>4</number>
+       </property>
+       <property name="maximum">
+        <double>9999.999900000000707</double>
+       </property>
+      </widget>
      </item>
      <item>
       <widget class="QStackedWidget" name="unit">

@@ -24,6 +24,8 @@ time_to_seconds = {"seconds":1, "s": 1, "minutes": 60, "m": 60, "hours": 3600, "
 class MplCanvas(FigureCanvas):
     experimentcount = Signal(int)
     requestLineInfo = Signal(int,str)
+    savgolWindowMax = Signal(int,int)
+    maximumTime = Signal(float)
     def __init__(self, parent=None,
                  width=3.37, height=5.055, dpi=100):
         self.fig = Figure(figsize=(width, height), dpi=dpi)
@@ -59,7 +61,15 @@ class MplCanvas(FigureCanvas):
         self.updateGeometry()
         self.set_axis_labels()
 
+    def send_time_max(self,):
+        maximum = self.data[1]["time"][-1]
+        for i in range(1,self.exp_count):
+            m = self.data[i]["time"][-1]
+            if m > maximum:
+                maximum = m 
         
+        self.maximumTime.emit(maximum)
+
     def exp_data_retrieve(self, exp_num:int):
         lo,mi,hi = self.outputfile.output_result_get_quantiles(exp_num)
         data = {
@@ -94,6 +104,16 @@ class MplCanvas(FigureCanvas):
             self.all_all_event_lines()
         elif self.units["yaxis"] == "temperature":
             self.add_all_temp_lines()
+
+    def update_all_lines(self):
+        # if self.units["yaxis"] == "ratio": 
+        if self.units["yaxis"] == "event":
+            self.rebin_all()
+            self.update_all_event_lines()
+        elif self.units["yaxis"] == "temperature":
+            self.update_y_temp_units()
+        
+        self.set_axis_labels()
 
     @Slot(Path)
     def experiment_number_check(self, file_path: Path):
@@ -153,39 +173,31 @@ class MplCanvas(FigureCanvas):
     def ytemp_update(self, new_val:str):
         if self.units["ytemp_unit"] != new_val:
             self.units["ytemp_unit"] = new_val
-            self.update_y_temp_units()
-            self.set_axis_labels()
+            self.update_all_lines()
 
     @Slot(str)
     def yevent_plot_update(self, new_val:str):
         if self.units["yevent_plot_type"] != new_val:
             self.units["yevent_plot_type"] = new_val
-            self.update_all_event_lines()
-            self.set_axis_labels()
-    
+            self.update_all_lines()
+           
     @Slot(bool)
     def smoothing_update(self, new_val:bool):
         if self.units["smoothing"] != new_val:
             self.units["smoothing"] = new_val
-            self.rebin_all()
-            self.update_all_event_lines()
-            self.set_axis_labels()
-    
+            self.update_all_lines()
+                
     @Slot(str)
     def yevent_smooting_uni_update(self, new_val:str):
         if self.units["yevent_smoothing_unit"] != new_val:
             self.units["yevent_smoothing_unit"] = new_val
-            self.rebin_all()
-            self.update_all_event_lines()
-            self.set_axis_labels()
-
+            self.update_all_lines()
+           
     @Slot(float)
     def yevent_smoothing_value_update(self, new_val:float):
         if self.units["yevent_smoothing_value"] != new_val:
             self.units["yevent_smoothing_value"] = new_val
-            self.rebin_all()
-            self.update_all_event_lines()
-            self.set_axis_labels()
+            self.update_all_lines()      
 
     @Slot(int,int)
     def savgol_change(self, new_val1: int, new_val2:int):
@@ -230,6 +242,8 @@ class MplCanvas(FigureCanvas):
                 self.ax.set_xlabel("Time (day)")
             case 'years':
                 self.ax.set_xlabel("Time (year)")
+            case 'ka':
+                self.ax.set_xlabel("Time (Ka)")
             case 'ma':
                 self.ax.set_xlabel("Time (Ma)")
             case _:
@@ -530,7 +544,6 @@ class MplCanvas(FigureCanvas):
        
         x = np.r_[x_vals[:-1], x_vals[-1]]
         y_mean = np.r_[mean[:], mean[-1]]
-
         return self.ax.step(x, y_mean, where="post", linestyle=linestyle, color=colour, label=label)
         
     def std_plot(self, std:np.ndarray, mean:np.ndarray, x_vals: np.ndarray, colour:str, linestyle:str, label:str, std_num:int=1):     
@@ -575,10 +588,14 @@ class MplCanvas(FigureCanvas):
             self.rebin_events(i+1)
 
     def rebin_events(self, exp_num):
+        self.data[exp_num]["sLuminescence"] = self.data[exp_num]["luminescence"]
+        self.data[exp_num]["sFill"] = self.data[exp_num]["fill"]
+        self.data[exp_num]["sEvent"] = self.data[exp_num]["events"]
+
         if  self.units["xaxis"] == "time":
             x = self.data[exp_num]["time"]
             if self.units["yevent_smoothing_value"] != 0:
-                bin_width  = self.units["yevent_smoothing_value"]/time_to_seconds[self.units["yevent_smoothing_unit"]]
+                bin_width  = self.units["yevent_smoothing_value"]*time_to_seconds[self.units["yevent_smoothing_unit"]]
                 n_new, new_xvalues = self.create_new_time_series(x, bin_width)
             else:
                 bin_width=0
@@ -591,9 +608,7 @@ class MplCanvas(FigureCanvas):
                 bin_width=0
         if bin_width == 0 or self.units["smoothing"] == False:
             self.data[exp_num]["sX"] = x
-            self.data[exp_num]["sLuminescence"] = self.data[exp_num]["luminescence"]
-            self.data[exp_num]["sFill"] = self.data[exp_num]["fill"]
-            self.data[exp_num]["sEvent"] = self.data[exp_num]["events"]
+            self.savgolWindowMax.emit(exp_num-1,len(x)-1)
             return 
        
             
@@ -605,12 +620,12 @@ class MplCanvas(FigureCanvas):
         self.data[exp_num]["sLuminescence"] = accum[:,0]/maximum
         self.data[exp_num]["sFill"] = accum[:,1]/maximum
         self.data[exp_num]["sEvent"] = self.rebin_event_values_fixed_width(x,self.data[exp_num]["events"],n_new,new_xvalues)/maximum
-
+        self.savgolWindowMax.emit(exp_num-1,len(new_xvalues)-1)
     
     def create_new_time_series(self, xvalues, new_bin_width):
         t_min = xvalues[0]
         t_max = xvalues[-1]
-
+        
         n_new = int(round((t_max - t_min) / new_bin_width))
         new_times = np.linspace(t_min,t_max,n_new+1)
         return n_new, new_times

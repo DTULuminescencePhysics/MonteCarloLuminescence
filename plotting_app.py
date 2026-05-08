@@ -69,6 +69,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.YEventOptions.smoothingSignal.connect(self.DisplayArea.yevent_smoothing_value_update)
         self.YEventOptions.savgolSignal.connect(self.DisplayArea.savgol_change)
 
+        self.DisplayArea.savgolWindowMax.connect(self.YEventOptions.savgol_window_max_setter)
+        self.DisplayArea.maximumTime.connect(self.XTimeOptions.check_minimum_units)
         self.text_change_timer = QTimer(self)
         self.text_change_timer.setSingleShot(True)
         self.text_change_timer.setInterval(1000)
@@ -79,6 +81,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.saveButton.clicked.connect(self.fileloader.open_save_dialog)
         self.fileloader.savedPlot.connect(self.DisplayArea.save_image)
+
     @Slot(Path)
     def new_file_selected(self, file_path: Path):
         self.FileName.setText(str(file_path.name))
@@ -95,6 +98,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         
         self.DisplayArea.data_retrieve()
         self.Axis_value_is_altered()
+        self.DisplayArea.send_time_max()
 
     def _set_xaxis_buttons(self,):
       

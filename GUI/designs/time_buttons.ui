@@ -66,9 +66,37 @@
       </widget>
      </item>
      <item>
+      <widget class="QRadioButton" name="days">
+       <property name="text">
+        <string>Days</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="Line" name="line_7">
+       <property name="orientation">
+        <enum>Qt::Orientation::Vertical</enum>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QRadioButton" name="years">
        <property name="text">
         <string>Years</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="Line" name="line_8">
+       <property name="orientation">
+        <enum>Qt::Orientation::Vertical</enum>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QRadioButton" name="ka">
+       <property name="text">
+        <string>Ka</string>
        </property>
       </widget>
      </item>

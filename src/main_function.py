@@ -7,7 +7,7 @@ from src.filesystem import CONFIG_DIR
 from src.helper_functions import cfg_list_check, cfg_temperature_check
 from src.MC_analytic_control import monte_carlo_control_functions, analytic_control_functions
 from src.back_tracing import MC_control_functions,RJMCMC_control_functions
-from src.classes.output.graph import MainPlot
+# from src.classes.output.graph import MainPlot
 from src.classes.output.results_file import output_file
 from src.classes.output.graph import chronologyPlot
 
@@ -22,16 +22,16 @@ def main(cfg: DictConfig):
     run_num, runs = cfg_list_check(cfg,err)
     # run_num=1 
     # runs = runs[0]
-    pl = MainPlot(unit=cfg.temp.unit,celsius=cfg.temp.celsius)
+    # pl = MainPlot(unit=cfg.temp.unit,celsius=cfg.temp.celsius)
     err.checkpoint()
     results = output_file("results.hdf5",cfg)
     if cfg.setup.mc:
         monte_carlo_control_functions(runs,run_num,results,err)
-    if cfg.setup.ac:
-        analytic_control_functions(runs,run_num,pl,err)
+    # if cfg.setup.ac:
+    #     analytic_control_functions(runs,run_num,pl,err)
 
-    pl.plot_forward(results,True,True)
-    comp_file = f"{pl.forward_ratio_file[0]}.csv"
+    # pl.plot_forward(results,True,True)
+    # comp_file = f"{pl.forward_ratio_file[0]}.csv"
     if cfg.setup.TC:
         RJMCMC_control_functions(results,runs,run_num,err,comp_file)
         # MC_control_functions(runs,run_num,err,comp_file)

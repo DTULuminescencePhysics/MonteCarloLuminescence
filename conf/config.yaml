@@ -1,7 +1,7 @@
 defaults: 
   - _self_
-  - physics:  phys_harris_lab_TL # phys_King_etal_2016_k_23 #
-  - temp: temp_linear #temp_King_etal_2016_ii  #temp_constant_T
+  - physics: phys_King_etal_2016_k_23_50_3 # phys_harris_lab_TL # 
+  - temp: temp_King_etal_2016_ii #temp_linear #  #temp_constant_T
   - chronology: chron
   - override hydra/job_logging: custom
   - override hydra/hydra_logging: disabled
@@ -10,11 +10,11 @@ setup:
   project: "Example"
   seed: 1
   max_dt    : 0.5 
-  t_pcnt    : 1      # Ratio of filled electrons traps
-  h_pcnt    : 1     # Ratio of recombination holes that are unfilled
+  t_pcnt    : 0      # Ratio of filled electrons traps
+  h_pcnt    : 0     # Ratio of recombination holes that are unfilled
   reps      : 10     # Number of Monte Carlo simulations to repeat
   boundary  : periodic  # "padded" (default) or "periodic"
-  n_jobs    : 10        # parallel workers (1 = sequential)
+  n_jobs    : 1        # parallel workers (1 = sequential)
   mc        : True   # Run monte Carlo simulations
   ac        : False  # Run analytic model 
   TC        : False  # Run thermo chronology
