@@ -58,7 +58,6 @@ class MplCanvas(FigureCanvas):
         self.exp_count = 0
         self.data = None
         self._plot_list = defaultdict(dict)
-        self.updateGeometry()
         self.set_axis_labels()
 
     def send_time_max(self,):
@@ -117,7 +116,10 @@ class MplCanvas(FigureCanvas):
 
     @Slot(Path)
     def experiment_number_check(self, file_path: Path):
-
+        if self.outputfile is not None:
+            self.outputfile = None
+            self.data = None
+            self.clear_graph()
         self.outputfile = output_file(str(file_path),None)
 
         exp_num = self.outputfile.output_result_get_number_exp()
@@ -125,8 +127,10 @@ class MplCanvas(FigureCanvas):
         self.experimentcount.emit(exp_num)
 
     def clear_graph(self):
-        for line in self._plot_list:
-            line.remove()
+        self.ax.clear()
+        self._plot_list.clear()
+        # for line in self._plot_list:
+            # line.remove()
         self.draw_idle()
 
     @Slot(str)

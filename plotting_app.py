@@ -83,13 +83,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.fileloader.savedPlot.connect(self.DisplayArea.save_image)
 
     @Slot(Path)
-    def new_file_selected(self, file_path: Path):
+    def new_file_selected(self, file_path: Path, ):
         self.FileName.setText(str(file_path.name))
-
+    
     @Slot(int)
     def set_line_list(self,exp_num:int):
         choice = self.yaxis_button_stackedWidget.currentIndex()
-       
+        self.clear_tab_widget()
         if exp_num == 1: 
             self.LineChooserSetup(0,choice, False)
         else:
@@ -99,6 +99,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.DisplayArea.data_retrieve()
         self.Axis_value_is_altered()
         self.DisplayArea.send_time_max()
+
+    def clear_tab_widget(self):
+        while self.LinePlotter.count() > 0:
+            widget = self.LinePlotter.widget(0)
+            self.LinePlotter.removeTab(0)
+            if widget is not None:
+                widget.deleteLater()
+
 
     def _set_xaxis_buttons(self,):
       

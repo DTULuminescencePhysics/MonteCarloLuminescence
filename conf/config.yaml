@@ -12,9 +12,9 @@ setup:
   max_dt    : 0.5 
   t_pcnt    : 0      # Ratio of filled electrons traps
   h_pcnt    : 0     # Ratio of recombination holes that are unfilled
-  reps      : 10     # Number of Monte Carlo simulations to repeat
+  reps      : 100     # Number of Monte Carlo simulations to repeat
   boundary  : periodic  # "padded" (default) or "periodic"
-  n_jobs    : 1        # parallel workers (1 = sequential)
+  n_jobs    : 10        # parallel workers (1 = sequential)
   mc        : True   # Run monte Carlo simulations
   ac        : False  # Run analytic model 
   TC        : False  # Run thermo chronology
