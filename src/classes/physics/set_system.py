@@ -13,14 +13,14 @@ import src.classes.physics.transition_profiles
 class _ThermalParameters(Transitions):    # CrystalPhysics
 
     E_loc:       float                  # Energy gap between ground and excited state
-    b :          float                  # attmpt to tunnel frequency
+    b :          float                  # Attempt to tunnel frequency
     E_loc_sigma: float = field(default=0.0)   # std dev of Gaussian for E_loc (eV); 0 = fixed
     E_cb_sigma:  float = field(default=0.0)   # std dev of Gaussian for E_cb  (eV); 0 = fixed
     alpha_ES:   float | None = field(default=None)
     alpha_GS:float | None = field(default=None)
     E_cb:    float | None = field(default=None) # Conduction band energy
-    s :      float | None = field(default=None) # Escape frequency
-    rho:     float | None = field(default=None) # Density
+    s :      float | None = field(default=None) # Attempt to escape frequency
+    rho:     float | None = field(default=None) # Density of defects
     urho:    float | None = field(default=None) # Unitless density
     D0:      float | None = field(default=None) # Characteristic doses
     D_dot:   float | None = field(default=None) # Radition per time unit
@@ -32,6 +32,16 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
     enable_tunneling: bool = field(default=True)
     enable_cb:        bool = field(default=True)
 
+    # Band-tail (shallow) defects
+    enable_BT:          bool   = field(default=False)
+    shallow_deep_ratio: float  = field(default=10.0)
+    threshold_depth:    float  = field(default=0.5)
+    E_u:                float  = field(default=0.3)
+    b_BT:               float | None = field(default=None)   # defaults to b
+    alpha_BT:           float | None = field(default=None)   # defaults to alpha_GS
+    init_shallow:       bool   = field(default=False)
+    sh_pcnt:            float  = field(default=0.0)
+
 
     def __post_init__(self):
 
@@ -41,6 +51,12 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
             self.urho_from_rho(self.alpha_ES)
         elif self.urho is not None and self.rho is None:
             self.rho_from_urho(self.alpha_ES)
+
+        # BT parameter defaults
+        if self.b_BT is None:
+            self.b_BT = self.b
+        if self.alpha_BT is None:
+            self.alpha_BT = self.alpha_GS if self.alpha_GS is not None else self.alpha_ES
 
         if self.D_dot is not None:
             self.D_dot /= time_to_seconds[self.Dd_unit]
@@ -68,6 +84,8 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
         if self.enable_cb:
             trans_kind += ["ground_state_to_cb",
                            "excited_state_to_cb"]
+        if self.enable_BT:
+            trans_kind += ["band_tail"]
 
         return fill_kind, trans_kind
     

@@ -202,13 +202,24 @@ def clean_up_results(results, output_file_name, crystal,
                       for c in dominant_codes]
     header.append("dominant_event_type")
 
+    event_types_per_bin: list[str] = []
+    for j in range(steady_time.size):
+        present_codes = np.flatnonzero(event_counts[j])
+        if present_codes.size == 0:
+            event_types_per_bin.append(EVENT_NAMES[0])
+        else:
+            event_types_per_bin.append(";".join(
+                EVENT_NAMES.get(int(c), EVENT_NAMES[0]) for c in present_codes
+            ))
+    header.append("event_types")
+
     if os.path.exists(f"{ratio_file}.csv"):
         os.remove(f"{ratio_file}.csv")
     with open(f"{ratio_file}.csv", "w") as f:
         f.write("# " + ",".join(header) + "\n")
         for j in range(steady_time.size):
             numeric_cols = ",".join(f"{ratio_results[r, j]}" for r in range(ratio_results.shape[0]))
-            f.write(f"{numeric_cols},{dominant_names[j]}\n")
+            f.write(f"{numeric_cols},{dominant_names[j]},{event_types_per_bin[j]}\n")
 
     if plot_error_bands:
         temperature_plot = ratio_results[1, :]
