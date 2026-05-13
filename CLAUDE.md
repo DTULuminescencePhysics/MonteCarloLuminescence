@@ -78,7 +78,9 @@ Each registered function is a **builder**: takes physics parameters, returns a *
 | Temperature profiles | `src/classes/physics/temperature/temp_profiles.py` |
 | Analytic ODE model | `src/classes/analytic_model.py` |
 | Physical constants | `src/classes/constants.py` |
-| Plotting/post-processing | `src/process_plot.py` |
+| post-processing | `src/classes/output/process_plot.py` |
+| Results file | `src/classes/output/results_file.py` |
+| Plotting | `src/classes/output/graph.py` |
 | RJMCMC inverse modeling | `src/classes/thermoC/RJMCMC.py` |
 
 ### MC Simulation Loop (in `MCBase`)
