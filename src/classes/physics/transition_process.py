@@ -34,7 +34,7 @@ LUMINESCENCE_CODES: set[int] = {
     EVENT_CODES["ES_tun_recom"],
     EVENT_CODES["GS_CB_recom"],
     EVENT_CODES["ES_CB_recom"],
-    EVENT_CODES["S_tun_recom"],
+    EVENT_CODES["Shallow_tun_recom"],
 }
 
 
@@ -75,6 +75,7 @@ class RecombinationOperation:
         box.deep_cnt -= 1
         box.t_cnt -= 1
         box.h_cnt -= 1
+        box._charge_death("deep", t_index)
         box.event_code = self.event_code
 
 
@@ -87,6 +88,7 @@ class RetrappingOperation:
         dest_index = np.where(box.occ_trap == 0)[0][local_index]
         box.occ_trap[t_index] = 0
         box.occ_trap[dest_index] = 1
+        box._charge_move("deep", t_index, "deep", dest_index)
         box.event_code = self.event_code
 
 
@@ -267,6 +269,7 @@ class DeepToShallowOperation:
         box.occ_sh[sh_index] = 1
         box.deep_cnt -= 1
         box.sh_cnt += 1
+        box._charge_move("deep", t_index, "shallow", sh_index)
         box.event_code = self.event_code
 
 
@@ -278,6 +281,7 @@ class ShallowToShallowOperation:
     def execute(self, box: Box, sh_src_index: int, sh_dst_index: int) -> None:
         box.occ_sh[sh_src_index] = 0
         box.occ_sh[sh_dst_index] = 1
+        box._charge_move("shallow", sh_src_index, "shallow", sh_dst_index)
         box.event_code = self.event_code
 
 
@@ -292,6 +296,7 @@ class ShallowRecombineOperation:
         box.sh_cnt -= 1
         box.t_cnt -= 1
         box.h_cnt -= 1
+        box._charge_death("shallow", sh_index)
         box.event_code = self.event_code
 
 
@@ -306,6 +311,7 @@ class ShallowToDeepOperation:
         box.occ_trap[t_index] = 1
         box.sh_cnt -= 1
         box.deep_cnt += 1
+        box._charge_move("shallow", sh_index, "deep", t_index)
         box.event_code = self.event_code
 
 

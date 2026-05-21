@@ -37,7 +37,7 @@ R_CB      : 1.0             # Retrapping ratio for CB transitions
 # Band-tail (shallow defect) transitions
 enable_BT          : True     
 shallow_deep_ratio : 5         # N_sh = int(shallow_deep_ratio * N)
-threshold_depth    : 0.5       # eV; max depth-below-CB for shallow defects
+threshold_depth    : 0.7       # eV; max depth-below-CB for shallow defects
 E_u                : 0.3       # eV; Urbach energy
 b_BT               : null      # null -> defaults to b
 alpha_BT           : 1.5e9     # null -> defaults to alpha_GS (override for ES-like localization)

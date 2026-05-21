@@ -106,6 +106,12 @@ class Box(_temp,_ThermalParameters):
     dE_sh_t_unocc_ES: np.ndarray  = field(init=False, default=None)
     exec_pool: str | None    = field(init=False, default=None)
 
+    # Charge-displacement tracking
+    trap_coords: np.ndarray  = field(init=False, default=None)   # (N,3)
+    e_orig_deep: np.ndarray  = field(init=False, default=None)   # (N,3) birth coord per deep site
+    e_orig_sh: np.ndarray    = field(init=False, default=None)   # (N_sh,3) birth coord per shallow site
+    disp_sum: float          = field(init=False, default=0.0)    # total displacement (m)
+
 
     def __repr__(self):
         if self.kind == "constant":
@@ -270,6 +276,8 @@ class Box(_temp,_ThermalParameters):
 
         nn = self.HN
 
+        self.trap_coords = trap_coords
+
         self.create_distance_matrix(trap_coords,hole_coords)
         self.nearest = np.argsort(self.dist,axis=1)[:,:nn]
 
@@ -344,6 +352,16 @@ class Box(_temp,_ThermalParameters):
         self.sh_cnt = int(np.flatnonzero(self.occ_sh).size) if self.N_sh > 0 else 0
         
         self.t_cnt = self.deep_cnt + self.sh_cnt
+
+        # Charge-displacement bookkeeping: NaN row means no tracked electron.
+        self.e_orig_deep = np.full((self.N, 3), np.nan)
+        self.e_orig_sh   = np.full((max(self.N_sh, 0), 3), np.nan)
+        occ_d = self.occ_trap.astype(bool)
+        self.e_orig_deep[occ_d] = self.trap_coords[occ_d]
+        if self.N_sh > 0:
+            occ_s = self.occ_sh.astype(bool)
+            self.e_orig_sh[occ_s] = self.sh_coords[occ_s]
+        self.disp_sum = self.compute_disp_sum()
 
         self.define_new_d_full()    # self.define_new_d()
         self.initial_times(t=t)
@@ -595,13 +613,11 @@ class Box(_temp,_ThermalParameters):
             thr_s = self.retrap_mask_factor * d_sh_min
 
             if self.d_sh_sh_unocc.size > 0:
-                self.d_sh_sh_unocc, mask = _apply_retrap_mask(
-                    self.d_sh_sh_unocc, thr_s)
+                self.d_sh_sh_unocc, mask = _apply_retrap_mask(self.d_sh_sh_unocc, thr_s)
                 self.dE_sh_sh_unocc = np.where(mask, 0.0, self.dE_sh_sh_unocc)
 
             if self.d_sh_t_unocc.size > 0:
-                self.d_sh_t_unocc, mask = _apply_retrap_mask(
-                    self.d_sh_t_unocc, thr_s)
+                self.d_sh_t_unocc, mask = _apply_retrap_mask(self.d_sh_t_unocc, thr_s)
                 self.dE_sh_t_unocc_GS = np.where(mask, 0.0, self.dE_sh_t_unocc_GS)
                 self.dE_sh_t_unocc_ES = np.where(mask, 0.0, self.dE_sh_t_unocc_ES)
 
@@ -626,6 +642,7 @@ class Box(_temp,_ThermalParameters):
             self.occ_trap[t_index] = 1
             self.deep_cnt += 1
             self.t_cnt += 1
+            self._charge_birth("deep", t_index)
             self.event_code = EVENT_CODES["fill"]
             self.define_new_d_full()
             return
@@ -655,6 +672,7 @@ class Box(_temp,_ThermalParameters):
                 self.occ_trap[unoccupied_t[choice]] = 1
                 self.deep_cnt += 1
                 self.t_cnt += 1
+                self._charge_birth("deep", unoccupied_t[choice])
             else:
                 self.occ_hole[occupied_h[(choice - n_ut) % n_oh]] = 0
                 self.h_cnt -= 1
@@ -668,6 +686,7 @@ class Box(_temp,_ThermalParameters):
                 self.occ_trap[occupied_t[choice % n_ot]] = 0
                 self.deep_cnt -= 1
                 self.t_cnt -= 1
+                self._charge_death("deep", occupied_t[choice % n_ot])
             else:
                 self.occ_hole[unoccupied_h[choice - n_ot_eff]] = 1
                 self.h_cnt += 1
@@ -766,6 +785,50 @@ class Box(_temp,_ThermalParameters):
     #     self.occ_trap[dest_index] = 1
     #     self.define_new_d_full()
 
+    # Record the charge displacement in each step
+
+    def _orig_arr(self, pool: str) -> np.ndarray:
+        return self.e_orig_deep if pool == "deep" else self.e_orig_sh
+
+    def _site_coord(self, pool: str, idx: int) -> np.ndarray:
+        return (self.trap_coords[idx] if pool == "deep"
+                else self.sh_coords[idx])
+
+    def _charge_birth(self, pool: str, idx: int) -> None:
+        """A new electron appears at (pool, idx): origin = that site."""
+        self._orig_arr(pool)[idx] = self._site_coord(pool, idx)
+
+    def _charge_move(self, src_pool: str, src_idx: int,
+                     dst_pool: str, dst_idx: int) -> None:
+        """Electron moves; its birth coordinate travels with it."""
+        src = self._orig_arr(src_pool)
+        self._orig_arr(dst_pool)[dst_idx] = src[src_idx]
+        src[src_idx] = np.nan
+
+    def _charge_death(self, pool: str, idx: int) -> None:
+        """Electron annihilates: drop its term from the sum (D1=A)."""
+        self._orig_arr(pool)[idx] = np.nan
+
+    def compute_disp_sum(self) -> float:
+        """Total net displacement (m) of all currently-trapped electrons
+        from their birth sites. Recomputed from scratch each event."""
+        if self.e_orig_deep is None:
+            return 0.0
+        total = 0.0
+        alive_d = ~np.isnan(self.e_orig_deep[:, 0])
+        if alive_d.any():
+            delta = self.trap_coords[alive_d] - self.e_orig_deep[alive_d]
+            if self.boundary == "periodic":
+                delta -= self.dimension * np.round(delta / self.dimension)
+            total += np.linalg.norm(delta, axis=1).sum()
+        if self.N_sh > 0 and self.e_orig_sh is not None:
+            alive_s = ~np.isnan(self.e_orig_sh[:, 0])
+            if alive_s.any():
+                delta = self.sh_coords[alive_s] - self.e_orig_sh[alive_s]
+                if self.boundary == "periodic":
+                    delta -= self.dimension * np.round(delta / self.dimension)
+                total += np.linalg.norm(delta, axis=1).sum()
+        return float(total)
 
     def timestep(self, dt) -> None:
         """Moves time forward by dt and updates the

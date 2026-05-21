@@ -57,7 +57,7 @@ def _run_single_rep(rep: int, crystal: Box, seed: int, t_pcnt: float,
     Each rep writes only to row *rep*, so concurrent writes are safe.
     """
     results = np.memmap(data_path, dtype=np.float32, mode='r+',
-                        shape=(total_reps, 4, max_length))
+                        shape=(total_reps, 5, max_length))
 
     crystal.lattice_setup(seed + rep, t_pcnt, h_pcnt, t=t)
 
@@ -70,6 +70,7 @@ def _run_single_rep(rep: int, crystal: Box, seed: int, t_pcnt: float,
     results[rep, 1, i] = crystal.t_cnt
     results[rep, 2, i] = 0
     results[rep, 3, i] = 0
+    results[rep, 4, i] = crystal.disp_sum
     i += 1
 
     while crystal.time < crystal.duration:
@@ -92,12 +93,14 @@ def _run_single_rep(rep: int, crystal: Box, seed: int, t_pcnt: float,
         else:
             event_code = 0
         crystal.timestep(dt)
+        crystal.disp_sum = crystal.compute_disp_sum()
 
         if crystal.time >= crystal.duration:
             results[rep, 0, i] = crystal.duration
             results[rep, 1, i] = results[rep, 1, i - 1]
             results[rep, 2, i] = 0
             results[rep, 3, i] = 0
+            results[rep, 4, i] = results[rep, 4, i - 1]
             i += 1
             break
 
@@ -105,6 +108,7 @@ def _run_single_rep(rep: int, crystal: Box, seed: int, t_pcnt: float,
         results[rep, 1, i] = crystal.t_cnt
         results[rep, 2, i] = 1 if is_luminescence(event_code) else 0
         results[rep, 3, i] = event_code
+        results[rep, 4, i] = crystal.disp_sum
         i += 1
 
     results[rep, 1, :] /= crystal.N
@@ -263,6 +267,7 @@ class MCBase:
         self.results[rep,1,i] = self.crystal.t_cnt
         self.results[rep,2,i] = 0
         self.results[rep,3,i] = 0
+        self.results[rep,4,i] = self.crystal.disp_sum
         i+=1
         self.max_dt_setter()
 
@@ -286,12 +291,14 @@ class MCBase:
                 # self.crystal.event_bool = False
                 event_code = 0
             self.crystal.timestep(dt)
+            self.crystal.disp_sum = self.crystal.compute_disp_sum()
 
             if self.crystal.time >= self.crystal.duration:
                 self.results[rep,0,i] = self.crystal.duration
                 self.results[rep,1,i] = self.results[rep,1,i-1]
                 self.results[rep,2,i] = 0
                 self.results[rep,3,i] = 0
+                self.results[rep,4,i] = self.results[rep,4,i-1]
                 i+=1
                 break
 
@@ -299,6 +306,7 @@ class MCBase:
             self.results[rep,1,i] = self.crystal.t_cnt
             self.results[rep,2,i] = 1 if is_luminescence(event_code) else 0
             self.results[rep,3,i] = event_code
+            self.results[rep,4,i] = self.crystal.disp_sum
             i+=1
 
         self.results[rep,1,:] /= self.crystal.N
@@ -333,7 +341,7 @@ class MCBase:
         if os.path.exists(self.data_path):
             os.remove(self.data_path)
 
-        self.results = np.memmap(self.data_path, dtype=np.float32, mode='w+', shape=(self.repetion, 4, self.max_length))
+        self.results = np.memmap(self.data_path, dtype=np.float32, mode='w+', shape=(self.repetion, 5, self.max_length))
         self.results[:,:,:] = np.nan
         self.results.flush()
         err.output(f"Starting Monte Carlo simulation with {self.repetion} repetitions")
@@ -342,7 +350,7 @@ class MCBase:
 
         # Re-open as read-only view for post-processing
         self.results = np.memmap(self.data_path, dtype=np.float32, mode='r',
-                                 shape=(self.repetion, 4, self.max_length))
+                                 shape=(self.repetion, 5, self.max_length))
 
         err.output("Monte Carlo simulation complete, cleaning up results...")
         err.output("To be placed in file: sim_results.dat")

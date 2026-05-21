@@ -7,7 +7,7 @@ import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 from scipy.signal import savgol_filter,lfilter 
-from src.classes.constants import time_to_seconds
+from src.classes.constants import time_to_seconds, mp
 from src.classes.physics.transition_process import EVENT_NAMES
 
 mpl.rcParams['font.family']='DejaVu Sans'
@@ -112,6 +112,53 @@ def _plot_glow_curve(output_file_name: str,
     plt.close(fig)
 
 
+def _plot_displacement(output_file_name: str,
+                       temperature: np.ndarray,
+                       disp_mean: np.ndarray,
+                       disp_min: np.ndarray,
+                       disp_max: np.ndarray,
+                       disp_per_ch: np.ndarray) -> None:
+    """Plot total charge displacement (left y-axis: sum over all trapped
+    electrons of the net distance from each electron's birth site) and
+    the average per-charge displacement (right y-axis) vs. temperature.
+
+    The two y-axes are independently scaled to [0, 1.05*max] of their own
+    series so the curves are directly comparable in shape regardless of
+    the ~50x magnitude difference between total and per-charge values.
+    """
+    def _top(arr: np.ndarray) -> float:
+        m = np.nanmax(arr) if arr.size else 0.0
+        return m * 1.05 if np.isfinite(m) and m > 0 else 1.0
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    # Left axis: total displacement (mean + min/max band).
+    ax.fill_between(temperature, disp_min, disp_max, color="seagreen",
+                    alpha=0.2, label="range")
+    ax.plot(temperature, disp_mean, color="seagreen", linewidth=1.5,
+            label="mean")
+    ax.set_xlabel("Temperature (°C)")
+    ax.set_ylabel("Total displacement (nm)")
+    ax.set_ylim(0, _top(disp_max))
+    ax.grid(True, color="grey", alpha=0.4, linewidth=0.6)
+
+    # Right axis: average (per-charge) displacement, independently scaled.
+    ax2 = ax.twinx()
+    ax2.plot(temperature, disp_per_ch, color="darkorange",
+             linewidth=1.5, label="average")
+    ax2.set_ylabel("Average displacement (nm)")
+    ax2.set_ylim(0, _top(disp_per_ch))
+
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, loc="upper left", fontsize=10)
+
+    fig.tight_layout()
+    fig.savefig(f"{output_file_name}_displacement.png", dpi=300,
+                bbox_inches="tight")
+    plt.close(fig)
+
+
 def clean_up_results(results, output_file_name, crystal,
                      plot_error_bands: bool = True,
                      plot_glow_curve: bool = True,
@@ -120,7 +167,7 @@ def clean_up_results(results, output_file_name, crystal,
                      savgol_poly: int = 2):
     S, C, L = results.shape
 
-    assert C == 4
+    assert C == 5
 
     ratio_file = output_file_name+"_ratio"
     lum_file   = output_file_name+"_lum"
@@ -151,6 +198,10 @@ def clean_up_results(results, output_file_name, crystal,
     ratio_min = np.full(steady_time.size, np.inf)
     ratio_max = np.full(steady_time.size, -np.inf)
 
+    disp_sumed = np.zeros(steady_time.size)
+    disp_min   = np.full(steady_time.size, np.inf)
+    disp_max   = np.full(steady_time.size, -np.inf)
+
     for i in range(S):
         t_i   = results[i, 0, :lengths[i]]
         y_i   = results[i, 1, :lengths[i]]
@@ -161,6 +212,12 @@ def clean_up_results(results, output_file_name, crystal,
         sumed   += interp_i
         np.minimum(ratio_min, interp_i, out=ratio_min)
         np.maximum(ratio_max, interp_i, out=ratio_max)
+
+        d_i      = results[i, 4, :lengths[i]] / mp.n          # m -> nm
+        interp_d = np.interp(steady_time, t_i, d_i)
+        disp_sumed += interp_d
+        np.minimum(disp_min, interp_d, out=disp_min)
+        np.maximum(disp_max, interp_d, out=disp_max)
 
         if ((i + 1) % divisor == 0 and i != 0) or (S == 1):
             ratio_results[2 + cnt, :] = sumed / (i + 1)
@@ -241,6 +298,29 @@ def clean_up_results(results, output_file_name, crystal,
         fig.savefig(f"{output_file_name}_error_bands.png",
                     dpi=300, bbox_inches="tight")
         plt.close(fig)
+
+    # --- Charge displacement output ------------------------------------
+    disp_file   = output_file_name + "_displacement"
+    disp_time   = steady_time
+    disp_temp   = crystal.Tat(disp_time) - 273.15
+    disp_mean   = disp_sumed / S
+    ratio_mean  = ratio_results[2 + additional, :]
+    live        = ratio_mean * crystal.N
+    disp_per_ch = np.where(live > 0, disp_mean / np.where(live > 0, live, 1.0),
+                           0.0)
+
+    if os.path.exists(f"{disp_file}.csv"):
+        os.remove(f"{disp_file}.csv")
+    np.savetxt(f"{disp_file}.csv",
+               np.column_stack([disp_time, disp_temp, disp_mean,
+                                disp_min, disp_max, disp_per_ch]),
+               delimiter=",",
+               header="Time (s),Temperature (C),"
+                      "disp_sum mean (nm),disp_sum min (nm),"
+                      "disp_sum max (nm),disp_per_charge mean (nm)")
+
+    _plot_displacement(output_file_name, disp_temp, disp_mean,
+                       disp_min, disp_max, disp_per_ch)
 
     del ratio_results
 

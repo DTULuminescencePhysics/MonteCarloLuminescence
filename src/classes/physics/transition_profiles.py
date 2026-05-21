@@ -94,10 +94,10 @@ def _build_bt_procs(b_BT: float, alpha_BT: float, **kw):
     """
     rate_fn = lambda r: b_BT * np.exp(-alpha_BT * r)
 
-    op_d_to_s    = DeepToShallowOperation(EVENT_CODES["D_to_S"])
-    op_s_to_s    = ShallowToShallowOperation(EVENT_CODES["S_tun_retrap"])
-    op_s_recom   = ShallowRecombineOperation(EVENT_CODES["S_tun_recom"])
-    op_s_to_d    = ShallowToDeepOperation(EVENT_CODES["S_to_D"])
+    op_d_to_s    = DeepToShallowOperation(EVENT_CODES["Deep_to_Shallow"])
+    op_s_to_s    = ShallowToShallowOperation(EVENT_CODES["Shallow_to_Shallow"])
+    op_s_recom   = ShallowRecombineOperation(EVENT_CODES["Shallow_tun_recom"])
+    op_s_to_d    = ShallowToDeepOperation(EVENT_CODES["Shallow_to_Deep"])
 
     return [
         DeepToShallow("Deep_GS->Shallow", rate_fn, "F1",

@@ -37,12 +37,12 @@ R_CB      : 1.0             # Retrapping ratio for CB transitions
 # Band-tail (shallow defect) transitions
 enable_BT          : True     # master switch
 shallow_deep_ratio : 5       # N_sh = int(shallow_deep_ratio * N)
-threshold_depth    : 0.5       # eV; max depth-below-CB for shallow defects
+threshold_depth    : 0.6       # eV; max depth-below-CB for shallow defects
 E_u                : 0.3       # eV; Urbach energy
 b_BT               : null      # null -> defaults to b
 alpha_BT           : 1.5e9      # null -> defaults to alpha_GS (override for ES-like localization)
 init_shallow       : True      # if True, initial electrons may sit in shallow
-sh_pcnt            : 0.2       # fraction of N_sh occupied at t=0
+sh_pcnt            : 0.0       # fraction of N_sh occupied at t=0
 
 # Misc
 retrap_mask_factor : 0.9    # Factor to constraint retrapping in adjescent pairs
