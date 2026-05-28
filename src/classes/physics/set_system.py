@@ -13,20 +13,34 @@ import src.classes.physics.transition_profiles
 class _ThermalParameters(Transitions):    # CrystalPhysics
 
     E_loc:       float                  # Energy gap between ground and excited state
-    b :          float                  # attmpt to tunnel frequency
+    b :          float                  # Attempt to tunnel frequency
     E_loc_sigma: float = field(default=0.0)   # std dev of Gaussian for E_loc (eV); 0 = fixed
     E_cb_sigma:  float = field(default=0.0)   # std dev of Gaussian for E_cb  (eV); 0 = fixed
     alpha_ES:   float | None = field(default=None)
     alpha_GS:float | None = field(default=None)
     E_cb:    float | None = field(default=None) # Conduction band energy
-    s :      float | None = field(default=None) # Escape frequency
-    rho:     float | None = field(default=None) # Density
+    s :      float | None = field(default=None) # Attempt to escape frequency
+    rho:     float | None = field(default=None) # Density of defects
     urho:    float | None = field(default=None) # Unitless density
-    D0:      float | None = field(default=None) # Characteristic does
+    D0:      float | None = field(default=None) # Characteristic doses
     D_dot:   float | None = field(default=None) # Radition per time unit
     mu:      float | None = field(default=None) # Electron spread range in CB
-    Dd_unit: str = field(default='s') # Units of Radiation s : Gy/s; ka : Gy/Ka etc.
-    phys_type: str   = field(default="") # Kind of fading model
+    Dd_unit: str = field(default='s')           # Units of Radiation s : Gy/s; ka : Gy/Ka etc.
+    phys_type: str   = field(default="")        # Kind of fading model
+    VRH:     bool   = field(default=False)      # If True, tunneling retrapping uses Miller-Abrahams VRH
+    enable_fill:      bool = field(default=True)
+    enable_tunneling: bool = field(default=True)
+    enable_cb:        bool = field(default=True)
+
+    # Band-tail (shallow) defects
+    enable_BT:          bool   = field(default=False)
+    shallow_deep_ratio: float  = field(default=10.0)
+    threshold_depth:    float  = field(default=0.5)
+    E_u:                float  = field(default=0.3)
+    b_BT:               float | None = field(default=None)   # defaults to b
+    alpha_BT:           float | None = field(default=None)   # defaults to alpha_GS
+    init_shallow:       bool   = field(default=False)
+    sh_pcnt:            float  = field(default=0.0)
 
 
     def __post_init__(self):
@@ -37,6 +51,12 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
             self.urho_from_rho(self.alpha_ES)
         elif self.urho is not None and self.rho is None:
             self.rho_from_urho(self.alpha_ES)
+
+        # BT parameter defaults
+        if self.b_BT is None:
+            self.b_BT = self.b
+        if self.alpha_BT is None:
+            self.alpha_BT = self.alpha_GS if self.alpha_GS is not None else self.alpha_ES
 
         if self.D_dot is not None:
             self.D_dot /= time_to_seconds[self.Dd_unit]
@@ -49,34 +69,23 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
 
         self._processes = self.build_processes(tran_kind, **vars(self))
 
-    # def set_fill_and_fade(self):
-    #     """Function that returns the fade and fill kinds that can be passed to the CrystalPhysics
-    #     intializer."""
-        
-    #     if self.phys_type.find("king") > 0:
-    #         fade_kind = "GE_king_2016"
-    #     else: 
-    #         fade_kind = "therm_tunnel_delocalise" if self.E_cb is not None else "therm_tunnel"
-        
-    #     if self.phys_type.find("unitless") > 0:
-    #         fade_kind += "_unitless"
-    #         fill_kind = "dose_ratio" if self.D0 is not None else "none"
-    #     elif  self.phys_type.find("unit") > 0:
-    #         fade_kind += "_unit"
-    #         fill_kind = "dose_ratio" if self.D0 is not None else "none"
-    #     else:
-    #         fill_kind = "dose" if self.D0 is not None else "none"
-
-    #     return fill_kind, fade_kind
     
     def set_transitions(self):
-        
-        fill_kind = "dose" if self.D0 is not None else "none"
 
-        trans_kind = ["ground_state_tunnel",
-                      "excited_state_tunnel",
-                      "ground_state_to_cb",
-                      "excited_state_to_cb"]
+        if self.enable_fill and self.D0 is not None:
+            fill_kind = "dose"
+        else:
+            fill_kind = "none"
+
+        trans_kind: list[str] = []
+        if self.enable_tunneling:
+            trans_kind += ["ground_state_tunnel",
+                           "excited_state_tunnel"]
+        if self.enable_cb:
+            trans_kind += ["ground_state_to_cb",
+                           "excited_state_to_cb"]
+        if self.enable_BT:
+            trans_kind += ["band_tail"]
 
         return fill_kind, trans_kind
     

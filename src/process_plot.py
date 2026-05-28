@@ -53,8 +53,10 @@ def plot_crystal(trap_coords: np.ndarray, hole_location: np.ndarray, nearest: np
     plt.show()
 
 def closest_divisor(N: int) -> int:
-    """Finds the closest divisor to split the available MC
-    runs into"""
+    """
+    Finds the closest divisor to split the available MC
+    runs into.
+    """
     if N == 0: 
         return 0 
     
@@ -84,7 +86,8 @@ def _plot_glow_curve(output_file_name: str,
                      temperature: np.ndarray,
                      glow_rate: np.ndarray,
                      glow_smoothed: np.ndarray | None = None) -> None:
-    """Plot the TL glow curve: d(N_holes)/dt vs Temperature.
+    """
+    Plot the TL glow curve: d(N_holes)/dt vs Temperature.
 
     If glow_smoothed is provided the raw curve is drawn as a faint dashed
     line and the smoothed curve as a solid line.
@@ -168,8 +171,7 @@ def clean_up_results(results, output_file_name, crystal,
             bin_idx  = np.searchsorted(steady_time, t_ev, side='right') - 1
             bin_idx  = np.clip(bin_idx, 0, steady_time.size - 1)
             flat_idx = bin_idx * n_codes + c_ev
-            counts   = np.bincount(flat_idx,
-                                   minlength=steady_time.size * n_codes)
+            counts   = np.bincount(flat_idx, minlength=steady_time.size * n_codes)
             event_counts += counts.reshape(steady_time.size, n_codes)
 
         lum_times = t_i[lum_i == 1]
@@ -197,14 +199,24 @@ def clean_up_results(results, output_file_name, crystal,
                       for c in dominant_codes]
     header.append("dominant_event_type")
 
+    event_types_per_bin: list[str] = []
+    for j in range(steady_time.size):
+        present_codes = np.flatnonzero(event_counts[j])
+        if present_codes.size == 0:
+            event_types_per_bin.append(EVENT_NAMES[0])
+        else:
+            event_types_per_bin.append(";".join(
+                EVENT_NAMES.get(int(c), EVENT_NAMES[0]) for c in present_codes
+            ))
+    header.append("event_types")
+
     if os.path.exists(f"{ratio_file}.csv"):
         os.remove(f"{ratio_file}.csv")
     with open(f"{ratio_file}.csv", "w") as f:
         f.write("# " + ",".join(header) + "\n")
         for j in range(steady_time.size):
-            numeric_cols = ",".join(f"{ratio_results[r, j]}"
-                                    for r in range(ratio_results.shape[0]))
-            f.write(f"{numeric_cols},{dominant_names[j]}\n")
+            numeric_cols = ",".join(f"{ratio_results[r, j]}" for r in range(ratio_results.shape[0]))
+            f.write(f"{numeric_cols},{dominant_names[j]},{event_types_per_bin[j]}\n")
 
     if plot_error_bands:
         temperature_plot = ratio_results[1, :]
@@ -262,8 +274,7 @@ def clean_up_results(results, output_file_name, crystal,
         if os.path.exists(f"{glow_file}.csv"):
             os.remove(f"{glow_file}.csv")
         np.savetxt(f"{glow_file}.csv",
-                   np.column_stack([bin_centers, temperature_glow,
-                                    glow_raw]),
+                   np.column_stack([bin_centers, temperature_glow, glow_raw]),
                    delimiter=",",
                    header="Time (s),Temperature (C),"
                           "d(N_holes)/dt (holes/s),d(N_holes)/dt smoothed")
@@ -308,7 +319,7 @@ def plot_forward_ratio(file_name:str, data: np.ndarray, times: np.ndarray, T_uni
         ratio_vs(times,data[:,i],ax,colors[i%7],lines[i%4],h)
     
     plot_time_label(ax, T_unit)
-    ax.set_ylabel("n/N Trap ratio")
+    ax.set_ylabel("Trapped electron ratio n/N")
     if headers is not None:
         ax.legend()
     plt.savefig(file_name,dpi=300, transparent=False,bbox_inches='tight')
@@ -325,7 +336,7 @@ def plot_forward_ratio_T(file_name:str, data: np.ndarray, temp: np.ndarray, head
         ratio_vs(temp,data[:,i],ax,colors[i%7],lines[i%4],h)
 
     ax.set_xlabel("Temperature (C)")
-    ax.set_ylabel("n/N Trap ratio")
+    ax.set_ylabel("Trapped electron ratio n/N")
     ax.legend()
     plt.savefig(file_name,dpi=300, transparent=False,bbox_inches='tight')
     plt.close()
@@ -389,7 +400,7 @@ def plot_forward_multi_experiment(ratio_files: list[str],file_name: str,T_unit: 
 
 
     plot_time_label(ax, T_unit)
-    ax.set_ylabel("n/N Trap ratio") 
+    ax.set_ylabel("Trapped electron ratio n/N") 
   
     ax.legend()
     plt.savefig(file_name,dpi=300, transparent=False,bbox_inches='tight')
@@ -418,7 +429,7 @@ def plot_forward_multi_analytical_experiment(ratio_files: list[str],file_name: s
 
 
     plot_time_label(ax, T_unit)
-    ax.set_ylabel("n/N Trap ratio") 
+    ax.set_ylabel("Trapped electron ratio n/N") 
   
     ax.legend()
     plt.savefig(file_name,dpi=300, transparent=False,bbox_inches='tight')
@@ -439,7 +450,7 @@ def plot_analytic_comp_MC_single(analytic_file: str, MC_file: str, T_unit: str =
     ratio_vs(a_times,A_data[:,-1],ax,colors[0],lines[0],"Analytic",alpha_ES=0.25)
     ratio_vs(mc_times,MC_data[:,-1],ax,colors[1],lines[0],"MC")
     plot_time_label(ax, T_unit)
-    ax.set_ylabel("n/N Trap ratio")
+    ax.set_ylabel("Trapped electron ratio n/N")
     ax.legend()
     plt.savefig("MC_vs_Analytic_result.png",dpi=300, transparent=False,bbox_inches='tight')
     plt.close()
@@ -469,7 +480,7 @@ def plot_analytic_comp_MC_multi(analytic_file: list[str], MC_file: list[str], T_
         ratio_vs(times,data[:,1:],ax,colors[i%7],lines[j],f"Analytic Experiment no.{i+1}",alpha_ES=0.5)
 
     plot_time_label(ax, T_unit)
-    ax.set_ylabel("n/N Trap ratio")
+    ax.set_ylabel("Trapped electron ratio n/N")
     ax.legend()
     plt.savefig("MC_vs_Analytic_result.png",dpi=300, transparent=False,bbox_inches='tight')
     plt.close()
@@ -574,7 +585,7 @@ def plot_analytic_comp_MC_smoothed(analytic_file: str, MC_file: str, T_unit: str
 
    
     plot_time_label(ax, T_unit)
-    ax.set_ylabel("n/N Trap ratio")
+    ax.set_ylabel("Trapped electron ratio n/N")
    
     ax.legend()
     plt.savefig("MC_vs_Analytic_smooth_result.png",dpi=300, transparent=False,bbox_inches='tight')

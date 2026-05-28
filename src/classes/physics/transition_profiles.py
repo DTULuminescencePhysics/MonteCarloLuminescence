@@ -6,8 +6,9 @@ from src.classes.physics.transitions import Transitions
 from src.classes.physics.transition_process import (
     TunnelingRecombination, TunnelingRetrapping, ConductionBandExcitation,
     RecombinationOperation, RetrappingOperation,
-    EVENT_CODES,
-)
+    DeepToShallow, ShallowTunRetrap, ShallowTunRecom, ShallowToDeep,
+    DeepToShallowOperation, ShallowToShallowOperation,
+    ShallowRecombineOperation, ShallowToDeepOperation, EVENT_CODES)
 from src.helper_functions import ArrayLike, _return_like_input
 from src.classes.constants import cnst
 
@@ -39,43 +40,80 @@ def build_fill_none() -> Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]:
 # Process registry
 
 @Transitions.register_process("ground_state_tunnel")
-def _build_gs_tunnel_procs(alpha_GS: float, b: float,
-                            R_tun: float = 0.01, **kw):
+def _build_gs_tunnel_procs(alpha_GS: float, b: float, R_tun: float = 0.01,
+                            VRH: bool = False, **kw):
     rate_fn = lambda r: b * np.exp(-alpha_GS * r)
+    energy_key = "dg_ee_E" if VRH else None
     return [
         TunnelingRecombination("GS tunneling", rate_fn, "F1",
             operation=RecombinationOperation(EVENT_CODES["GS_tun_recom"])),
         TunnelingRetrapping("GS tunneling", rate_fn, "F1", R_tun,
-            operation=RetrappingOperation(EVENT_CODES["GS_tun_retrap"])),
+            operation=RetrappingOperation(EVENT_CODES["GS_tun_retrap"]),
+            energy_key=energy_key),
     ]
 
 @Transitions.register_process("excited_state_tunnel")
-def _build_es_tunnel_procs(alpha_ES: float, b: float,
-                            R_tun: float = 0.01, **kw):
+def _build_es_tunnel_procs(alpha_ES: float, b: float, R_tun: float = 0.01,
+                          VRH: bool = False, **kw):
     rate_fn = lambda r: b * np.exp(-alpha_ES * r)
+    energy_key = "de_ee_E" if VRH else None
     return [
         TunnelingRecombination("ES tunneling", rate_fn, "F2",
             operation=RecombinationOperation(EVENT_CODES["ES_tun_recom"])),
         TunnelingRetrapping("ES tunneling", rate_fn, "F2", R_tun,
-            operation=RetrappingOperation(EVENT_CODES["ES_tun_retrap"])),
+            operation=RetrappingOperation(EVENT_CODES["ES_tun_retrap"]),
+            energy_key=energy_key),
     ]
 
 @Transitions.register_process("ground_state_to_cb")
-def _build_gs_cb_proc(s: float, mu: float,
-                      R_CB: float = 1.0, **kw):
+def _build_gs_cb_proc(s: float, mu: float, R_CB: float = 1.0, **kw):
     rate_fn = lambda box: s * np.exp(-box.E_cb_occ / (cnst.k_b_ev * box.T))
     mob_fn  = lambda r: np.exp(-(r / mu) ** 2)
-    return [ConductionBandExcitation("GS->CB", rate_fn, "F1", mob_fn,
-                                     R_CB,
+    return [ConductionBandExcitation("GS->CB", rate_fn, "F1", mob_fn, R_CB,
                                      recom_operation=RecombinationOperation(EVENT_CODES["GS_CB_recom"]),
                                      retrap_operation=RetrappingOperation(EVENT_CODES["GS_CB_retrap"]))]
 
 @Transitions.register_process("excited_state_to_cb")
-def _build_es_cb_proc(s: float, mu: float,
-                      R_CB: float = 1.0, **kw):
+def _build_es_cb_proc(s: float, mu: float, R_CB: float = 1.0, **kw):
     rate_fn = lambda box: s * np.exp(-(box.E_cb_occ - box.E_loc_occ) / (cnst.k_b_ev * box.T))
     mob_fn  = lambda r: np.exp(-(r / mu) ** 2)
-    return [ConductionBandExcitation("ES->CB", rate_fn, "F2", mob_fn,
-                                     R_CB,
+    return [ConductionBandExcitation("ES->CB", rate_fn, "F2", mob_fn, R_CB,
                                      recom_operation=RecombinationOperation(EVENT_CODES["ES_CB_recom"]),
                                      retrap_operation=RetrappingOperation(EVENT_CODES["ES_CB_retrap"]))]
+
+
+@Transitions.register_process("band_tail")
+def _build_bt_procs(b_BT: float, alpha_BT: float, **kw):
+    """Six processes implementing band-tail transitions via shallow defects.
+
+    Two deep-pool sub-channels for deep -> shallow excitation (GS / ES on
+    the deep side, weighted by F1 / F2), one shallow-pool tunnelling-retrap,
+    one shallow-pool radiative recombination, and two shallow-pool
+    sub-channels for shallow -> deep de-excitation (GS / ES on the deep
+    target side).
+    """
+    rate_fn = lambda r: b_BT * np.exp(-alpha_BT * r)
+
+    op_d_to_s    = DeepToShallowOperation(EVENT_CODES["Deep_to_Shallow"])
+    op_s_to_s    = ShallowToShallowOperation(EVENT_CODES["Shallow_to_Deep"])
+    op_s_recom   = ShallowRecombineOperation(EVENT_CODES["Shallow_tun_recom"])
+    op_s_to_d    = ShallowToDeepOperation(EVENT_CODES["Shallow_to_Deep"])
+
+    return [
+        DeepToShallow("Deep_GS->Shallow", rate_fn, "F1",
+                      energy_key="dE_t_sh_unocc_GS",
+                      operation=op_d_to_s, source_pool="deep"),
+        DeepToShallow("Deep_ES->Shallow", rate_fn, "F2",
+                      energy_key="dE_t_sh_unocc_ES",
+                      operation=op_d_to_s, source_pool="deep"),
+        ShallowTunRetrap("Shallow->Shallow", rate_fn,
+                         operation=op_s_to_s, source_pool="shallow"),
+        ShallowTunRecom("Shallow->Hole", rate_fn,
+                        operation=op_s_recom, source_pool="shallow"),
+        ShallowToDeep("Shallow->Deep_GS", rate_fn,
+                      energy_key="dE_sh_t_unocc_GS",
+                      operation=op_s_to_d, source_pool="shallow"),
+        ShallowToDeep("Shallow->Deep_ES", rate_fn,
+                      energy_key="dE_sh_t_unocc_ES",
+                      operation=op_s_to_d, source_pool="shallow"),
+    ]

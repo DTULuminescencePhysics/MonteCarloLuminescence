@@ -37,19 +37,9 @@ def _max_dt_finder(
     return max_dt_cnt, max_dt, max_dt_time_chk
   
 
-def _run_single_rep(
-    rep: int,
-    crystal: Box,
-    seed: int,
-    t_pcnt: float,
-    h_pcnt: float,
-    t: float,
-    initial_max_dt: float,
-    initial_max_dt_time_chk: float,
-    data_path: str,
-    max_length: int,
-    total_reps: int,
-) -> None:
+def _run_single_rep(rep: int, crystal: Box, seed: int, t_pcnt: float,
+    h_pcnt: float, t: float, initial_max_dt: float, initial_max_dt_time_chk: float,
+    data_path: str, max_length: int, total_reps: int) -> None:
     """Run one Monte Carlo repetition in a worker process.
 
     Writes results directly to the shared memmap file and flushes.
@@ -76,6 +66,9 @@ def _run_single_rep(
             max_dt_cnt, max_dt, max_dt_time_chk = _max_dt_finder(
                 max_dt_cnt, crystal, max_dt, max_dt_time_chk
             )
+
+        # Clear stale event_code so any early-return path is recorded as no_event.
+        crystal.event_code = 0
 
         dt = min(crystal.fill_time, crystal.exec_time, max_dt)
 
@@ -236,6 +229,9 @@ class MCBase:
             if self.crystal.time >= self.max_dt_time_chk:
                 self.max_dt_finder()
 
+            # Clear stale event_code so any early-return path is recorded as no_event.
+            self.crystal.event_code = 0
+
             dt = min(self.crystal.fill_time,self.crystal.exec_time,self.max_dt)
 
             # self.crystal.event_bool = True
@@ -285,19 +281,9 @@ class MCBase:
         crystal_copies = [copy.deepcopy(self.crystal) for _ in range(self.repetion)]
 
         Parallel(n_jobs=n_workers, backend='loky')(
-            delayed(_run_single_rep)(
-                i,
-                crystal_copies[i],
-                self.seed,
-                t_pcnt,
-                h_pcnt,
-                t,
-                self.max_dt,
-                self.max_dt_time_chk,
-                self.data_path,
-                self.max_length,
-                self.repetion,
-            )
+            delayed(_run_single_rep)(i, crystal_copies[i], self.seed, t_pcnt,
+                h_pcnt, t, self.max_dt, self.max_dt_time_chk, self.data_path,
+                self.max_length, self.repetion)
             for i in range(self.repetion)
         )
 

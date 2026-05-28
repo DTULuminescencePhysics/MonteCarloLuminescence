@@ -70,25 +70,46 @@ class output_file:
             "Trap_%": cfg.setup.t_pcnt,
             "Hole_%": cfg.setup.h_pcnt,
             "repetitions": cfg.setup.reps,
+            "Boundary" : cfg.setup.boundary,
         }
         phys_attrs = {
-            "E_loc": cfg.physics.E_loc,
-            "b": cfg.physics.b,
-            "alpha_ES": cfg.physics.alpha_ES,
-            "alpha_GS": cfg.physics.alpha_GS,
-            "E_cb": cfg.physics.E_cb,
-            "s": cfg.physics.s,
+            "uc_h": cfg.physics.uc_h,
+            "uc_w": cfg.physics.uc_w,
+            "uc_l": cfg.physics.uc_l,
+            "dimension": cfg.physics.dimension,
             "rho": cfg.physics.rho,
             "urho": cfg.physics.urho,
+
+            "E_loc": cfg.physics.E_loc,
+            "E_loc_sigma":cfg.physics.E_loc_sigma,
+            "E_cb": cfg.physics.E_cb,
+            "E_cb_sigma": cfg.physics.E_cb_sigma,
+
             "D0": cfg.physics.D0,
             "D_dot": cfg.physics.D_dot,
             "Dd_unit": cfg.physics.Dd_unit,
+            "Combine_when_fill":cfg.physics.combine_when_fill,
+            "recom_pre_fill":cfg.physics.recom_pre_fill,
+
+            "b": cfg.physics.b,
+            "alpha_ES": cfg.physics.alpha_ES,
+            "alpha_GS": cfg.physics.alpha_GS,
+            "retrapping_ratio_tun":cfg.physics.R_tun,    
+            "VRH":cfg.physics.VRH,
+           
+            "s": cfg.physics.s,
             "mu":cfg.physics.mu,
-            "retrapping_ratio_tun":cfg.physics.R_tun,
             "retrapping_ratio_CB":cfg.physics.R_CB,
+
             "retrap_mask_factor":cfg.physics.retrap_mask_factor,
-            "combine_when_fill": cfg.physics.combine_when_fill,
-            "recom_pre_fill": cfg.physics.recom_pre_fill,
+
+            "Band tail to trap ratio": cfg.physics.shallow_deep_ratio,
+            "threshold_depth": cfg.physics.threshold_depth,
+            "E_u": cfg.physics.E_u,
+            "b_BT": cfg.physics.b_BT,
+            "alpha_BT": cfg.physics.alpha_BT,
+            "init_shallow": cfg.physics.init_shallow,
+            "sh_pcnt": cfg.physics.sh_pcnt,
         }
         temp_attrs = {
             "unit": cfg.temp.unit,
@@ -312,28 +333,7 @@ class output_file:
             "min_internal": cfg.chronology.min_internal,
             "max_internal": cfg.chronology.max_internal,
         }
-        log_like_attrs = {
-            "mode": cfg.chronology.rjmcmc.log_likelihood.mode,
-            "sigma": cfg.chronology.rjmcmc.log_likelihood.sigma,
-            "cov": cfg.chronology.rjmcmc.log_likelihood.cov,
-            "nud": cfg.chronology.rjmcmc.log_likelihood.nud,
-        }
-        log_prior_prob_attrs = {
-            "lam_k": cfg.chronology.rjmcmc.log_prior_prob.lam_k,
-            "sigma_curv": cfg.chronology.rjmcmc.log_prior_prob.sigma_curv,
-            "nu_curv": cfg.chronology.rjmcmc.log_prior_prob.nu_curv,
-            "dt_min": cfg.chronology.rjmcmc.log_prior_prob.dt_min,
-            "p_creep": cfg.chronology.rjmcmc.log_prior_prob.p_creep,
-            "sigma_creep": cfg.chronology.rjmcmc.log_prior_prob.sigma_creep,
-            "nu_step": cfg.chronology.rjmcmc.log_prior_prob.nu_step,
-            "sigma_step": cfg.chronology.rjmcmc.log_prior_prob.sigma_step,
-            "dT_min_change": cfg.chronology.rjmcmc.log_prior_prob.dT_min_change,
-            "hard_reject_short_dt": cfg.chronology.rjmcmc.log_prior_prob.hard_reject_short_dt,
-            "gap_barrier_alpha": cfg.chronology.rjmcmc.log_prior_prob.gap_barrier_alpha,
-            "gap_barrier_power": cfg.chronology.rjmcmc.log_prior_prob.gap_barrier_power,
-            "eps": cfg.chronology.rjmcmc.log_prior_prob.eps,
-        }
-
+        
         parameters_attrs = {
             "p_birth": cfg.chronology.rjmcmc.parameters.p_birth,
             "p_death": cfg.chronology.rjmcmc.parameters.p_death,
@@ -353,9 +353,8 @@ class output_file:
             "adjustment_factor": cfg.chronology.rjmcmc.burn_in.adjustment_factor,
             "eta_sigma": cfg.chronology.rjmcmc.burn_in.eta_sigma,
             "eta_prob": cfg.chronology.rjmcmc.burn_in.eta_prob,
-            "min_move_prob": cfg.chronology.rjmcmc.burn_in.min_move_prob,
-            "max_move_prob": cfg.chronology.rjmcmc.burn_in.max_move_prob,
-            "centre_pull": cfg.chronology.rjmcmc.burn_in.centre_pull,
+            "move_bounds": cfg.chronology.rjmcmc.burn_in.move_bounds,
+           
             "overall_check": cfg.chronology.rjmcmc.burn_in.overall_check,
             "individual_check": cfg.chronology.rjmcmc.burn_in.individual_check,
             "overall_accept_target": cfg.chronology.rjmcmc.burn_in.overall_accept_target,
@@ -365,6 +364,7 @@ class output_file:
             "move_temp_accept_target": cfg.chronology.rjmcmc.burn_in.move_temp_accept_target,
             "move_endpoints_accept_target": cfg.chronology.rjmcmc.burn_in.move_endpoints_accept_target,
             "sigma_birth_bounds": cfg.chronology.rjmcmc.burn_in.sigma_birth_bounds,
+            "sigma_birth_t_bounds": cfg.chronology.rjmcmc.burn_in.sigma_birth_t_bounds,
             "sigma_time_bounds": cfg.chronology.rjmcmc.burn_in.sigma_time_bounds,
             "sigma_temp_bounds": cfg.chronology.rjmcmc.burn_in.sigma_temp_bounds,
             "sigma_endpoints_bounds": cfg.chronology.rjmcmc.burn_in.sigma_endpoints_bounds,
@@ -376,13 +376,7 @@ class output_file:
            
             if chron.attrs["method"] == "RJMCMC": 
                 rjmcmc = chron.require_group("RJMCMC")
-
-
-                log_like = rjmcmc.require_group("log_likelihood")
-                self.write_attrs_if_not_none(log_like, log_like_attrs)
-
-                log_prior_prob = rjmcmc.require_group("log_prior_prob")
-                self.write_attrs_if_not_none(log_prior_prob, log_prior_prob_attrs)
+                rjmcmc.attrs["logLikeSigma"]=cfg.chronology.rjmcmc.logLikeSigma
 
                 parameters = rjmcmc.require_group("parameters")
                 self.write_attrs_if_not_none(parameters, parameters_attrs)
@@ -408,7 +402,18 @@ class output_file:
             parameters.attrs["sigma_time_frac"] =  sigmas["move_time"]
             parameters.attrs["sigma_endpoints"] =  sigmas["move_endpoints"]
 
-           
+    def get_final_ratios(self, exp_num:int = 1):
+        ratios = np.zeros(exp_num)
+        for i in range(exp_num): 
+            ratios[i] = self.output_result_get_meanTrap((i+1))[-1]
+
+        return ratios
+    def get_sigmas(self, exp_num:int = 1):
+        stds = np.zeros(exp_num)
+        for i in range(exp_num): 
+            stds[i] = self.output_result_get_meanTrap((i+1))[-1]
+
+        return stds
 
     def chronological_results(self,chronology_results:chronology_results):
         acc = chronology_results.accepted

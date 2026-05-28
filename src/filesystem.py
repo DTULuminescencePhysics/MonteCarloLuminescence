@@ -7,7 +7,10 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 RUN_DIR = os.path.join(PROJECT_ROOT,"run")
 CONFIG_DIR = os.path.join(PROJECT_ROOT,"conf")
 RESULTS_DIR = os.path.join(PROJECT_ROOT,"results")
-
+PHYS_DIR = os.path.join(CONFIG_DIR,"physics")
+TEMP_DIR = os.path.join(CONFIG_DIR,"temp")
+CHRON_DIR = os.path.join(CONFIG_DIR,"chronology")
+USER_CONFIG_DIR = os.path.join(CONFIG_DIR,"user_config")
 
 def make_run_folder(name,handler):
     folder = os.path.join(RUN_DIR,name)

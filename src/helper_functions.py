@@ -45,11 +45,11 @@ def cfg_temperature_check(cfg: DictConfig, err: ErrorOutputHandler):
         err.error(f"Duration value in the temperature profile was set as, {cfg.temp.duration}. This is not a float this should be correct", fatal=True)
         checker = False 
     
-    if cfg.temp.kind == "constant" or not checker:
+    if cfg.temp.kind == "Constant" or not checker:
         err.output("Temperature profile variables check complete")
         return   
 
-    if cfg.temp.kind == "linear":
+    if cfg.temp.kind == "Linear":
         if isinstance(cfg.temp.dT,(float,int)):
             pass
         elif (cfg.temp.dT is not None):
@@ -69,8 +69,7 @@ def cfg_temperature_check(cfg: DictConfig, err: ErrorOutputHandler):
         
         err.output("Temperature profile variables check complete")
         return   
-    elif cfg.temp.kind is None:
-
+    elif cfg.temp.kind is None or cfg.temp.kind == "Other":
         for t in cfg.temp.times:
             if not isinstance(t,(float,int)):
                 err.error(f"Value in times is not a float, input is: {t}.",fatal=True)
@@ -139,7 +138,7 @@ def cfg_temperature_check(cfg: DictConfig, err: ErrorOutputHandler):
        
 
     else: 
-        err.error(f"The temperature profile kind parameter is {cfg.temp.kind} but should be set to null, constant or linear.")
+        err.error(f"The temperature profile kind parameter is {cfg.temp.kind} but should be set to Other, Constant or Linear.")
 
        
     err.output("Temperature profile variables check complete")

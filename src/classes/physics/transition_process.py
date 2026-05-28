@@ -3,13 +3,10 @@ from typing import Protocol, Callable, runtime_checkable, TYPE_CHECKING
 from dataclasses import dataclass
 import numpy as np
 from src.helper_functions import ArrayLike
+from src.classes.constants import cnst
 
 if TYPE_CHECKING:
     from src.classes.physics.crystal import Box
-
-
-# Even codes >= 2 are recombination (luminescence); odd codes are retrapping.
-# Code 0 = no event / max_dt step; Code 1 = fill (trap_new_electron), etc.
 
 EVENT_CODES = {
     "no_event":         0,
@@ -23,14 +20,27 @@ EVENT_CODES = {
     "ES_CB_recom":      8,
     "ES_CB_retrap":     9,
     "bleach":           10,
+    "Deep_to_Shallow":           11,    # deep -> shallow
+    "Shallow_to_Shallow":        12,    # shallow -> shallow
+    "Shallow_to_Deep":           13,    # shallow -> deep
+    "Shallow_tun_recom":         14,    # shallow -> hole
 }
 
 EVENT_NAMES = {v: k for k, v in EVENT_CODES.items()}    # Reverse event codes
 
+# Luminescence events emit a photon (charge carriers annihilate).
+LUMINESCENCE_CODES: set[int] = {
+    EVENT_CODES["GS_tun_recom"],
+    EVENT_CODES["ES_tun_recom"],
+    EVENT_CODES["GS_CB_recom"],
+    EVENT_CODES["ES_CB_recom"],
+    EVENT_CODES["Shallow_tun_recom"],
+}
+
 
 def is_luminescence(code: int) -> bool:
     """Return True if the event code corresponds to an event where charge carriers annihilate."""
-    return code >= 2 and code % 2 == 0
+    return code in LUMINESCENCE_CODES
 
 
 # Protocol for operations on trapped charge carriers
@@ -62,6 +72,7 @@ class RecombinationOperation:
         h_index = np.flatnonzero(box.occ_hole)[local_index]
         box.occ_hole[h_index] = 0
         box.occ_trap[t_index] = 0
+        box.deep_cnt -= 1
         box.t_cnt -= 1
         box.h_cnt -= 1
         box.event_code = self.event_code
@@ -128,6 +139,7 @@ class TunnelingRecombination:
     rate_fn: Callable[[ArrayLike], ArrayLike]
     pop_factor_key: str                               # "F1"/"F2" depending on GS/ES
     operation: Operation
+    source_pool: str = "deep"
 
     def rates(self, box: Box, exec_index: int) -> ArrayLike:
         if box.d.size == 0:
@@ -137,7 +149,7 @@ class TunnelingRecombination:
 
     def bulk_rates_sum(self, box: Box) -> ArrayLike:
         if box.d.size == 0:
-            return np.zeros(box.t_cnt)
+            return np.zeros(box.deep_cnt)
         F = getattr(box, self.pop_factor_key)
         return F * self.rate_fn(box.d).sum(axis=1)
 
@@ -148,25 +160,43 @@ class TunnelingRecombination:
 
 @dataclass(slots=True)
 class TunnelingRetrapping:
-    """Distance-dependent tunneling retrapping into an unoccupied trap."""
+    """Distance-dependent tunneling retrapping into an unoccupied trap.
+    When `energy_key` is set, the spatial rate is multiplied by the
+    Miller-Abrahams VRH factor:
+        exp( -(dE + |dE|) / (2 * k_b * T) )
+    """
 
     name: str
     rate_fn: Callable[[ArrayLike], ArrayLike]
     pop_factor_key: str
     pre_factor: float
     operation: Operation
+    energy_key: str | None = None
+    source_pool: str = "deep"
+
+    def _ma_factor(self, box: Box, exec_index: int | None = None) -> ArrayLike:
+        dE = getattr(box, self.energy_key)
+        if exec_index is not None:
+            dE = dE[exec_index, :]
+        return np.exp(-(dE + np.abs(dE)) / (2.0 * cnst.k_b_ev * box.T))
 
     def rates(self, box: Box, exec_index: int) -> ArrayLike:
         if box.d_ee.size == 0:
             return np.empty(0)
         F = getattr(box, self.pop_factor_key)
-        return F[exec_index] * self.rate_fn(box.d_ee[exec_index, :]) * self.pre_factor
+        spatial = self.rate_fn(box.d_ee[exec_index, :])
+        if self.energy_key is not None:
+            spatial = spatial * self._ma_factor(box, exec_index)
+        return F[exec_index] * spatial * self.pre_factor
 
     def bulk_rates_sum(self, box: Box) -> ArrayLike:
         if box.d_ee.size == 0:
-            return np.zeros(box.t_cnt)
+            return np.zeros(box.deep_cnt)
         F = getattr(box, self.pop_factor_key)
-        return F * self.rate_fn(box.d_ee).sum(axis=1) * self.pre_factor
+        spatial = self.rate_fn(box.d_ee)
+        if self.energy_key is not None:
+            spatial = spatial * self._ma_factor(box)
+        return F * spatial.sum(axis=1) * self.pre_factor
 
     def execute(self, box: Box, exec_index: int, local_idx: int) -> None:
         t_index = np.flatnonzero(box.occ_trap)[exec_index]
@@ -186,6 +216,7 @@ class ConductionBandExcitation:
     R_CB: float
     recom_operation: Operation
     retrap_operation: Operation
+    source_pool: str = "deep"
 
     def rates(self, box: Box, exec_index: int) -> ArrayLike:
         F = getattr(box, self.pop_factor_key)
@@ -223,3 +254,177 @@ class ConductionBandExcitation:
             self.recom_operation.execute(box, t_index, idx2)
         else:
             self.retrap_operation.execute(box, t_index, idx2 - n_recom)
+
+
+@dataclass(slots=True)
+class DeepToShallowOperation:
+    """Electron leaves a deep trap and lands in a shallow site.
+    Total trapped count t_cnt is unchanged (pool transfer only)."""
+    event_code: int
+
+    def execute(self, box: Box, t_index: int, sh_index: int) -> None:
+        box.occ_trap[t_index] = 0
+        box.occ_sh[sh_index] = 1
+        box.deep_cnt -= 1
+        box.sh_cnt += 1
+        box.event_code = self.event_code
+
+
+@dataclass(slots=True)
+class ShallowToShallowOperation:
+    """Electron hops from one shallow site to another shallow site."""
+    event_code: int
+
+    def execute(self, box: Box, sh_src_index: int, sh_dst_index: int) -> None:
+        box.occ_sh[sh_src_index] = 0
+        box.occ_sh[sh_dst_index] = 1
+        box.event_code = self.event_code
+
+
+@dataclass(slots=True)
+class ShallowRecombineOperation:
+    """Shallow electron annihilates with a hole (radiative recombination)."""
+    event_code: int
+
+    def execute(self, box: Box, sh_index: int, h_index: int) -> None:
+        box.occ_sh[sh_index] = 0
+        box.occ_hole[h_index] = 0
+        box.sh_cnt -= 1
+        box.t_cnt -= 1
+        box.h_cnt -= 1
+        box.event_code = self.event_code
+
+
+@dataclass(slots=True)
+class ShallowToDeepOperation:
+    """Shallow electron de-excites into an unoccupied deep trap.
+    Total trapped count t_cnt is unchanged (pool transfer only)."""
+    event_code: int
+
+    def execute(self, box: Box, sh_index: int, t_index: int) -> None:
+        box.occ_sh[sh_index] = 0
+        box.occ_trap[t_index] = 1
+        box.sh_cnt -= 1
+        box.deep_cnt += 1
+        box.event_code = self.event_code
+
+
+def _ma_factor_from_dE(dE: ArrayLike, T: float) -> ArrayLike:
+    """Miller-Abrahams VRH factor: exp(-(dE + |dE|) / (2 k_b T))."""
+    return np.exp(-(dE + np.abs(dE)) / (2.0 * cnst.k_b_ev * T))
+
+
+@dataclass(slots=True)
+class DeepToShallow:
+    """Source = deep electron (GS or ES sub-level chosen via pop_factor_key); 
+    target = unoccupied shallow site."""
+    name: str
+    rate_fn: Callable[[ArrayLike], ArrayLike]    # r -> b_BT * exp(-alpha_BT * r)
+    pop_factor_key: str                          # "F1" (GS) or "F2" (ES)
+    energy_key: str                              # "dE_t_sh_unocc_GS" or "..._ES"
+    operation: Operation
+    source_pool: str = "deep"
+
+    def rates(self, box: Box, exec_index: int) -> ArrayLike:
+        if box.d_t_sh_unocc.size == 0:
+            return np.empty(0)
+        F = getattr(box, self.pop_factor_key)
+        spatial = self.rate_fn(box.d_t_sh_unocc[exec_index, :])
+        dE = getattr(box, self.energy_key)[exec_index, :]
+        return F[exec_index] * spatial * _ma_factor_from_dE(dE, box.T)
+
+    def bulk_rates_sum(self, box: Box) -> ArrayLike:
+        if box.d_t_sh_unocc.size == 0:
+            return np.zeros(box.deep_cnt)
+        F = getattr(box, self.pop_factor_key)
+        spatial = self.rate_fn(box.d_t_sh_unocc)
+        dE = getattr(box, self.energy_key)
+        return F * (spatial * _ma_factor_from_dE(dE, box.T)).sum(axis=1)
+
+    def execute(self, box: Box, exec_index: int, local_idx: int) -> None:
+        t_index  = np.flatnonzero(box.occ_trap)[exec_index]
+        sh_index = np.flatnonzero(box.occ_sh == 0)[local_idx]
+        self.operation.execute(box, t_index, sh_index)
+
+
+@dataclass(slots=True)
+class ShallowTunRetrap:
+    """Source = shallow electron; target = unoccupied shallow site."""
+    name: str
+    rate_fn: Callable[[ArrayLike], ArrayLike]
+    operation: Operation
+    source_pool: str = "shallow"
+
+    def rates(self, box: Box, exec_index: int) -> ArrayLike:
+        if box.d_sh_sh_unocc.size == 0:
+            return np.empty(0)
+        spatial = self.rate_fn(box.d_sh_sh_unocc[exec_index, :])
+        dE = box.dE_sh_sh_unocc[exec_index, :]
+        return spatial * _ma_factor_from_dE(dE, box.T)
+
+    def bulk_rates_sum(self, box: Box) -> ArrayLike:
+        if box.d_sh_sh_unocc.size == 0:
+            return np.zeros(box.sh_cnt)
+        spatial = self.rate_fn(box.d_sh_sh_unocc)
+        dE = box.dE_sh_sh_unocc
+        return (spatial * _ma_factor_from_dE(dE, box.T)).sum(axis=1)
+
+    def execute(self, box: Box, exec_index: int, local_idx: int) -> None:
+        sh_src = np.flatnonzero(box.occ_sh)[exec_index]
+        sh_dst = np.flatnonzero(box.occ_sh == 0)[local_idx]
+        self.operation.execute(box, sh_src, sh_dst)
+
+
+@dataclass(slots=True)
+class ShallowTunRecom:
+    """Source = shallow electron; target = occupied hole.
+    No M-A factor: the transition releases ~E_cb and is treated as downhill."""
+    name: str
+    rate_fn: Callable[[ArrayLike], ArrayLike]
+    operation: Operation
+    source_pool: str = "shallow"
+
+    def rates(self, box: Box, exec_index: int) -> ArrayLike:
+        if box.d_sh_h.size == 0:
+            return np.empty(0)
+        return self.rate_fn(box.d_sh_h[exec_index, :])
+
+    def bulk_rates_sum(self, box: Box) -> ArrayLike:
+        if box.d_sh_h.size == 0:
+            return np.zeros(box.sh_cnt)
+        return self.rate_fn(box.d_sh_h).sum(axis=1)
+
+    def execute(self, box: Box, exec_index: int, local_idx: int) -> None:
+        sh_index = np.flatnonzero(box.occ_sh)[exec_index]
+        h_index  = np.flatnonzero(box.occ_hole)[local_idx]
+        self.operation.execute(box, sh_index, h_index)
+
+
+@dataclass(slots=True)
+class ShallowToDeep:
+    """Source = shallow electron; target = unoccupied deep trap.
+    Two sub-channels (GS vs ES landing level) selected by energy_key."""
+    name: str
+    rate_fn: Callable[[ArrayLike], ArrayLike]
+    energy_key: str                              # "dE_sh_t_unocc_GS" or "..._ES"
+    operation: Operation
+    source_pool: str = "shallow"
+
+    def rates(self, box: Box, exec_index: int) -> ArrayLike:
+        if box.d_sh_t_unocc.size == 0:
+            return np.empty(0)
+        spatial = self.rate_fn(box.d_sh_t_unocc[exec_index, :])
+        dE = getattr(box, self.energy_key)[exec_index, :]
+        return spatial * _ma_factor_from_dE(dE, box.T)
+
+    def bulk_rates_sum(self, box: Box) -> ArrayLike:
+        if box.d_sh_t_unocc.size == 0:
+            return np.zeros(box.sh_cnt)
+        spatial = self.rate_fn(box.d_sh_t_unocc)
+        dE = getattr(box, self.energy_key)
+        return (spatial * _ma_factor_from_dE(dE, box.T)).sum(axis=1)
+
+    def execute(self, box: Box, exec_index: int, local_idx: int) -> None:
+        sh_index = np.flatnonzero(box.occ_sh)[exec_index]
+        t_index  = np.flatnonzero(box.occ_trap == 0)[local_idx]
+        self.operation.execute(box, sh_index, t_index)

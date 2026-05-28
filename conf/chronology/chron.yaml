@@ -1,69 +1,67 @@
-method: RJMCMC  # Either RJMCMC or IVMC
-iters: 1000 #Number of iteration steps
-T_Target: 30.0 # Target final temperature
-T0_lo: 120.0 # Minimum T0 value
-T0_hi: 140.0 # Maximum T0 value 
-T_tolerance: 1.0 # Allow ± T_tolerance to minimum and maximum temperatures
-monotonic: free #free, increasing or decreasing
-min_internal: 0 # minimum number of time temperature nodes
-max_internal: 20 # maximum number of time temperature nodes
-
+method: RJMCMC
+iters: 1000
+T_Target: 30.0
+T0_lo: 120.0
+T0_hi: 140.0
+T_tolerance: 1.0
+monotonic: free
+min_internal: 0
+max_internal: 20
 rjmcmc:
-    log_likelihood:
-        mode: "Gaussian" # "Gaussian", "FullGaussian", "student-t", "L1", "L1L2Hybrid", "Bernoulli"
-        sigma: 0.01 
-        cov: null 
-        nud: null 
-    log_prior_prob:
-        lam_k: 20
-        sigma_curv: 10.0          
-        nu_curv: 40.0
-        dt_min: 1e-13
-        p_creep: 0.05        
-        sigma_creep: 2.0      
-        nu_step: 3.0          
-        sigma_step: 10.0    
-        dT_min_change: 5.0  
-        hard_reject_short_dt: False
-        gap_barrier_alpha: 1e-2   
-        gap_barrier_power: 2.0
-        eps: 1e-12 
-    parameters:
-        p_birth: 0.20 
-        p_death:  0.20
-        p_move_time: 0.20 
-        p_move_temp: 0.20 
-        p_move_endpoints: 0.20
-        sigma_birth: 20.0
-        sigma_t_birth: 15
-        sigma_temp: 20
-        sigma_time_frac: 15
-        sigma_endpoints: 5
-    burn_in:
-        burn: True
-        max_steps: 20000  
-        window: 100
-        patience_windows: 2
-
-        adjustment_factor: 0.05
-        eta_sigma: 2
-        eta_prob: 0.08
-        min_move_prob: 0.03
-        max_move_prob: 0.26
-        centre_pull: 0.25 
-
-        overall_check: False
-        individual_check: True
-        overall_accept_target: [0.2,0.4]
-        birth_accept_target: [0.001,0.05] #[0.2,0.4]
-        death_accept_target:  [0.001,0.05] #[0.2,0.4]
-        move_time_accept_target: null #[0.2,0.4]
-        move_temp_accept_target: null #[0.2,0.4]
-        move_endpoints_accept_target: null #[0.2,0.4]
-        sigma_birth_bounds: null 
-        sigma_time_bounds: null
-        sigma_temp_bounds: null
-        sigma_endpoints_bounds: null 
-
-        verbose: True
-
+  logLikeSigma: 0.01
+  parameters:
+    p_birth: 0.2
+    p_death: 0.2
+    p_move_time: 0.2
+    p_move_temp: 0.2
+    p_move_endpoints: 0.2
+    sigma_birth: 20.0
+    sigma_t_birth: 15.0
+    sigma_temp: 20.0
+    sigma_time_frac: 15.0
+    sigma_endpoints: 5.0
+  burn_in:
+    burn: true
+    max_steps: 20000
+    window: 100
+    patience_windows: 2
+    adjustment_factor: 0.05
+    eta_sigma: 2.0
+    eta_prob: 0.08
+    move_bounds:
+    - 0.03
+    - 0.26
+    overall_check: false
+    individual_check: true
+    overall_accept_target: null
+    birth_accept_target:
+    - 0.001
+    - 0.05
+    death_accept_target:
+    - 0.001
+    - 0.05
+    move_time_accept_target:
+    - 0.2
+    - 0.4
+    move_temp_accept_target:
+    - 0.2
+    - 0.4
+    move_endpoints_accept_target:
+    - 0.2
+    - 0.4
+    sigma_birth_bounds:
+    - 1.0
+    - 100.0
+    sigma_birth_t_bounds:
+    - 1.0
+    - 100.0
+    sigma_time_bounds:
+    - 1.0
+    - 100.0
+    sigma_temp_bounds:
+    - 1.0
+    - 100.0
+    sigma_endpoints_bounds:
+    - 1.0
+    - 100.0
+    verbose: true

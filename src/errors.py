@@ -1,7 +1,6 @@
 from __future__ import annotations
 import logging, sys, warnings, threading, asyncio, traceback
 from logging import Handler, FileHandler
-from dataclasses import dataclass, field
 from typing import Optional, Union, Callable, Any, Tuple
 
 ExcOrStr = Union[BaseException, str]
@@ -201,3 +200,25 @@ class ErrorOutputHandler(Handler):
             self.log.log(self.uncaught_level, text)
 
 
+
+def get_error_output_handler(out_file: str = "output.log", err_file: str = "error.log",) -> ErrorOutputHandler:
+    root = logging.getLogger()
+    app_logger = logging.getLogger("app")
+
+    root.setLevel(logging.INFO)
+    app_logger.setLevel(logging.INFO)
+    app_logger.propagate = True
+
+    for handler in root.handlers:
+        if isinstance(handler, ErrorOutputHandler):
+            handler.setLevel(logging.INFO)
+            return handler
+
+    handler = ErrorOutputHandler(out_file, err_file)
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "[%(asctime)s][%(name)s][%(levelname)s] - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    root.addHandler(handler)
+    return handler

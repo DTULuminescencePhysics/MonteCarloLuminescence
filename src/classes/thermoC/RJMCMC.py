@@ -108,6 +108,7 @@ class log_likelihood:
     sigma: np.ndarray
 
     def _ll(self, pred:np.ndarray) -> float:
+        print(self.observation,self.sigma)
         return (np.sum(np.power(((self.observation-pred)/self.sigma),2))*(-0.5))
 
 
@@ -220,7 +221,7 @@ class ReverseJumpMCMC:
         self.result_store = chronology_results(self.iters,self.max_internal,"w+")
     
     @classmethod
-    def from_config(cls, seed: int, obs: np.ndarray, duration: float, cfg: DictConfig, err: ErrorOutputHandler) -> "ReverseJumpMCMC":
+    def from_config(cls, seed: int, obs: np.ndarray, duration: float, cfg: DictConfig, sigma:np.ndarray) -> "ReverseJumpMCMC":
      
         timeSpan = Bounds(0,duration)
         T0_bounds = Bounds(cfg.T0_lo,cfg.T0_hi)
@@ -228,7 +229,7 @@ class ReverseJumpMCMC:
         T_max = max(T0_bounds.hi,Tf_bounds.hi)
         T_min = min(T0_bounds.lo,Tf_bounds.lo)
         T_global_bounds= Bounds(T_min-cfg.T_tolerance,T_max+cfg.T_tolerance)
-        likelihood_log_prob= log_likelihood(obs,cfg.rjmcmc.log_likelihood.sigma)
+        likelihood_log_prob= log_likelihood(obs,sigma)
         
 
         return cls(cfg.iters, seed, timeSpan, T0_bounds, Tf_bounds, T_global_bounds, 
@@ -552,8 +553,8 @@ class ReverseJumpMCMC:
     def burn_in_setup(self, overall_bounds:Tuple[float,float]=(0.15,0.45), 
                       birth_accept_target: Optional[Tuple[float,float]] = None, death_accept_target: Optional[Tuple[float,float]] = None,
                       move_time_accept_target: Optional[Tuple[float,float]] = None, move_temp_accept_target: Optional[Tuple[float,float]] = None,
-                      move_endpoints_accept_target: Optional[Tuple[float,float]] = None,
-                      sigma_birth_bounds: Optional[Tuple[float,float]] = None, sigma_time_bounds: Optional[Tuple[float,float]] = None,
+                      move_endpoints_accept_target: Optional[Tuple[float,float]] = None, sigma_time_birth_bounds: Optional[Tuple[float,float]] = None, 
+                      sigma_temp_birth_bounds: Optional[Tuple[float,float]] = None,sigma_time_bounds: Optional[Tuple[float,float]] = None,
                       sigma_temp_bounds: Optional[Tuple[float,float]] = None, sigma_endpoints_bound: Optional[Tuple[float,float]] = None, 
                       ) -> Tuple[Bounds,Dict[str,Bounds],Dict[str,Bounds]]:
         
@@ -569,8 +570,8 @@ class ReverseJumpMCMC:
         }
 
         per_move_sigma_bounds = {
-            "birth": Bounds(sigma_birth_bounds[0],sigma_birth_bounds[1]) if sigma_birth_bounds is not None else Bounds(1e-4,1e2),
-            "birth_t": Bounds(sigma_birth_bounds[0],sigma_birth_bounds[1]) if sigma_birth_bounds is not None else Bounds(1e-4,1e2),
+            "birth": Bounds(sigma_time_birth_bounds[0],sigma_time_birth_bounds[1]) if sigma_time_birth_bounds is not None else Bounds(1e-4,1e2),
+            "birth_t": Bounds(sigma_temp_birth_bounds[0],sigma_temp_birth_bounds[1]) if sigma_temp_birth_bounds is not None else Bounds(1e-4,1e2),
             "move_time": Bounds(sigma_time_bounds[0],sigma_time_bounds[1]) if sigma_time_bounds is not None else Bounds(1e-4,1e2), 
             "move_temp": Bounds(sigma_temp_bounds[0],sigma_temp_bounds[1]) if sigma_temp_bounds is not None else Bounds(1e-3,1e2),
             "move_endpoints": Bounds(sigma_endpoints_bound[0],sigma_endpoints_bound[1]) if sigma_endpoints_bound is not None else Bounds(1e-4,1e1)
@@ -581,12 +582,12 @@ class ReverseJumpMCMC:
     def burn_in_tune(self, max_steps: int, window: int,
                      eta_sigma0: float, eta_prob0:float, overall_check: bool,
                      individual_check:bool, overall_bounds: Tuple[float,float] = (0.15,0.45),
-                     birth_accept_target: Optional[Tuple[float,float]] = None, death_accept_target: Optional[Tuple[float,float]] = None,
-                     move_time_accept_target: Optional[Tuple[float,float]] = None, move_temp_accept_target: Optional[Tuple[float,float]] = None,
-                     move_endpoints_accept_target: Optional[Tuple[float,float]] = None,
-                     sigma_birth_bounds: Optional[Tuple[float,float]] = None, sigma_time_bounds: Optional[Tuple[float,float]] = None,
-                     sigma_temp_bounds: Optional[Tuple[float,float]] = None, sigma_endpoints_bound: Optional[Tuple[float,float]] = None,
-                     min_move_prob: float = 0.03, max_move_prob:float = 0.8, centre_pull: float = 0.25,
+                     birth_accept_target: Optional[Tuple[float,float]] = None,
+                     death_accept_target: Optional[Tuple[float,float]] = None, move_time_accept_target: Optional[Tuple[float,float]] = None, 
+                     move_temp_accept_target: Optional[Tuple[float,float]] = None, move_endpoints_accept_target: Optional[Tuple[float,float]] = None,
+                     sigma_time_birth_bounds: Optional[Tuple[float,float]] = None, sigma_temp_birth_bounds: Optional[Tuple[float,float]] = None,
+                     sigma_time_bounds: Optional[Tuple[float,float]] = None, sigma_temp_bounds: Optional[Tuple[float,float]] = None, 
+                     sigma_endpoints_bound: Optional[Tuple[float,float]] = None, move_bound: Tuple = (0.03,0.26), 
                      adjustment_factor: float = 0.6, patience_windows: int = 2, verbose: bool = True,) -> None:
         """
         Run burn-in and *adapt* move probabilities + proposal scales and stops when 
@@ -602,6 +603,7 @@ class ReverseJumpMCMC:
 
         Returns a summary dict.
         """
+        move_bounds = Bounds(move_bound[0],move_bound[1])
         if max_steps <= 0:
             raise ValueError("max_steps must be > 0")
         if window <= 0:
@@ -610,9 +612,10 @@ class ReverseJumpMCMC:
         overall_accept_target, per_move_accept_target, per_move_sigma_bounds = self.burn_in_setup(overall_bounds, birth_accept_target, 
                                                                                                   death_accept_target, move_time_accept_target,
                                                                                                   move_temp_accept_target, move_endpoints_accept_target,
-                                                                                                  sigma_birth_bounds, sigma_time_bounds,
+                                                                                                  sigma_time_birth_bounds, sigma_temp_birth_bounds, 
+                                                                                                  sigma_time_bounds,
                                                                                                   sigma_temp_bounds, sigma_endpoints_bound)
-        p_range = Bounds(min_move_prob,max_move_prob)
+     
         move_sigmas = self._get_sigmas()
         move_probs  = self._get_probs()
         self._reset_move_stats()
@@ -657,27 +660,27 @@ class ReverseJumpMCMC:
                 
                 if not(per_move_accept_target["move_time"].contains(per_move_rates["move_time"]["accepted"])):
                     move_sigmas["move_time"] = self._tune_sigma(move_sigmas["move_time"], eta_sigma, per_move_rates["move_time"]["accepted"], 
-                                                        per_move_accept_target["move_time"], per_move_sigma_bounds["move_time"], centre_pull)
+                                                        per_move_accept_target["move_time"], per_move_sigma_bounds["move_time"])
                 
                 if not(per_move_accept_target["move_temp"].contains(per_move_rates["move_temp"]["accepted"])):
                     move_sigmas["move_temp"] = self._tune_sigma(move_sigmas["move_temp"], eta_sigma, per_move_rates["move_temp"]["accepted"], 
-                                                        per_move_accept_target["move_temp"], per_move_sigma_bounds["move_temp"], centre_pull)
+                                                        per_move_accept_target["move_temp"], per_move_sigma_bounds["move_temp"])
                 
                 if not(per_move_accept_target["move_endpoints"].contains(per_move_rates["move_endpoints"]["accepted"])):
                     move_sigmas["move_endpoints"] = self._tune_sigma(move_sigmas["move_endpoints"], eta_sigma, per_move_rates["move_endpoints"]["accepted"], 
-                                                        per_move_accept_target["move_endpoints"], per_move_sigma_bounds["move_endpoints"], centre_pull)
+                                                        per_move_accept_target["move_endpoints"], per_move_sigma_bounds["move_endpoints"])
 
                 if not(per_move_accept_target["birth"].contains(per_move_rates["birth"]["accepted"])):
                     move_sigmas["birth"] = self._tune_sigma(move_sigmas["birth"], eta_sigma, per_move_rates["birth"]["accepted"], 
-                                                        per_move_accept_target["birth"], per_move_sigma_bounds["birth"], centre_pull)
+                                                        per_move_accept_target["birth"], per_move_sigma_bounds["birth"])
                     
                     move_sigmas["birth_t"] = self._tune_sigma(move_sigmas["birth_t"], eta_sigma, per_move_rates["birth"]["accepted"], 
-                                                        per_move_accept_target["birth"], per_move_sigma_bounds["birth_t"], centre_pull)
+                                                        per_move_accept_target["birth"], per_move_sigma_bounds["birth_t"])
 
 
                 # for m in self.move_names:
                 #     score = 0.5 * self.attempt_success[m]["usable"] + 0.5 * self.attempt_success[m]["accepted"]
-                #     move_probs[m] = self._adapt_prob_weight(move_probs[m],score,eta_prob,p_range)
+                #     move_probs[m] = self._adapt_prob_weight(move_probs[m],score,eta_prob,move_bounds)
 
                 # new_bith = 0.5*(per_move_rates["birth"]["accepted"] + per_move_rates["death"]["accepted"])
                 # per_move_rates["birth"]["accepted"] = new_bith
@@ -747,37 +750,10 @@ class ReverseJumpMCMC:
 
     @staticmethod
     def _tune_sigma(sigma: float, eta: float, acc: float, target_range: Bounds, 
-                    range_bounds: Bounds, centre_pull: float) -> float:
+                    range_bounds: Bounds) -> float:
         
         sigma_new = sigma * np.exp(eta * (acc - target_range.midpoint))
         return np.clip(sigma_new, range_bounds.lo, range_bounds.hi)
-
-        if target_range.contains(acc):
-            new_sigma = sigma
-        # if not np.isfinite(acc) or acc <= 0:
-        #     factor = 1.0 / eta
-        # elif acc < target_range.lo:
-        #     factor = 1.0 / np.sqrt(eta)  # reduce step
-        # elif acc > target_range.hi:
-        #     factor = np.sqrt(eta)        # increase step
-        # else:
-        #     factor = 1.0
-        # new_sigma = float(max(1e-12, sigma * factor))
-
-        # new_sigma = min(max(new_sigma, range_bounds.lo), range_bounds.hi)
-        # print("1",new_sigma)
-        else:
-            new_sigma = np.exp(np.log(sigma) + eta * (acc-target_range.midpoint))
-            new_sigma = min(max(new_sigma, range_bounds.lo), range_bounds.hi)
-        # print("3",new_sigma)
-        # if range_bounds.contains(new_sigma) and centre_pull > 0.0:
-        #     edge_factor = abs(new_sigma - range_bounds.midpoint) / range_bounds.half_width
-        #     pull_strength = centre_pull * eta * edge_factor
-        #     new_sigma = new_sigma + pull_strength * (range_bounds.midpoint - new_sigma)
-        #     # new_sigma = min(max(new_sigma, range_bounds.lo),  range_bounds.hi)
-        #     print("4",new_sigma)
-        print(sigma,new_sigma)
-        return new_sigma
 
     @staticmethod
     def _adapt_prob_weight(p: float, usable_rate: float, eta: float, range: Bounds):

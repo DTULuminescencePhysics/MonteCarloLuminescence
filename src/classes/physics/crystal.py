@@ -10,7 +10,19 @@ from src.classes.constants import mp, cnst
 from scipy.spatial.distance import cdist
 
 from src.classes.physics.set_system import _ThermalParameters
-from src.classes.physics.transition_process import EVENT_CODES 
+from src.classes.physics.transition_process import EVENT_CODES
+
+
+def _apply_retrap_mask(d: np.ndarray, threshold: float) -> tuple[np.ndarray, np.ndarray]:
+    """Mask sub-threshold entries of d to inf, with per-row 'preserve nearest'
+    fallback so no row is completely extinguished. Returns (masked_d, mask)."""
+    mask = d < threshold
+    all_masked_rows = mask.all(axis=1)
+    if all_masked_rows.any():
+        nearest_col = d.argmin(axis=1)
+        for row_i in np.flatnonzero(all_masked_rows):
+            mask[row_i, nearest_col[row_i]] = False
+    return np.where(mask, np.inf, d), mask
 
 @dataclass
 class Box(_temp,_ThermalParameters):
@@ -21,8 +33,9 @@ class Box(_temp,_ThermalParameters):
     dimension: float = field(default=7.5*mp.n)
 
     unit_cell_dims: np.ndarray =field(init=False)
-    t_cnt: int = field(init=False) 
-    h_cnt: int = field(init=False) 
+    t_cnt: int = field(init=False)        # total trapped electrons (deep + shallow)
+    deep_cnt: int = field(init=False)     # occupied deep traps
+    h_cnt: int = field(init=False)
    
     
     h: np.ndarray = field(init=False)
@@ -53,17 +66,45 @@ class Box(_temp,_ThermalParameters):
     rng: np.random.Generator = field(init=False)
     F1: np.ndarray = field(init=False)
     F2: np.ndarray = field(init=False)
-    E_loc_array: np.ndarray = field(init=False)   # per-trap E_loc, shape (N,)
-    E_cb_array:  np.ndarray = field(init=False)   # per-trap E_cb,  shape (N,)
-    E_loc_occ:   np.ndarray = field(init=False)   # E_loc for occupied traps, shape (t_cnt,)
-    E_cb_occ:    np.ndarray = field(init=False)   # E_cb  for occupied traps, shape (t_cnt,)
-    R_tun: float|None = field(default=0)          # Retrapping cross section versus recombination of tunnelling
-    R_CB:  float|None = field(default=1)          # Retrapping cross section versus recombination of conduction band
+    E_loc_array: np.ndarray = field(init=False)   # per-trap E_loc
+    E_cb_array:  np.ndarray = field(init=False)   # per-trap E_cb
+    E_loc_occ:   np.ndarray = field(init=False)   # E_loc for occupied traps
+    E_cb_occ:    np.ndarray = field(init=False)   # E_cb  for occupied traps
+    E_es_array:  np.ndarray = field(init=False)   # E_cb - E_loc per trap, energy depth of excited state
+    E_diff_ee:   np.ndarray = field(init=False)   # pairwise E_es diff, shape (N, N)
+    de_ee_E:     np.ndarray = field(init=False)   # masked E_es diff, shape (t_cnt, N-t_cnt)
+    E_diff_gs_ee : np.ndarray = field(init=False)  # pairwise E_cb diff, shape (N, N)
+    dg_ee_E      : np.ndarray = field(init=False)  # masked E_cb diff, shape (t_cnt, N-t_cnt)
+    R_tun: float|None = field(default=0)          # Retrapping ratio of tunnelling
+    R_CB:  float|None = field(default=1)          # Retrapping ratio versus recombination of conduction band
     retrap_mask_factor: float = field(default=0.8)
     boundary: str = field(default="padded")
     combine_when_fill: bool = field(default=False)
     recom_pre_fill: float = field(default=1.0)
     event_code: int = field(init=False, default=0)
+
+    # Band-tail (shallow defect) fields
+    N_sh: int                = field(init=False, default=0)
+    sh_coords: np.ndarray    = field(init=False, default=None)
+    occ_sh: np.ndarray       = field(init=False, default=None)
+    sh_cnt: int              = field(init=False, default=0)
+    E_sh_array: np.ndarray   = field(init=False, default=None)
+    dist_t_sh: np.ndarray    = field(init=False, default=None)
+    dist_sh_h: np.ndarray    = field(init=False, default=None)
+    dist_sh_sh: np.ndarray   = field(init=False, default=None)
+    E_diff_t_sh_GS: np.ndarray = field(init=False, default=None)
+    E_diff_t_sh_ES: np.ndarray = field(init=False, default=None)
+    E_diff_sh_sh: np.ndarray = field(init=False, default=None)
+    d_t_sh_unocc: np.ndarray      = field(init=False, default=None)
+    dE_t_sh_unocc_GS: np.ndarray  = field(init=False, default=None)
+    dE_t_sh_unocc_ES: np.ndarray  = field(init=False, default=None)
+    d_sh_sh_unocc: np.ndarray     = field(init=False, default=None)
+    dE_sh_sh_unocc: np.ndarray    = field(init=False, default=None)
+    d_sh_h: np.ndarray            = field(init=False, default=None)
+    d_sh_t_unocc: np.ndarray      = field(init=False, default=None)
+    dE_sh_t_unocc_GS: np.ndarray  = field(init=False, default=None)
+    dE_sh_t_unocc_ES: np.ndarray  = field(init=False, default=None)
+    exec_pool: str | None    = field(init=False, default=None)
 
 
     def __repr__(self):
@@ -218,23 +259,34 @@ class Box(_temp,_ThermalParameters):
 
         self.create_distance_matrix(trap_coords,hole_coords)
         self.nearest = np.argsort(self.dist,axis=1)[:,:nn]
-      
+
+        self.E_es_array  = self.E_cb_array - self.E_loc_array
+        self.E_diff_ee   = self.E_es_array[:, None] - self.E_es_array[None, :]
+        np.fill_diagonal(self.E_diff_ee, 0.0)
+        self.E_diff_gs_ee = self.E_cb_array[:, None] - self.E_cb_array[None, :]
+        np.fill_diagonal(self.E_diff_gs_ee, 0.0)
+
+        # Build shallow (band-tail) population (coords, energies, matrices)
+        self._setup_shallow_coords(size, trap_coords, hole_coords)
+
         self.occ_trap = np.zeros(self.N,dtype=np.uint8)
         self.occ_hole = np.zeros(self.HN,dtype=np.uint8)
+        self.occ_sh   = np.zeros(self.N_sh, dtype=np.uint8) if self.N_sh > 0 \
+                        else np.zeros(0, dtype=np.uint8)
 
-        self.t_cnt = int(t_cnt*self.N)
+        self.deep_cnt = int(t_cnt*self.N)
         self.h_cnt = int(h_cnt*self.HN)
-   
-        if self.t_cnt > 0:
-            if self.t_cnt == self.N:
+
+        if self.deep_cnt > 0:
+            if self.deep_cnt == self.N:
                 self.occ_trap[:] = 1
                 hole_tot = np.flatnonzero(self.occ_hole).size
                 if self.h_cnt == self.HN:
                     self.occ_hole[:] = 1
                     hole_tot = self.h_cnt
             else:
-                hole_tot = np.flatnonzero(self.occ_hole).size 
-                for _ in range(self.t_cnt):
+                hole_tot = np.flatnonzero(self.occ_hole).size
+                for _ in range(self.deep_cnt):
                     avail = np.flatnonzero(self.occ_trap==0)
                     t_index = self.rng.choice(avail)
                     if hole_tot < self.h_cnt:
@@ -267,6 +319,19 @@ class Box(_temp,_ThermalParameters):
                     hole_tot += 1
         
         self.h_cnt = np.flatnonzero(self.occ_hole).size
+
+        # Optional initial shallow occupation
+        if getattr(self, "enable_BT", False) and self.N_sh > 0 \
+                and self.init_shallow and self.sh_pcnt > 0:
+            n_init = int(round(self.sh_pcnt * self.N_sh))
+            n_init = min(n_init, self.N_sh)
+            if n_init > 0:
+                chosen = self.rng.choice(self.N_sh, size=n_init, replace=False)
+                self.occ_sh[chosen] = 1
+        self.sh_cnt = int(np.flatnonzero(self.occ_sh).size) if self.N_sh > 0 else 0
+        
+        self.t_cnt = self.deep_cnt + self.sh_cnt
+
         self.define_new_d_full()    # self.define_new_d()
         self.initial_times(t=t)
 
@@ -325,6 +390,56 @@ class Box(_temp,_ThermalParameters):
     #     h = holes[None,:,:]
     #     self.dist = np.linalg.norm(e-h,axis=2)
 
+    def _draw_urbach(self, n: int, depth_max: float, E_u: float) -> np.ndarray:
+        """Draw n samples from a truncated exponential (Urbach) distribution
+        on (0, depth_max] with characteristic energy E_u: p(E) ~ exp(-E/E_u)."""
+        if n <= 0:
+            return np.zeros(0)
+        u = self.rng.random(n)
+        return -E_u * np.log(1.0 - u * (1.0 - np.exp(-depth_max / E_u)))
+
+    def _setup_shallow_coords(self, size: np.ndarray, trap_coords: np.ndarray,
+                              hole_coords: np.ndarray) -> None:
+        """Build shallow defect coordinates, energies and pairwise matrices."""
+
+        if not getattr(self, "enable_BT", False):
+            self.N_sh = 0
+            self.sh_coords = np.zeros((0, 3))
+            self.E_sh_array = np.zeros(0)
+            self.dist_t_sh = np.zeros((self.N, 0))
+            self.dist_sh_h = np.zeros((0, self.HN))
+            self.dist_sh_sh = np.zeros((0, 0))
+            self.E_diff_t_sh_GS = np.zeros((self.N, 0))
+            self.E_diff_t_sh_ES = np.zeros((self.N, 0))
+            self.E_diff_sh_sh = np.zeros((0, 0))
+            return
+
+        self.N_sh = int(self.shallow_deep_ratio * self.N)
+
+        if self.boundary == "periodic":
+            self.sh_coords = self.rng.random((self.N_sh, 3)) * size
+        else:
+            self.sh_coords = (self.rng.random((self.N_sh, 3)) * size * 1.5
+                              + (self.dimension * 0.25))
+
+        self.E_sh_array = self._draw_urbach(self.N_sh,
+                                             self.threshold_depth, self.E_u)
+
+        if self.boundary == "periodic":
+            self.dist_t_sh  = self._min_image_dist(trap_coords, self.sh_coords)
+            self.dist_sh_h  = self._min_image_dist(self.sh_coords, hole_coords)
+            self.dist_sh_sh = self._min_image_dist(self.sh_coords, self.sh_coords)
+        else:
+            self.dist_t_sh  = cdist(trap_coords, self.sh_coords)
+            self.dist_sh_h  = cdist(self.sh_coords, hole_coords)
+            self.dist_sh_sh = cdist(self.sh_coords, self.sh_coords)
+        np.fill_diagonal(self.dist_sh_sh, 1e-20)
+
+        self.E_diff_t_sh_GS = self.E_cb_array[:, None] - self.E_sh_array[None, :]
+        self.E_diff_t_sh_ES = self.E_es_array[:, None] - self.E_sh_array[None, :]
+        self.E_diff_sh_sh   = self.E_sh_array[:, None] - self.E_sh_array[None, :]
+        np.fill_diagonal(self.E_diff_sh_sh, 0.0)
+
     def create_distance_matrix(self,trap_coords: np.ndarray,
                                hole_coords: np.ndarray) -> None:
 
@@ -345,19 +460,6 @@ class Box(_temp,_ThermalParameters):
         delta = coords_a[:, None, :] - coords_b[None, :, :]
         delta -= L * np.round(delta / L)            # round=0 if delta<L/2, round=1 if delta>L/2, round=-1 if delta<-L/2
         return np.linalg.norm(delta, axis=2)
-
-        # m = self.dist.mean()
-        # s = self.dist.std()
-        # self.trial= np.max(np.min(self.dist,axis=1)) + s
-        # r = 1e-9
-        # p = np.exp((-4*np.pi*self.rho*np.power(r,3))/3)*(4*np.pi*self.rho*np.power(r,2))
-        # while p > 5:
-        #     r *=10
-        #     p = np.exp((-4*np.pi*self.rho*np.power(r,3))/3)*(4*np.pi*self.rho*np.power(r,2))
-        #     print(p,r)
-       
-        # print(m,s)
-        # print(np.max(np.min(self.dist,axis=1)))
         
         
     # def distance_from_store(self) -> None:
@@ -387,46 +489,119 @@ class Box(_temp,_ThermalParameters):
     def define_new_d_full(self):
         """Updates the distance matrix between occupied electron trap and
         occupied hole trap pair and the distance between occupied electron trap
-        and unoccupied electron trap"""
+        and unoccupied electron trap. Also updates distance between shallow traps
+        and deep traps."""
         occ_idx = np.flatnonzero(self.occ_trap == 1)
         self.E_loc_occ = self.E_loc_array[occ_idx]
         self.E_cb_occ  = self.E_cb_array[occ_idx]
 
-        row_m = self.occ_trap.astype(bool)
-        col_m = self.occ_hole.astype(bool)
-        full = self.dist[row_m][:,col_m]
-        # self.d = full
-        if full.size == 0:
-            self.d = np.zeros(0)
-            return
-        self.d = full   # .min(axis=1)
+        row_d  = self.occ_trap.astype(bool)
+        free_d = ~row_d
+        occ_h  = self.occ_hole.astype(bool)
 
-        col_m = np.invert(self.occ_trap.astype(bool))
-        self.d_ee = self.dist_ee[row_m][:, col_m]
+        # deep -> hole recom
+        full = self.dist[row_d][:, occ_h]
+        self.d = full if full.size > 0 else np.zeros(0)
+
+        # deep -> deep retrap
+        self.d_ee    = self.dist_ee[row_d][:, free_d]
+        self.de_ee_E = self.E_diff_ee[row_d][:, free_d]
+        self.dg_ee_E = self.E_diff_gs_ee[row_d][:, free_d]
         if self.d_ee.size == 0:
-            self.d_ee = np.zeros(0)
-            return
+            self.d_ee    = np.zeros(0)
+            self.de_ee_E = np.zeros(0)
+            self.dg_ee_E = np.zeros(0)
 
-        if self.retrap_mask_factor > 0.0:       # Retrapping is suppressed within a distance threshold
+        # Mask deep-deep retrap using threshold of d.min()
+        if (self.retrap_mask_factor > 0.0 and self.d.size > 0
+                and self.d_ee.size > 0):
             threshold = self.retrap_mask_factor * self.d.min()
             mask = self.d_ee < threshold
-
-            # If every empty trap in a row is masked, preserve the nearest one.
-            all_masked_rows = mask.all(axis=1)    
+            all_masked_rows = mask.all(axis=1)
             if all_masked_rows.any():
                 nearest_col = self.d_ee.argmin(axis=1)
                 for row_i in np.flatnonzero(all_masked_rows):
                     mask[row_i, nearest_col[row_i]] = False
-            self.d_ee = np.where(mask, np.inf, self.d_ee)
-        
+            self.d_ee    = np.where(mask, np.inf, self.d_ee)
+            self.de_ee_E = np.where(mask, 0.0,    self.de_ee_E)
+            self.dg_ee_E = np.where(mask, 0.0,    self.dg_ee_E)
+
+        # Band-tail slices
+        self._define_bt_slices(row_d, free_d, occ_h)
+
+    def _define_bt_slices(self, row_d: np.ndarray, free_d: np.ndarray,
+                          occ_h: np.ndarray) -> None:
+        """Compute slices masked by occupancy for the four band-tail channels."""
+        if not getattr(self, "enable_BT", False) or self.N_sh == 0:
+            self.d_t_sh_unocc      = np.zeros(0)
+            self.dE_t_sh_unocc_GS  = np.zeros(0)
+            self.dE_t_sh_unocc_ES  = np.zeros(0)
+            self.d_sh_sh_unocc     = np.zeros(0)
+            self.dE_sh_sh_unocc    = np.zeros(0)
+            self.d_sh_h            = np.zeros(0)
+            self.d_sh_t_unocc      = np.zeros(0)
+            self.dE_sh_t_unocc_GS  = np.zeros(0)
+            self.dE_sh_t_unocc_ES  = np.zeros(0)
+            return
+
+        row_s  = self.occ_sh.astype(bool)
+        free_s = ~row_s
+
+        # (a) deep -> shallow excite
+        self.d_t_sh_unocc     = self.dist_t_sh[row_d][:, free_s]
+        self.dE_t_sh_unocc_GS = self.E_diff_t_sh_GS[row_d][:, free_s]
+        self.dE_t_sh_unocc_ES = self.E_diff_t_sh_ES[row_d][:, free_s]
+
+        # (b) shallow -> shallow retrap
+        self.d_sh_sh_unocc  = self.dist_sh_sh[row_s][:, free_s]
+        self.dE_sh_sh_unocc = self.E_diff_sh_sh[row_s][:, free_s]
+
+        # (c) shallow -> hole recom
+        self.d_sh_h = self.dist_sh_h[row_s][:, occ_h]
+
+        # (d) shallow -> deep de-excite
+        # E_diff_t_sh_*[deep_i, sh_k] = E_deep[i] - E_sh[k]; we want
+        # E_sh[i_sh] - E_deep[k_deep] = -(E_diff_t_sh_*).T[sh_i, deep_k]
+        self.d_sh_t_unocc     =  self.dist_t_sh.T[row_s][:, free_d]
+        self.dE_sh_t_unocc_GS = -self.E_diff_t_sh_GS.T[row_s][:, free_d]
+        self.dE_sh_t_unocc_ES = -self.E_diff_t_sh_ES.T[row_s][:, free_d]
+
+        if self.retrap_mask_factor <= 0.0:
+            return
+
+        # Deep-source channel mask uses d.min() reference
+        if self.d.size > 0 and self.d_t_sh_unocc.size > 0:
+            thr_d = self.retrap_mask_factor * self.d.min()
+            self.d_t_sh_unocc, mask = _apply_retrap_mask(self.d_t_sh_unocc, thr_d)
+            self.dE_t_sh_unocc_GS = np.where(mask, 0.0, self.dE_t_sh_unocc_GS)
+            self.dE_t_sh_unocc_ES = np.where(mask, 0.0, self.dE_t_sh_unocc_ES)
+
+        # Shallow-source channel mask use d_sh_h.min() reference
+        if self.d_sh_h.size > 0:
+            d_sh_min = self.d_sh_h.min()
+            thr_s = self.retrap_mask_factor * d_sh_min
+
+            if self.d_sh_sh_unocc.size > 0:
+                self.d_sh_sh_unocc, mask = _apply_retrap_mask(
+                    self.d_sh_sh_unocc, thr_s)
+                self.dE_sh_sh_unocc = np.where(mask, 0.0, self.dE_sh_sh_unocc)
+
+            if self.d_sh_t_unocc.size > 0:
+                self.d_sh_t_unocc, mask = _apply_retrap_mask(
+                    self.d_sh_t_unocc, thr_s)
+                self.dE_sh_t_unocc_GS = np.where(mask, 0.0, self.dE_sh_t_unocc_GS)
+                self.dE_sh_t_unocc_ES = np.where(mask, 0.0, self.dE_sh_t_unocc_ES)
+
+
 
     def trap_new_electron(self):
         """
-        If recombination is allowed in filling, hole and electron annihilation are treated separately
+        If recombination is allowed in filling, hole and electron 
+        annihilation are treated separately.
         """
         if not self.combine_when_fill:
-            
-            if self.t_cnt >= self.N:
+
+            if self.deep_cnt >= self.N:
                 return
             avail_t = np.flatnonzero(self.occ_trap == 0)
             t_index = self.rng.choice(avail_t)
@@ -436,14 +611,15 @@ class Box(_temp,_ThermalParameters):
                 self.occ_hole[h_index] = 1
                 self.h_cnt += 1
             self.occ_trap[t_index] = 1
+            self.deep_cnt += 1
             self.t_cnt += 1
             self.event_code = EVENT_CODES["fill"]
             self.define_new_d_full()
             return
 
-        has_unoccupied_trap = self.t_cnt < self.N
+        has_unoccupied_trap = self.deep_cnt < self.N
         has_occupied_hole   = self.h_cnt > 0
-        has_occupied_trap   = self.t_cnt > 0
+        has_occupied_trap   = self.deep_cnt > 0
         has_unoccupied_hole = self.h_cnt < self.HN
 
         pool_A_viable = has_unoccupied_trap or has_occupied_hole
@@ -464,6 +640,7 @@ class Box(_temp,_ThermalParameters):
             choice   = self.rng.integers(0, n_ut + n_oh_eff)
             if choice < n_ut:
                 self.occ_trap[unoccupied_t[choice]] = 1
+                self.deep_cnt += 1
                 self.t_cnt += 1
             else:
                 self.occ_hole[occupied_h[(choice - n_ut) % n_oh]] = 0
@@ -476,6 +653,7 @@ class Box(_temp,_ThermalParameters):
             choice   = self.rng.integers(0, n_ot_eff + n_uh)
             if choice < n_ot_eff:
                 self.occ_trap[occupied_t[choice % n_ot]] = 0
+                self.deep_cnt -= 1
                 self.t_cnt -= 1
             else:
                 self.occ_hole[unoccupied_h[choice - n_ot_eff]] = 1
@@ -523,11 +701,11 @@ class Box(_temp,_ThermalParameters):
     def operate_electron(self):
         """
         Execute a fading transition for the selected electron.
-        Collects rates from all active TransitionProcess objects, selects
-        one channel via cumulative probability, and dispatches to its
-        execute() method.
+        Collects rates from processes whose source_pool matches the
+        currently selected electron's pool, samples one channel via
+        cumulative probability, and calls its execute() method.
         """
-        if self.t_cnt <= 0:
+        if self.exec_index is None or self.exec_pool is None:
             return
 
         rate_blocks = []
@@ -535,6 +713,8 @@ class Box(_temp,_ThermalParameters):
         offset = 0
 
         for proc in self._processes:
+            if getattr(proc, "source_pool", "deep") != self.exec_pool:
+                continue
             r = proc.rates(self, self.exec_index)
             if r.size > 0:
                 rate_blocks.append(r)
@@ -598,7 +778,10 @@ class Box(_temp,_ThermalParameters):
         if self.D0 == None or self.D_dot == 0 or self.h_cnt >= self.HN:
             self.fill_time = 1e20
         else:
+
+            # Dosing rate uses total trapped electrons (deep + shallow)
             fill_rate = self._fill(self.N, self.t_cnt, self.D_dot)
+
             # self._filltime = self.rng.exponential(1/fill_rate)
             self.fill_time = self.rng.exponential(1/fill_rate)
 
@@ -621,32 +804,52 @@ class Box(_temp,_ThermalParameters):
     #         self.fade_index = int(np.argmin(f)) 
 
     def select_electron(self) -> None:
-        """Generate execution time for filling and fading transitions.
-
-        For fading, the overall rate for each occupied electron is
-        computed by summing bulk_rates_sum() across all active processes,
-        then an exponential random time is drawn for each electron and
-        the fastest one is selected.
-        """
-        # if (self.h_cnt < self.HN) and self.fill_time > 0:
-        #     self.fill = self.fill_time
-        # else:
-        #     self.fill = 1e20
-
-        if self.t_cnt == 0:
+        """Generate execution time for the next fading transition across both
+        deep and shallow electron pools.  All bulk rates are aggregated into
+        a single per-electron vector of length (t_cnt + sh_cnt); one
+        exponential random time is drawn per electron, the fastest is picked,
+        and exec_pool / exec_index are set together."""
+        deep_cnt = int(getattr(self, "deep_cnt", 0))
+        sh_cnt = int(getattr(self, "sh_cnt", 0))
+        if deep_cnt + sh_cnt == 0:
             self.exec_time = 1e20
             self.exec_index = None
-        else:
+            self.exec_pool = None
+            return
+
+        if deep_cnt > 0:
             self.F1 = 1. / (1 + np.exp(-self.E_loc_occ / (cnst.k_b_ev * self.T)))
             self.F2 = 1. / (1 + np.exp( self.E_loc_occ / (cnst.k_b_ev * self.T)))
+        else:
+            self.F1 = np.zeros(0)
+            self.F2 = np.zeros(0)
 
-            total_rate = np.zeros(self.t_cnt)
-            for proc in self._processes:
-                total_rate += proc.bulk_rates_sum(self)
+        rate_d = np.zeros(deep_cnt)
+        rate_s = np.zeros(sh_cnt)
+        for proc in self._processes:
+            pool = getattr(proc, "source_pool", "deep")
+            if pool == "deep" and deep_cnt > 0:
+                rate_d = rate_d + proc.bulk_rates_sum(self)
+            elif pool == "shallow" and sh_cnt > 0:
+                rate_s = rate_s + proc.bulk_rates_sum(self)
 
-            f = self.rng.exponential(1.0 / total_rate)
-            self.exec_time = np.min(f)
-            self.exec_index = int(np.argmin(f))
+        total_rate = np.concatenate([rate_d, rate_s])
+
+        # Guard against zero-rate electrons (no available transitions)
+        safe = np.where(total_rate > 0, total_rate, 1e-300)
+        f = self.rng.exponential(1.0 / safe)
+        
+        # Force inf-time on truly zero-rate electrons
+        f = np.where(total_rate > 0, f, np.inf)
+
+        flat_idx = int(np.argmin(f))
+        self.exec_time = float(f[flat_idx])
+        if flat_idx < deep_cnt:
+            self.exec_index = flat_idx
+            self.exec_pool  = "deep"
+        else:
+            self.exec_index = flat_idx - deep_cnt
+            self.exec_pool  = "shallow"
 
     # def select_fading_event(self) -> None:
     #     """Generates new random transition"""

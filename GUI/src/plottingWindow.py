@@ -1,26 +1,25 @@
 from __future__ import annotations
-import sys
 from pathlib import Path
-from PySide6.QtWidgets import QApplication, QMainWindow, QButtonGroup
+from PySide6.QtWidgets import QButtonGroup, QWidget
 from PySide6.QtCore import Signal, Slot, QTimer
 
 from GUI.src.axis_options import TimeOptions, ErrorOptions, TemperatureOptions, EventOptions
 from GUI.src.linePicker import experimentLineList
 from GUI.src.file_load import FileSelector
-from GUI.src.designs.mainWindow import Ui_MainWindow
+from GUI.src.designs.mainPlottingWindow import Ui_Form as Ui_PlottingWindow
 from GUI.src.outputfile_interface import MplCanvas
 
 # from typing import TYPE_CHECKING
 # if TYPE_CHECKING:
 
 
-class MainWindow(QMainWindow, Ui_MainWindow):
+class PlottingWindow(QWidget, Ui_PlottingWindow):
     XAxisToggled = Signal(int)
     YAxisToggled = Signal(int)
     XAxisValues = Signal(str)
     YAxisValues = Signal(str)
     titleSignal = Signal(str)
-    def __init__(self):
+    def __init__(self,parent=None,):
         super().__init__()
         self.setupUi(self)
         self.line_choosers = {}
@@ -226,11 +225,3 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _apply_text_change(self):
         name = self._pending_name
         self.titleSignal.emit(name)
-
-
-app = QApplication(sys.argv)
-
-window = MainWindow()
-window.show()
-
-sys.exit(app.exec())

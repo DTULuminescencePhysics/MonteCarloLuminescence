@@ -17,7 +17,7 @@ class TimeTempProfile:
     def __init__(self, **kwargs):
         kind = kwargs.pop("kind")
         if kind is None: 
-            kind = 'linearsteps'
+            kind = 'Other'
         kind = kind.lower()
         try:
             builder = self._REGISTRY[kind]

@@ -34,7 +34,7 @@
 
 unit: Ma # unit of time s -- sections, y -- years, Ma -- mega-annum i.e. 1000000 years
 celsius: true # true if temperatures are given in celsius else false for kelvin 
-kind: null # constant; linear;
+kind: Other # constant; linear;
 T0: 130 # Initial temperature, always required in celsius
 duration: 0.5 # Duration of the experiment in the time unit specified above
 times: [0. , 0.3, 0.3, 0.41, 0.41, 0.5]
