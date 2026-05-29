@@ -108,15 +108,11 @@ class Box(_temp,_ThermalParameters):
 
 
     def __repr__(self):
-        if self.kind == "constant":
+        if self.kind == "Constant":
             temp = f"at a constant temperature of : {self.T0} (K)\n"
-        elif self.kind == "linear":
+        elif self.kind == "Linear":
             temp = (f"with a linear temperature profile starting at : {self.T0} (K) \n"
-                       f"and increasing at a rate of : {self.dT} (K/s)\n")
-        else:
-            temp = (f"with a multiple linear step temperature profile starting at : {self.T0} (K) \n")
-                    #    f"with steps of : {self.dT_step} (K) at times : {self.times} (s) \n"
-                    #    f"and linear rates of : {self.dT} (K/s)\n")
+                       f"and increasing at a rate of : {self.dT} (K/s)\n") 
         string = ("Crystal Information: \n"
                   f"Unit cell dimensions (h,w,l) : {self.unit_cell_dims} (m)\n"
                   f"represented by an array of (h,w,l) : ({self.h[1]},{self.w[1]},{self.l[1]})\n"
@@ -876,5 +872,3 @@ class Box(_temp,_ThermalParameters):
         self.T = self(self.time)
         self.recalc_times_full()    # self.recalc_times()
         self.select_electron()      # self.random_fill_fade()
-
-    
