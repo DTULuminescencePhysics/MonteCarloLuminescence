@@ -268,17 +268,15 @@ class Box(_temp,_ThermalParameters):
         size = np.array((self.dimension,self.dimension,self.dimension))
 
         if self.boundary == "periodic":
-            hole_coords = self.rng.random((self.HN, 3)) * size
-            trap_coords = self.rng.random((self.N, 3)) * size
+            self.hole_coords = self.rng.random((self.HN, 3)) * size
+            self.trap_coords = self.rng.random((self.N, 3)) * size
         else:
-            hole_coords = (self.rng.random((self.HN,3))*size*1.5)
-            trap_coords = (self.rng.random((self.N,3))*size)+(self.dimension*0.25) 
+            self.hole_coords = (self.rng.random((self.HN,3))*size*1.5)
+            self.trap_coords = (self.rng.random((self.N,3))*size)+(self.dimension*0.25) 
 
         nn = self.HN
 
-        self.trap_coords = trap_coords
-
-        self.create_distance_matrix(trap_coords,hole_coords)
+        self.create_distance_matrix(self.trap_coords, self.hole_coords)
         self.nearest = np.argsort(self.dist,axis=1)[:,:nn]
 
         self.E_es_array  = self.E_cb_array - self.E_loc_array
@@ -288,7 +286,7 @@ class Box(_temp,_ThermalParameters):
         np.fill_diagonal(self.E_diff_gs_ee, 0.0)
 
         # Build shallow (band-tail) population (coords, energies, matrices)
-        self._setup_shallow_coords(size, trap_coords, hole_coords)
+        self._setup_shallow_coords(size, self.trap_coords, self.hole_coords)
 
         self.occ_trap = np.zeros(self.N,dtype=np.uint8)
         self.occ_hole = np.zeros(self.HN,dtype=np.uint8)
