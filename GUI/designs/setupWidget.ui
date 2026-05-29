@@ -352,8 +352,8 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>788</width>
-     <height>411</height>
+     <width>144</width>
+     <height>187</height>
     </rect>
    </property>
    <attribute name="label">
@@ -398,8 +398,8 @@
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>760</width>
-           <height>293</height>
+           <width>562</width>
+           <height>251</height>
           </rect>
          </property>
          <property name="minimumSize">
@@ -1030,7 +1030,7 @@
             <number>4</number>
            </property>
            <property name="maximum">
-            <double>10000000000000000.000000000000000</double>
+            <double>1000000000000000019884624838656.000000000000000</double>
            </property>
           </widget>
          </item>
@@ -1849,8 +1849,8 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>788</width>
-     <height>411</height>
+     <width>98</width>
+     <height>28</height>
     </rect>
    </property>
    <attribute name="label">

@@ -588,7 +588,7 @@ class setupWindow(QToolBox, Ui_Setup):
         self.eCB.setValue(self.physProf.E_cb)
         self.sigmaELoc.setValue(self.physProf.E_loc_sigma)
         self.sigmaECB.setValue(self.physProf.E_cb_sigma)
-
+        
         if self.physProf.enable_fill: 
             self.enableFilling.setChecked(True)
             self.D0.setValue(self.physProf.D0)
@@ -611,6 +611,9 @@ class setupWindow(QToolBox, Ui_Setup):
         self.combine_when_fill.setChecked(self.physProf.combine_when_fill)
         self.recom_pre_fill.setValue(self.physProf.recom_pre_fill)
 
+      
+        self.tunnelEnable.setChecked(self.physProf.enable_tunneling)
+        
         if self.physProf.b is not None: 
             self.b.setValue(self.physProf.b)
         else: 
@@ -629,7 +632,8 @@ class setupWindow(QToolBox, Ui_Setup):
         self.retrapRatio.setValue(self.physProf.R_tun)
         self.VRH.setChecked(self.physProf.VRH)
 
-        if self.physProf.alpha_BT is not None: 
+        self.cndctionEnable.setChecked(self.physProf.enable_cb)
+        if self.physProf.s is not None: 
             self.s.setValue(self.physProf.s)
         else: 
             self.s.setValue(1e12)
@@ -639,7 +643,7 @@ class setupWindow(QToolBox, Ui_Setup):
             self.mu.setValue(0.1)
 
         self.RCB.setValue(self.physProf.R_CB)
-        
+        self.bandTailenable.setChecked(self.physProf.enable_BT)
         self.retrap_mask_factor.setValue(self.physProf.retrap_mask_factor)
         if self.physProf.shallow_deep_ratio is not None:
             self.shallow_deep_ratio.setValue(self.physProf.shallow_deep_ratio)

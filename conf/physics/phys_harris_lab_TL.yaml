@@ -2,7 +2,7 @@ uc_h: 1.0e-10
 uc_w: 1.0e-10
 uc_l: 1.0e-10
 dimension: null
-rho: 1.0e+16
+rho: 5.22e25
 urho: null
 E_loc: 1.2
 E_cb: 2.0

@@ -136,10 +136,10 @@ class MCBase:
     def max_dt_setter(self):
         self.max_dt_cnt=0
     
-        if self.crystal.kind == "constant" :
+        if self.crystal.kind == "Constant" :
             self.max_dt =  self.crystal.duration*10
             self.max_dt_time_chk = self.crystal.duration*10
-        elif self.crystal.kind == "linear" :
+        elif self.crystal.kind == "Linear" :
             self.max_dt = (1/abs(self.crystal.dT))
             self.max_dt_time_chk = self.crystal.duration*10
         else:

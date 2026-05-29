@@ -72,7 +72,6 @@ def run_prepared_experiment(experiment_dir: str | Path) -> None:
 def parse_launcher_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Monte Carlo Luminescence runner",)
 
-    parser.add_argument("--ui", action="store_true", help="Launch the Streamlit configuration UI instead of running the simulation directly.",)
     parser.add_argument("--run", type=str, default=None,help="Run an experiment that was prepared by the UI.",)
     parser.add_argument("--save", action="store_true", help="save an experiment to run at a later point")
 
