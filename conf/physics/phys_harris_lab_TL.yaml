@@ -1,35 +1,49 @@
-uc_h: 1.0e-10
-uc_w: 1.0e-10
-uc_l: 1.0e-10
-dimension: null
-rho: 5.22e25
-urho: null
-E_loc: 1.2
-E_cb: 2.0
-E_loc_sigma: 0.0
-E_cb_sigma: 0.0
-enable_fill: false
-D0: 0.0
-D_dot: 0.0
-Dd_unit: s
-combine_when_fill: false
-recom_pre_fill: 0.0
-enable_tunneling: false
-b: 1000000000000.0
-alpha_GS: 9000000000000.0
-alpha_ES: 9000000000.0
-R_tun: 0.0
-VRH: false
-enable_cb: false
-s: 1000000000000.0
-mu: 0.1
-R_CB: 1.0
-retrap_mask_factor: 0.9
-enable_BT: false
-shallow_deep_ratio: null
-threshold_depth: null
-E_u: null
-b_BT: null
-alpha_BT: 1500000000.0
-init_shallow: true
-sh_pcnt: null
+# Crystal geometry / lattice
+uc_h      : 1.e-10  # Unit cell height (m)
+uc_w      : 1.e-10  # Unit cell width  (m)
+uc_l      : 1.e-10  # Unit cell length (m)
+dimension : 7.5e-9  # Approximate test-crystal dimension; null = default 7.5 nm
+rho       : 5.22e25
+urho      : null    # 3e-4
+
+# Trap energy levels
+E_loc       : 1.2
+E_cb        : 2.0
+E_loc_sigma : 0.    # std dev of Gaussian for E_loc (eV); 0 = fixed
+E_cb_sigma  : 0.    # std dev of Gaussian for E_cb  (eV); 0 = fixed
+
+# Filling process (dosing)
+enable_fill       : False
+D0                : 400.
+D_dot             : 0       # Radiation per time unit
+Dd_unit           : s       # s : Gy/s; ka : Gy/ka, etc.
+combine_when_fill : False
+recom_pre_fill    : 0       # P(recombine) / P(fill vacancy)
+
+# Localized transitions
+enable_tunneling : True
+b                : 1.e12
+alpha_GS         : 9e12
+alpha_ES         : 9e9
+R_tun            : 0.0      # Retrapping ratio for tunnelling
+VRH              : False    # False (default): original tunnelling rate; True: Miller-Abrahams variable-range hopping
+
+# Delocalized transitions
+enable_cb : True
+s         : 1.e12           # 7.5e13
+mu        : 0.1
+R_CB      : 0.0             # Retrapping ratio for CB transitions
+
+# Band-tail (shallow defect) transitions
+enable_BT          : False     
+shallow_deep_ratio : 5         # N_sh = int(shallow_deep_ratio * N)
+threshold_depth    : 0.5       # eV; max depth-below-CB for shallow defects
+E_u                : 0.3       # eV; Urbach energy
+b_BT               : null      # null -> defaults to b
+alpha_BT           : 1.5e9     # null -> defaults to alpha_GS (override for ES-like localization)
+init_shallow       : True      # if True, initial electrons may sit in shallow
+sh_pcnt            : 0.2       # fraction of N_sh occupied at t=0
+
+# Misc
+retrap_mask_factor : 0.9    # Factor to constraint retrapping in adjescent pairs
+phys_type : null
