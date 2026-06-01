@@ -158,7 +158,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if not run_dir.exists():
             return None
 
-        result_files = list(run_dir.rglob("result.hdf5"))
+        result_files = list(run_dir.rglob("results.hdf5"))
 
         if not result_files:
             return None

@@ -96,7 +96,7 @@ def _build_bt_procs(b_BT: float, alpha_BT: float, **kw):
 
     op_d_to_s    = DeepToShallowOperation(EVENT_CODES["Deep_to_Shallow"])
     op_s_to_s    = ShallowToShallowOperation(EVENT_CODES["Shallow_to_Deep"])
-    op_s_recom   = ShallowRecombineOperation(EVENT_CODES["Shallow_tun_recom"])
+    op_s_recom   = ShallowRecombineOperation(EVENT_CODES["S_tun_recom"])
     op_s_to_d    = ShallowToDeepOperation(EVENT_CODES["Shallow_to_Deep"])
 
     return [

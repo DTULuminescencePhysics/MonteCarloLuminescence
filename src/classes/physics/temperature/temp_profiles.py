@@ -6,7 +6,7 @@ from src.classes.physics.temperature.temp_profile_class import TimeTempProfile
 
 
 # Constant temperature
-@TimeTempProfile.register("Constant")
+@TimeTempProfile.register("constant")
 def _build_constant(T0: float) -> Callable[[ArrayLike], ArrayLike]:
     """Produces a function that returns a constant temperature"""
     def f(t: ArrayLike) -> ArrayLike:
@@ -14,17 +14,17 @@ def _build_constant(T0: float) -> Callable[[ArrayLike], ArrayLike]:
     return f
 
 # Linear: T(t) = T0 + slope * t   (slope < 0 → cooling)
-@TimeTempProfile.register("Linear")
+@TimeTempProfile.register("linear")
 def _build_linear(T0: float, dT: float) -> Callable[[ArrayLike], ArrayLike]:
     def f(t: ArrayLike) -> ArrayLike:
         """Produces a function that is changing linearly"""
         tt = _as_1d(t)
-        out = T0 - dT * tt
+        out = T0 + dT * tt
         return _return_like_input(t, out)
     return f
 
 
-@TimeTempProfile.register("Other")
+@TimeTempProfile.register("other")
 def build_piecewise_linear_with_eps(times: ArrayLike, temps: ArrayLike) -> Callable[[ArrayLike], ArrayLike]:
     """Produces a function that can output a complete temperature profile with linear changes and constant
     temperatures"""

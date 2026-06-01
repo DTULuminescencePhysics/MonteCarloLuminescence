@@ -81,7 +81,7 @@ def _run_single_rep(rep: int, crystal: Box, seed: int, t_pcnt: float,
         else:
             event_code = 0
         crystal.timestep(dt)
-
+        
         if crystal.time >= crystal.duration:
             results[rep, 0, i] = crystal.duration
             results[rep, 1, i] = results[rep, 1, i - 1]
@@ -245,7 +245,7 @@ class MCBase:
                 # self.crystal.event_bool = False
                 event_code = 0
             self.crystal.timestep(dt)
-
+            
             if self.crystal.time >= self.crystal.duration:
                 self.results[rep,0,i] = self.crystal.duration
                 self.results[rep,1,i] = self.results[rep,1,i-1]

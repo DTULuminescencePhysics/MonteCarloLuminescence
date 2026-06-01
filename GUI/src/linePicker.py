@@ -152,7 +152,11 @@ class experimentLineList(QWidget):
             ("ES_tun_retrap", "Excited State tunneling re-trapping", 2, 10),
             ("ES_CB_retrap", "Excited State Conduction Band re-trapping", 2, 2),
             ("ES_process", "Excited State processes", 2, 7),
-            ("bleach", "Bleaching", 3, 3),]
+            ("bleach", "Bleaching", 3, 3),
+            ("Deep_to_Shallow", "Trap to band tail state", 3, 8),
+            ("Shallow_to_Shallow", "Band tail to band tail", 3, 9),
+            ("Shallow_to_Deep", "Band tail re-trapping", 3, 10),
+            ("S_tun_recom", "Band tail recombination", 3, 11)]
 
         self.single_lines = {}
         verticalLayout.addWidget(self.Experimentname)

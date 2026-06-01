@@ -717,8 +717,8 @@ class setupWindow(QToolBox, Ui_Setup):
         enable_cb = self.cndctionEnable.isChecked()
         enable_BT = self.bandTailenable.isChecked()
         
-        b_BT = None if self.useDefault_b_BT.isChecked() else self.b_BT.value()
-        alpha_BT = None if self.use_default_alpha_BT.isChecked() else self.alpha_BT.value()
+        b_BT = self.b.value() if self.useDefault_b_BT.isChecked() else self.b_BT.value()
+        alpha_BT = self.alphaGS.value() if self.use_default_alpha_BT.isChecked() else self.alpha_BT.value()
         shallow_deep_ratio = None if not enable_BT else self.shallow_deep_ratio.value()
         threshold_depth = None if not enable_BT else self.threshold_depth.value()
         E_u = None if not enable_BT else self.E_u.value()

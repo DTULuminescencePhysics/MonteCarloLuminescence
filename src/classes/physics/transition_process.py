@@ -23,7 +23,7 @@ EVENT_CODES = {
     "Deep_to_Shallow":           11,    # deep -> shallow
     "Shallow_to_Shallow":        12,    # shallow -> shallow
     "Shallow_to_Deep":           13,    # shallow -> deep
-    "Shallow_tun_recom":         14,    # shallow -> hole
+    "S_tun_recom":               14,    # shallow -> hole
 }
 
 EVENT_NAMES = {v: k for k, v in EVENT_CODES.items()}    # Reverse event codes
@@ -34,7 +34,7 @@ LUMINESCENCE_CODES: set[int] = {
     EVENT_CODES["ES_tun_recom"],
     EVENT_CODES["GS_CB_recom"],
     EVENT_CODES["ES_CB_recom"],
-    EVENT_CODES["Shallow_tun_recom"],
+    EVENT_CODES["S_tun_recom"],
 }
 
 

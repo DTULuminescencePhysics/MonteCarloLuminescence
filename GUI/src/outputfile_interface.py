@@ -100,7 +100,7 @@ class MplCanvas(FigureCanvas):
             self.add_all_ratio_lines()
         elif self.units["yaxis"] == "event":
             self.rebin_all()
-            self.all_all_event_lines()
+            self.add_all_event_lines()
         elif self.units["yaxis"] == "temperature":
             self.add_all_temp_lines()
 
@@ -277,7 +277,7 @@ class MplCanvas(FigureCanvas):
             self.requestLineInfo.emit(i,"qlohi")
             self.requestLineInfo.emit(i,"qmi")
 
-    def all_all_event_lines(self,):
+    def add_all_event_lines(self,):
         for i in range(self.exp_count):
             self.requestLineInfo.emit(i,"luminescence")
             self.requestLineInfo.emit(i,"fill")
@@ -294,6 +294,11 @@ class MplCanvas(FigureCanvas):
             self.requestLineInfo.emit(i,"ES_CB_retrap")
             self.requestLineInfo.emit(i,"ES_process")
             self.requestLineInfo.emit(i,"bleach")
+            self.requestLineInfo.emit(i,"Deep_to_Shallow")
+            self.requestLineInfo.emit(i,"Shallow_to_Shallow")
+            self.requestLineInfo.emit(i,"Shallow_to_Deep")
+            self.requestLineInfo.emit(i,"S_tun_recom")
+
 
     def add_all_temp_lines(self):
         for i in range(self.exp_count):
@@ -371,6 +376,10 @@ class MplCanvas(FigureCanvas):
             self.update_event_line(i+1,self.data[i+1]["sEvent"][:,9] ,"ES_CB_retrap")
             self.update_event_line(i+1,self.data[i+1]["sEvent"][:,[4, 5, 8, 9]].sum(axis=1) ,"ES_process")
             self.update_event_line(i+1,self.data[i+1]["sEvent"][:,10] ,"bleach")
+            self.update_event_line(i+1,self.data[i+1]["sEvent"][:,11] ,"Deep_to_Shallow")
+            self.update_event_line(i+1,self.data[i+1]["sEvent"][:,12] ,"Shallow_to_Shallow")
+            self.update_event_line(i+1,self.data[i+1]["sEvent"][:,13] ,"Shallow_to_Deep")
+            self.update_event_line(i+1,self.data[i+1]["sEvent"][:,14] ,"S_tun_recom")
             
 
         self.draw_idle()
@@ -534,6 +543,18 @@ class MplCanvas(FigureCanvas):
             case"bleach":
                 x = self.get_event_x_data(exp_num)
                 line = self.event_plot(x,self.data[exp_num]["sEvent"][:,10] ,colour,linestyle,label)
+            case"Deep_to_Shallow":
+                x = self.get_event_x_data(exp_num)
+                line = self.event_plot(x,self.data[exp_num]["sEvent"][:,11] ,colour,linestyle,label)
+            case"Shallow_to_Shallow":
+                x = self.get_event_x_data(exp_num)
+                line = self.event_plot(x,self.data[exp_num]["sEvent"][:,12] ,colour,linestyle,label)
+            case"Shallow_to_Deep":
+                x = self.get_event_x_data(exp_num)
+                line = self.event_plot(x,self.data[exp_num]["sEvent"][:,13] ,colour,linestyle,label)
+            case"S_tun_recom":
+                x = self.get_event_x_data(exp_num)
+                line = self.event_plot(x,self.data[exp_num]["sEvent"][:,14] ,colour,linestyle,label)
 
                 
         self._plot_list[exp_num][line_to_plot]= line

@@ -22,7 +22,7 @@ class _time:
 class _temp(_time, TimeTempProfile):
     """Private temperature class that is built as a function of time"""
    
-    kind:    str       | None = field(default=None) 
+    kind:    str              = field(default="Other") 
     T0:      float            = field(default=0) 
     celsius: bool             = field(default=True)
     duration:float            = field(default=100)
@@ -54,12 +54,12 @@ class _temp(_time, TimeTempProfile):
                 self.temps+=273.15
            
 
-        if self.times is not None and self.temps is not None and self.kind is None:
+        if self.times is not None and self.temps is not None and self.kind is "Other":
             if self.temps.size == 2 :
                 if self.temps[0] == self.temps[1]: 
-                    self.kind = "constant"
+                    self.kind = "Constant"
                 else: 
-                    self.kind = "linear"
+                    self.kind = "Linear"
                     self.dT = (self.temps[0]-self.temps[1])/self.duration
 
         if self.unit != 's':
@@ -70,8 +70,7 @@ class _temp(_time, TimeTempProfile):
             if self.dT is not None:
                 self.dT = self.dT / time_to_seconds[self.unit]
 
-        if self.kind is None or self.kind == "linearsteps":
-                self.kind = "linearsteps"
+        if self.kind == "Other":
                 e = 1e-13
   
                 order = np.argsort(self.times, kind="mergesort")

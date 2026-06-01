@@ -1,0 +1,17 @@
+defaults:
+    - /physics: phys_harris_lab_TL # phys_King_etal_2016_k_23_50_3 #  
+    - /temp: temp_linear #  #temp_constant_T temp_King_etal_2016_ii #
+    - /chronology: chron
+
+setup:
+  project: "Example"
+  seed: 1
+  max_dt    : 0.5 
+  t_pcnt    : 1      # Ratio of filled electrons traps
+  h_pcnt    : 1     # Ratio of recombination holes that are unfilled
+  reps      : 10     # Number of Monte Carlo simulations to repeat
+  boundary  : periodic  # "padded" (default) or "periodic"
+  n_jobs    : 1       # parallel workers (1 = sequential)
+  mc        : True   # Run monte Carlo simulations
+  ac        : False  # Run analytic model 
+  TC        : False  # Run thermo chronology

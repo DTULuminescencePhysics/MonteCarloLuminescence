@@ -16,8 +16,6 @@ class TimeTempProfile:
 
     def __init__(self, **kwargs):
         kind = kwargs.pop("kind")
-        if kind is None: 
-            kind = 'Other'
         kind = kind.lower()
         try:
             builder = self._REGISTRY[kind]
@@ -30,9 +28,8 @@ class TimeTempProfile:
         object.__setattr__(self, "_f", builder(**filtered))
 
     @classmethod
-    def register(cls, kind: str | None) -> Callable[[Builder], Builder]:
-        if kind is None: 
-            kind = 'linearsteps'
+    def register(cls, kind: str ) -> Callable[[Builder], Builder]:
+        
         kind = kind.lower()
         def decorator(fn: Builder) -> Builder:
             if not callable(fn):
