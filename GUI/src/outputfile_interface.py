@@ -234,7 +234,7 @@ class MplCanvas(FigureCanvas):
 
     def plot_time_label(self,) -> None:
         """Sets Time axis according to the unit type"""
-
+       
         match self.units["xtime_unit"]: 
             case 'seconds': 
                 self.ax.set_xlabel("Time (s)")

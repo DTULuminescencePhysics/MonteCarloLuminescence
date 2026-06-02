@@ -1355,7 +1355,7 @@ class fullSetupWindow(QWidget):
         return path, safe_name
 
     
-    def profile_save(self, name: str, directory: str | Path, profile, exclude_none: bool = False, tocheck:bool = False) -> str:
+    def profile_save(self, name: str, directory: str | Path, profile,  tocheck:bool = False) -> str:
 
         directory = Path(directory)
         # directory.mkdir(parents=True, exist_ok=True)
@@ -1364,7 +1364,7 @@ class fullSetupWindow(QWidget):
         if path.exists() and tocheck:
             path, safe_name = self.warning(safe_name,directory)
            
-        data = profile.model_dump(exclude_none=exclude_none)
+        data = profile.model_dump(exclude_none=False)
 
         save_profile(data, path)
         return safe_name
@@ -1378,11 +1378,11 @@ class fullSetupWindow(QWidget):
                 path, safe_name = self.warning(safe_name,USER_CONFIG_DIR)
 
         
-        self.buttons.temperatureName = self.profile_save(self.buttons.temperatureName, TEMP_DIR, self.setWindow.tempProf, True, self.setWindow.tempEditProfileButton.isChecked())
-        self.buttons.physicsName = self.profile_save(self.buttons.physicsName, PHYS_DIR, self.setWindow.physProf, False, self.setWindow.physEditCheck.isChecked())
+        self.buttons.temperatureName = self.profile_save(self.buttons.temperatureName, TEMP_DIR, self.setWindow.tempProf, self.setWindow.tempEditProfileButton.isChecked())
+        self.buttons.physicsName = self.profile_save(self.buttons.physicsName, PHYS_DIR, self.setWindow.physProf, self.setWindow.physEditCheck.isChecked())
         defaults = [{"/physics": self.buttons.physicsName},{"/temp": self.buttons.temperatureName},]
         if self.buttons.chronNeeded: 
-            self.buttons.chronName = self.profile_save(self.buttons.chronName, CHRON_DIR, self.setWindow.chronProf, False)
+            self.buttons.chronName = self.profile_save(self.buttons.chronName, CHRON_DIR, self.setWindow.chronProf)
             defaults.append({"/chronology": self.buttons.chronName})
 
         data = {"defaults": defaults, "setup": self.setWindow.setupProf.model_dump(exclude_none=True),}
