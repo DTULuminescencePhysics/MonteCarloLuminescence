@@ -268,7 +268,7 @@ class MCBase:
             t_pcnt = self.trap_pcnt
         if h_pcnt is None:
             h_pcnt = self.hole_pcnt
-
+    
         if self.n_jobs == 1:
             for i in range(self.repetion):
                 self.single_experiment_run_modified(i, t, t_pcnt, h_pcnt)
@@ -321,7 +321,7 @@ class MCBase:
         if os.path.exists(self.data_path):
             os.remove(self.data_path)
 
-        self.results = np.memmap(self.data_path, dtype=np.float32, mode='w+', shape=(self.repetion, 3, self.max_length))
+        self.results = np.memmap(self.data_path, dtype=np.float32, mode='w+', shape=(self.repetion, 4, self.max_length))
         self.results[:,:,:] = np.nan
         self.results.flush()
 
@@ -348,11 +348,9 @@ class MCBase:
         ratio = 0
         for i in range(self.repetion):
             ratio += last_non_nan(self.results[i, 1],div)
-
         ratio /= div
 
         return ratio
-
 
 
     def inverse_modeling_simulation(self,):
@@ -374,7 +372,6 @@ class MCBase:
         ratio = 0
         for i in range(self.repetion):
             ratio += last_non_nan(self.results[i, 1],div)
-
         ratio /= div
-
+        
         return ratio

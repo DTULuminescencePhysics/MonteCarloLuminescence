@@ -116,7 +116,7 @@ class ChronologyProfile(BaseModel):
     monotonic: Literal["free", "increasing", "decreasing"] = Field(default="free",description="Monotonicity constraint for the time-temperature path.",)
     min_internal: int = Field(default=0,ge=0,description="Minimum number of internal time-temperature nodes.",)
     max_internal: int = Field(default=20,ge=0,description="Maximum number of internal time-temperature nodes.",)
-    rjmcmc: RJMCMCConfig | None = Field(default_factory=RJMCMCConfig,description="RJMCMC-specific settings.",)
+    rjmcmc: RJMCMCConfig  = Field(default_factory=RJMCMCConfig,description="RJMCMC-specific settings.",)
 
     @model_validator(mode="after")
     def validate_chronology(self):

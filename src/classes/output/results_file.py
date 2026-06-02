@@ -408,10 +408,22 @@ class output_file:
             ratios[i] = self.output_result_get_meanTrap((i+1))[-1]
 
         return ratios
-    def get_sigmas(self, exp_num:int = 1):
+    
+    def get_sigmas(self,exp_num:int=1):
+        with h5py.File(self.name,"a") as f:    
+            reps = f["inputs"].attrs["repetitions"] 
+        stds = np.zeros(exp_num)
+        for i in range(exp_num):
+            err = self.output_result_get_stdTrap((i+1)) 
+            stds[i] = np.sqrt(np.sum(np.power(err,2))/err.size)
+        
+        stds /= np.sqrt(reps)
+        return stds
+
+    def get_final_sigmas(self, exp_num:int = 1):
         stds = np.zeros(exp_num)
         for i in range(exp_num): 
-            stds[i] = self.output_result_get_meanTrap((i+1))[-1]
+            stds[i] = self.output_result_get_stdTrap((i+1))[-1]
 
         return stds
 

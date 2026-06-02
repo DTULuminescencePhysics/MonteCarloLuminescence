@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 from pathlib import Path
 from PySide6.QtWidgets import QComboBox, QWidget, QToolBox, QVBoxLayout, QInputDialog, QPushButton, QMessageBox
 from PySide6.QtCore import Signal, Slot, QTimer
@@ -29,6 +30,7 @@ class setupWindow(QToolBox, Ui_Setup):
         self.currentpage = self.currentIndex()
         set_toggle(self.boundary)
         set_toggle(self.tempUnit)
+        set_toggle(self.method)
         self.tempUnit.toggled.connect(self.tempProfileTUnitSet)
         self.timeUnit.currentIndexChanged.connect(self.tempProfiletimeUnitSet)
         self.tempProfileKind.currentIndexChanged.connect(self.tempProfileKindSet)
@@ -43,16 +45,20 @@ class setupWindow(QToolBox, Ui_Setup):
         self.setup_expInfo()
         self.setup_tempInfo()
         self.setup_physInfo()
+        self.setup_chronInfo()
         self.tempUnit.toggled.connect(self.tempPlotter.set_y_units)
         self.timeUnit.currentIndexChanged.connect(self.tempPlotter.set_x_units)
         self.timeTemperatureListWidget.profile_changed.connect(self.tempPlotter.update_plot)
         self.exp_name_box.currentIndexChanged.connect(self.load_previousConfig)
         self.tempBox.currentIndexChanged.connect(self.load_previousTemp)
         self.physBox.currentIndexChanged.connect(self.load_previousPhys)
+        self.chronBox.currentIndexChanged.connect(self.load_previousChronProfile)
 
         self.expEditButton.toggled.connect(self.loadedExpProfileEdit)
         self.tempEditProfileButton.toggled.connect(self.loadedTempProfileEdit)
         self.physEditCheck.toggled.connect(self.loadedPhysProfileEdit)
+        self.chronEditButton.toggled.connect(self.loadedChronProfileEdit)
+
         self.duration.valueChanged.connect(self.timeTemperatureListWidget.set_duration)
         self.startT.valueChanged.connect(self.timeTemperatureListWidget.set_start_temperature)
         self.endT.valueChanged.connect(self.timeTemperatureListWidget.set_end_temperature)
@@ -60,10 +66,18 @@ class setupWindow(QToolBox, Ui_Setup):
         self.startT.valueChanged.connect(self.dT_update)
         self.duration.valueChanged.connect(self.dT_update)
         self.dT.valueChanged.connect(self.dT_changed)
+        
         self.b.valueChanged.connect(self.bandTailBchange)
+        self.b_scientific.valueChanged.connect(self.bandTailBchange)
         self.alphaGS.valueChanged.connect(self.bandTailAlphachange)
+        self.alphaGS_scientific.valueChanged.connect(self.bandTailAlphachange)
         self.currentChanged.connect(self.change_current_page)
-       
+
+        self.method.toggled.connect(self.chronMethodToggled)
+        self.burn_in.toggled.connect(self.burnInToggled)
+        self.overall_check.toggled.connect(self.overallToggled)
+        self.individual_check.toggled.connect(self.individualToggled)
+
 
     def change_current_page(self, new_page:int):
         if self.currentpage == 0:
@@ -79,12 +93,9 @@ class setupWindow(QToolBox, Ui_Setup):
             if checker: 
                 self.currentpage = new_page
         elif self.currentpage == 3: 
-            checker = False
+            checker = self.get_chronInfoToConfig()
             if checker: 
-                # self.pageCleared.emit(0,self..text()) 
                 self.currentpage = new_page
-            else:
-                self.pageCleared.emit(0,None) 
        
         self.page.emit(self.currentpage) 
         self.blockSignals(True)
@@ -98,10 +109,26 @@ class setupWindow(QToolBox, Ui_Setup):
 
         return available
     
+    def split_scientific(self, value: float) -> tuple[float, int]:
+        if value == 0:
+            return 0.0, 0
+
+        sign = -1 if value < 0 else 1
+        abs_value = abs(value)
+        exponent = math.floor(math.log10(abs_value))
+        mantissa = abs_value / (10 ** exponent)
+
+        return sign * mantissa, exponent
+
+    def combine_scientific(self, mantissa: float, exponent: int) -> float:
+        return mantissa * (10 ** exponent)
+
+    
     ##########################################################################################
     def setup_expInfo(self): 
         self.userInputLists = self.set_drop_down_options(self.exp_name_box, USER_CONFIG_DIR)
         self.expEditButton.hide()
+        self.expEditButton.setChecked(False)
         self.set_expInfoFromConfig()
 
     def set_expInfoFromConfig(self,): 
@@ -186,6 +213,7 @@ class setupWindow(QToolBox, Ui_Setup):
             self.setupProf = SetupConfig()
             self.expInputWidget.setEnabled(True)
             self.expEditButton.hide()
+            self.expEditButton.setChecked(False)
         else:
             self.expEditButton.show()
             self.expEditButton.setChecked(False)
@@ -200,8 +228,8 @@ class setupWindow(QToolBox, Ui_Setup):
             self.tempBox.setCurrentIndex(temp_index+1)
             try:
                 chron = (data["defaults"][2]["/chronology"])
-                # chron_index = self.chronLists.index(temp)
-                # self.chronBox.setCurrentIndex(chron_index+1)
+                chron_index = self.chronInputsList.index(chron)
+                self.chronBox.setCurrentIndex(chron_index+1)
             except:
                 chron = None
             self.setupProf = SetupConfig.model_validate(data["setup"])
@@ -228,6 +256,7 @@ class setupWindow(QToolBox, Ui_Setup):
         self.tempProfileKindSet(0)
         self.TempInputWidget.setEnabled(True)
         self.tempEditProfileButton.hide()
+        self.tempEditProfileButton.setChecked(False)
         self.tempUnit.setChecked(True)
         self.userTempLists = self.set_drop_down_options(self.tempBox, TEMP_DIR)
         self.timeTemperatureListWidget.hide()
@@ -421,6 +450,7 @@ class setupWindow(QToolBox, Ui_Setup):
             self.celsiusSymbol.hide()
             self.celsiusSymbol2.hide()
             self.celsiusSymbol3.hide()
+        self.chronTempUnits(cel)
     
     def tempProfiletimeUnitSet(self,choice:int):
         self.timeTemperatureListWidget.set_t_units(choice)
@@ -451,6 +481,7 @@ class setupWindow(QToolBox, Ui_Setup):
             self.tempProf = TemperatureProfile()
             self.TempInputWidget.setEnabled(True)
             self.tempEditProfileButton.hide()
+            self.tempEditProfileButton.setChecked(False)
         else: 
             self.TempInputWidget.setEnabled(False)
             self.tempEditProfileButton.show()
@@ -486,6 +517,7 @@ class setupWindow(QToolBox, Ui_Setup):
         self.userPhysLists = self.set_drop_down_options(self.physBox, PHYS_DIR)
         self.physInputWidget.setEnabled(True)
         self.physEditCheck.hide()
+        self.physEditCheck.setChecked(False)
         self.useDefaultCrystal.setChecked(True)
         self.rhoselect(False)
         self.fillingWidget.setEnabled(False)
@@ -526,32 +558,43 @@ class setupWindow(QToolBox, Ui_Setup):
     def bandTailB(self,select:bool): 
         if select: 
             b = self.b.value()
+            bexp = self.b_scientific.value()
             self.b_BT.setValue(b)
+            self.b_BT_scientific.setValue(bexp)
             self.b_BT.setEnabled(False)
+            self.b_BT_scientific.setEnabled(False)
         else:
             self.b_BT.setEnabled(True)
+            self.b_BT_scientific.setEnabled(True)
+
     
-    def bandTailBchange(self,b:float):
-        if self.useDefault_b_BT.isChecked():
-            self.b_BT.setValue(b)
+    def bandTailBchange(self,):
+        self.bandTailB(self.useDefault_b_BT.isChecked())
+       
 
     def bandTailalpha(self,select:bool): 
         if select: 
             a = self.alphaGS.value()
+            aexp = self.alphaGS_scientific.value()
             self.alpha_BT.setValue(a)
+            self.alpha_BT_scientific.setValue(aexp)
             self.alpha_BT.setEnabled(False)
+            self.alpha_BT_scientific.setEnabled(False)
         else:
             self.alpha_BT.setEnabled(True)
+            self.alpha_BT_scientific.setEnabled(True)
 
-    def bandTailAlphachange(self,alpha:float):
-        if self.use_default_alpha_BT.isChecked():
-            self.alpha_BT.setValue(alpha)
+
+    def bandTailAlphachange(self):
+        self.bandTailalpha(self.use_default_alpha_BT.isChecked())
+    
     
     def load_previousPhys(self, listnum: int):
         if listnum == 0: 
             self.physProf = PhysicsProfile()
             self.physInputWidget.setEnabled(True)
             self.physEditCheck.hide()
+            self.physEditCheck.setChecked(False)
         else:
             self.physEditCheck.show()
             self.physEditCheck.setChecked(False)
@@ -578,10 +621,14 @@ class setupWindow(QToolBox, Ui_Setup):
             self.defaultDim(False)
         
         if self.physProf.rho is not None:
-            self.densityval.setValue(self.physProf.rho)
+            density, dexp = self.split_scientific(self.physProf.rho)
+            self.densityval.setValue(density)
+            self.density_scientific.setValue(dexp)
             self.densityCheck.setChecked(False)
         elif self.physProf.urho is not None:
-            self.densityval.setValue(self.physProf.urho)
+            density, dexp = self.split_scientific(self.physProf.urho)
+            self.densityval.setValue(density)
+            self.density_scientific.setValue(dexp)
             self.densityCheck.setChecked(True)
         
         self.eLoc.setValue(self.physProf.E_loc)
@@ -615,28 +662,44 @@ class setupWindow(QToolBox, Ui_Setup):
         self.tunnelEnable.setChecked(self.physProf.enable_tunneling)
         
         if self.physProf.b is not None: 
-            self.b.setValue(self.physProf.b)
-        else: 
-            self.b.setValue(1e12)
+            b, bexp = self.split_scientific(self.physProf.b)
+            self.b.setValue(b)
+            self.b_scientific.setValue(bexp)
+        else:
+            self.b.setValue(1.0)
+            self.b_scientific.setValue(12) 
+           
 
-        if self.physProf.alpha_GS is not None: 
-            self.alphaGS.setValue(self.physProf.alpha_GS)
+        if self.physProf.alpha_GS is not None:
+            alpha, alphaE = self.split_scientific(self.physProf.alpha_GS) 
+            self.alphaGS.setValue(alpha)
+            self.alphaGS_scientific.setValue(alphaE)
         else:
-            self.alphaGS.setValue(0)
+            self.alphaGS.setValue(9)
+            self.alphaGS_scientific.setValue(12)
         
-        if self.physProf.alpha_ES is not None: 
-            self.alphaEX.setValue(self.physProf.alpha_ES)
+        if self.physProf.alpha_ES is not None:
+            alpha, alphaE = self.split_scientific(self.physProf.alpha_ES) 
+            self.alphaEX.setValue(alpha)
+            self.alphaEX_scientific.setValue(alphaE)
         else:
-            self.alphaEX.setValue(0)
+            self.alphaEX.setValue(9)
+            self.alphaEX_scientific.setValue(9)
+            
 
         self.retrapRatio.setValue(self.physProf.R_tun)
         self.VRH.setChecked(self.physProf.VRH)
 
         self.cndctionEnable.setChecked(self.physProf.enable_cb)
-        if self.physProf.s is not None: 
-            self.s.setValue(self.physProf.s)
+
+        if self.physProf.s is not None:
+            s, secp = self.split_scientific(self.physProf.s) 
+            self.s.setValue(s)
+            self.s_scientific.setValue(secp)
         else: 
-            self.s.setValue(1e12)
+            self.s.setValue(1.0)
+            self.s_scientific.setValue(12)
+
         if self.physProf.mu is not None: 
             self.mu.setValue(self.physProf.mu)
         else:
@@ -645,18 +708,24 @@ class setupWindow(QToolBox, Ui_Setup):
         self.RCB.setValue(self.physProf.R_CB)
         self.bandTailenable.setChecked(self.physProf.enable_BT)
         self.retrap_mask_factor.setValue(self.physProf.retrap_mask_factor)
+        
         if self.physProf.shallow_deep_ratio is not None:
             self.shallow_deep_ratio.setValue(self.physProf.shallow_deep_ratio)
+        
         if self.physProf.threshold_depth is not None:
             self.threshold_depth.setValue(self.physProf.threshold_depth)
+        
         if self.physProf.E_u is not None:
             self.E_u.setValue(self.physProf.E_u)
+        
         if self.physProf.b_BT is None: 
             self.useDefault_b_BT.setChecked(True)
             self.bandTailB(True)
         else:
             self.useDefault_b_BT.setChecked(False)
-            self.b_BT.setValue(self.physProf.b_BT)
+            b_bT, b_BTexp = self.split_scientific(self.physProf.b_BT)
+            self.b_BT.setValue(b_bT)
+            self.b_BT_scientific.setValue(b_BTexp)
             self.bandTailB(False)
 
         if self.physProf.alpha_BT is None: 
@@ -664,7 +733,9 @@ class setupWindow(QToolBox, Ui_Setup):
             self.bandTailalpha(True)
         else:
             self.use_default_alpha_BT.setChecked(False)
-            self.alpha_BT.setValue(self.physProf.alpha_BT)
+            alphags, alphaexp = self.split_scientific(self.physProf.alpha_BT)
+            self.alpha_BT.setValue(alphags)
+            self.alpha_BT_scientific.setValue(alphaexp)
             self.bandTailalpha(False)
 
             
@@ -696,10 +767,10 @@ class setupWindow(QToolBox, Ui_Setup):
             dimension = self.crystalDimension.value() * scale
 
         if self.densityCheck.isChecked():
+            urho = self.combine_scientific(self.densityval.value(),self.density_scientific.value())
             rho = None
-            urho = self.densityval.value()
         else:
-            rho = self.densityval.value()
+            rho = self.combine_scientific(self.densityval.value(),self.density_scientific.value())
             urho = None
 
         dd_unit_map = {
@@ -716,9 +787,13 @@ class setupWindow(QToolBox, Ui_Setup):
         enable_tunneling = self.tunnelEnable.isChecked()
         enable_cb = self.cndctionEnable.isChecked()
         enable_BT = self.bandTailenable.isChecked()
-        
-        b_BT = self.b.value() if self.useDefault_b_BT.isChecked() else self.b_BT.value()
-        alpha_BT = self.alphaGS.value() if self.use_default_alpha_BT.isChecked() else self.alpha_BT.value()
+        b = self.combine_scientific(self.b.value(),self.b_scientific.value())
+        alphaGS = self.combine_scientific(self.alphaGS.value(),self.alphaGS_scientific.value())
+        alphaEX = self.combine_scientific(self.alphaEX.value(),self.alphaEX_scientific.value())
+        s = self.combine_scientific(self.s.value(),self.s_scientific.value())
+
+        b_BT = b if self.useDefault_b_BT.isChecked() else self.combine_scientific(self.b_BT.value(),self.b_BT_scientific.value())
+        alpha_BT = alphaGS if self.use_default_alpha_BT.isChecked() else self.combine_scientific(self.alpha_BT.value(),self.alpha_BT_scientific.value())
         shallow_deep_ratio = None if not enable_BT else self.shallow_deep_ratio.value()
         threshold_depth = None if not enable_BT else self.threshold_depth.value()
         E_u = None if not enable_BT else self.E_u.value()
@@ -742,13 +817,13 @@ class setupWindow(QToolBox, Ui_Setup):
             "combine_when_fill": self.combine_when_fill.isChecked(),
             "recom_pre_fill": self.recom_pre_fill.value(),
             "enable_tunneling": enable_tunneling,
-            "b": self.b.value(),
-            "alpha_GS": self.alphaGS.value(),
-            "alpha_ES": self.alphaEX.value(),
+            "b": b,
+            "alpha_GS": alphaGS,
+            "alpha_ES": alphaEX,
             "R_tun": self.retrapRatio.value(),
             "VRH": self.VRH.isChecked(),
             "enable_cb": enable_cb,
-            "s": self.s.value(),
+            "s": s,
             "mu": self.mu.value(),
             "R_CB": self.RCB.value(),
             "retrap_mask_factor": self.retrap_mask_factor.value(),
@@ -802,6 +877,355 @@ class setupWindow(QToolBox, Ui_Setup):
         else:
             self.load_previousPhys(self.physBox.currentIndex()) 
             self.physInputWidget.setEnabled(False)
+    ##########################################################################################
+    
+    def setup_chronInfo(self,):
+        self.chronInputsList = self.set_drop_down_options(self.chronBox, CHRON_DIR)
+        self.chronEditButton.hide()
+        self.chronEditButton.setChecked(False)
+        self.chronTempUnits(True)
+        self.set_chronInfoFromConfig() 
+    
+    def set_chronInfoFromConfig(self,):
+        if self.chronProf.method == "RJMCMC":
+            self.method.setChecked(True)
+        else: 
+            self.method.setChecked(False)
+        
+        self.chronIterations.setValue(self.chronProf.iters)
+        self.T_Target.setValue(self.chronProf.T_Target)
+        self.T_tolerance.setValue(self.chronProf.T_tolerance)
+        self.T0_lo.setValue(self.chronProf.T0_lo)
+        self.T0_hi.setValue(self.chronProf.T0_hi)
+        if self.chronProf.monotonic == "free":
+            self.monotonic.setCurrentIndex(0)
+        elif self.chronProf.monotonic == "increasing":
+            self.monotonic.setCurrentIndex(1)
+        elif self.chronProf.monotonic == "decreasing":
+            self.monotonic.setCurrentIndex(2)
+
+        self.min_internal.setValue(self.chronProf.min_internal)
+        self.max_internal.setValue(self.chronProf.max_internal)
+
+        if self.chronProf.method == "RJMCMC":
+            self.RJMCMCwidget.show()
+        else:
+            self.RJMCMCwidget.hide()   
+                
+        if self.chronProf.rjmcmc.logLikeSigma is not None:
+            self.logLikeSigma.setValue(self.chronProf.rjmcmc.logLikeSigma)
+        self.p_birth.setValue(self.chronProf.rjmcmc.parameters.p_birth)
+        self.p_death.setValue(self.chronProf.rjmcmc.parameters.p_death)
+        self.p_move_times.setValue(self.chronProf.rjmcmc.parameters.p_move_time)
+        self.p_move_temp.setValue(self.chronProf.rjmcmc.parameters.p_move_temp)
+        self.p_move_endpoints.setValue(self.chronProf.rjmcmc.parameters.p_move_endpoints)
+        self.sigma_birth.setValue(self.chronProf.rjmcmc.parameters.sigma_birth)
+        self.sigma_t_birth.setValue(self.chronProf.rjmcmc.parameters.sigma_t_birth)
+        self.sigma_temp.setValue(self.chronProf.rjmcmc.parameters.sigma_temp)
+        self.sigma_time_frac.setValue(self.chronProf.rjmcmc.parameters.sigma_time_frac)
+        self.sigma_endpoints.setValue(self.chronProf.rjmcmc.parameters.sigma_endpoints)
+        if self.chronProf.rjmcmc.burn_in.burn: 
+            self.burn_in.setChecked(True)
+            self.BurnInWidget.show()
+        else:
+            self.BurnInWidget.hide()
+        
+        self.max_steps.setValue(self.chronProf.rjmcmc.burn_in.max_steps)
+        self.window.setValue(self.chronProf.rjmcmc.burn_in.window)
+        self.patience_windows.setValue(self.chronProf.rjmcmc.burn_in.patience_windows)
+
+        self.adjustment_factor.setValue(self.chronProf.rjmcmc.burn_in.adjustment_factor) 
+        self.eta_prob.setValue(self.chronProf.rjmcmc.burn_in.eta_prob) 
+        self.eta_sigma.setValue(self.chronProf.rjmcmc.burn_in.eta_sigma)
+        if self.chronProf.rjmcmc.burn_in.move_bounds is not None:
+            self.movePMin.setValue(self.chronProf.rjmcmc.burn_in.move_bounds[0])
+            self.moveP_max.setValue(self.chronProf.rjmcmc.burn_in.move_bounds[1])
+        
+        self.overall_check.setChecked(self.chronProf.rjmcmc.burn_in.overall_check)
+        self.overallToggled(self.chronProf.rjmcmc.burn_in.overall_check)
+        self.individual_check.setChecked(self.chronProf.rjmcmc.burn_in.individual_check)
+        self.individualToggled(self.chronProf.rjmcmc.burn_in.individual_check)
+        self.verbose.setChecked(self.chronProf.rjmcmc.burn_in.verbose)
+
+        if self.chronProf.rjmcmc.burn_in.overall_accept_target is not None:
+            self.overall_min.setValue(self.chronProf.rjmcmc.burn_in.overall_accept_target[0])
+            self.overall_max.setValue(self.chronProf.rjmcmc.burn_in.overall_accept_target[1])
+    
+        if self.chronProf.rjmcmc.burn_in.birth_accept_target is not None:
+            self.birthMin.setValue(self.chronProf.rjmcmc.burn_in.birth_accept_target[0])
+            self.birthMax.setValue(self.chronProf.rjmcmc.burn_in.birth_accept_target[1])
+        if self.chronProf.rjmcmc.burn_in.death_accept_target is not None:
+            self.deathMin.setValue(self.chronProf.rjmcmc.burn_in.death_accept_target[0])
+            self.deathMax.setValue(self.chronProf.rjmcmc.burn_in.death_accept_target[1])
+        if self.chronProf.rjmcmc.burn_in.move_time_accept_target is not None:
+            self.timeMin.setValue(self.chronProf.rjmcmc.burn_in.move_time_accept_target[0])
+            self.timeMax.setValue(self.chronProf.rjmcmc.burn_in.move_time_accept_target[1])
+        if self.chronProf.rjmcmc.burn_in.move_temp_accept_target is not None:
+            self.tempMin.setValue(self.chronProf.rjmcmc.burn_in.move_temp_accept_target[0])
+            self.tempMax.setValue(self.chronProf.rjmcmc.burn_in.move_temp_accept_target[1])
+        if self.chronProf.rjmcmc.burn_in.move_endpoints_accept_target is not None:
+            self.endpointMin.setValue(self.chronProf.rjmcmc.burn_in.move_endpoints_accept_target[0])
+            self.endpointMax.setValue(self.chronProf.rjmcmc.burn_in.move_endpoints_accept_target[1])
+
+        if self.chronProf.rjmcmc.burn_in.sigma_birth_bounds is not None:
+            self.sigmabirthtempMax.setValue(self.chronProf.rjmcmc.burn_in.sigma_birth_bounds[1])
+            self.sigmabirthtempMin.setValue(self.chronProf.rjmcmc.burn_in.sigma_birth_bounds[0])
+        if self.chronProf.rjmcmc.burn_in.sigma_birth_t_bounds is not None:
+            self.sigmabirthtimeMax.setValue(self.chronProf.rjmcmc.burn_in.sigma_birth_t_bounds[1])
+            self.sigmabirthtimeMin.setValue(self.chronProf.rjmcmc.burn_in.sigma_birth_t_bounds[0])
+        if self.chronProf.rjmcmc.burn_in.sigma_time_bounds is not None:
+            self.sigmatimeMin.setValue(self.chronProf.rjmcmc.burn_in.sigma_time_bounds[0])
+            self.sigmatimeMax.setValue(self.chronProf.rjmcmc.burn_in.sigma_time_bounds[1])
+        if self.chronProf.rjmcmc.burn_in.sigma_temp_bounds is not None:
+            self.sigmaTempMin.setValue(self.chronProf.rjmcmc.burn_in.sigma_temp_bounds[0])
+            self.sigmatempMax.setValue(self.chronProf.rjmcmc.burn_in.sigma_temp_bounds[1])
+        if self.chronProf.rjmcmc.burn_in.sigma_endpoints_bounds is not None:
+            self.sigmaEndpointMax.setValue(self.chronProf.rjmcmc.burn_in.sigma_endpoints_bounds[1])
+            self.sigmaEndpointMin.setValue(self.chronProf.rjmcmc.burn_in.sigma_endpoints_bounds[0])
+
+    def get_chronInfoToConfig(self) -> bool:
+        if self.chronName.text() == "":
+            QMessageBox.warning(
+                self,
+                "No Chronology profile Name",
+                "Chronology profile needs a file name. Enter one now to proceed"
+            )
+            self.pageCleared.emit(3, None)
+            return False
+
+        method = "RJMCMC" if self.method.isChecked() else "MCMC"
+
+        monotonic_map = {
+            0: "free",
+            1: "increasing",
+            2: "decreasing",
+        }
+
+        move_bounds = None
+        if self.individual_check.isChecked():
+            move_bounds = [self.movePMin.value(), self.moveP_max.value()]
+
+        overall_accept_target = None
+        if self.overall_check.isChecked():
+            overall_accept_target = [self.overall_min.value(), self.overall_max.value()]
+
+        birth_accept_target = None
+        death_accept_target = None
+        move_time_accept_target = None
+        move_temp_accept_target = None
+        move_endpoints_accept_target = None
+        sigma_birth_bounds = None
+        sigma_birth_t_bounds = None
+        sigma_time_bounds = None
+        sigma_temp_bounds = None
+        sigma_endpoints_bounds = None
+
+        if self.individual_check.isChecked():
+            birth_accept_target = [self.birthMin.value(), self.birthMax.value()]
+            death_accept_target = [self.deathMin.value(), self.deathMax.value()]
+            move_time_accept_target = [self.timeMin.value(), self.timeMax.value()]
+            move_temp_accept_target = [self.tempMin.value(), self.tempMax.value()]
+            move_endpoints_accept_target = [self.endpointMin.value(), self.endpointMax.value()]
+            sigma_birth_bounds = [self.sigmabirthtempMin.value(), self.sigmabirthtempMax.value()]
+            sigma_birth_t_bounds = [self.sigmabirthtimeMin.value(), self.sigmabirthtimeMax.value()]
+            sigma_time_bounds = [self.sigmatimeMin.value(), self.sigmatimeMax.value()]
+            sigma_temp_bounds = [self.sigmaTempMin.value(), self.sigmatempMax.value()]
+            sigma_endpoints_bounds = [self.sigmaEndpointMin.value(), self.sigmaEndpointMax.value()]
+
+        data = {
+            "method": method,
+            "iters": self.chronIterations.value(),
+            "T_Target": self.T_Target.value(),
+            "T_tolerance": self.T_tolerance.value(),
+            "T0_lo": self.T0_lo.value(),
+            "T0_hi": self.T0_hi.value(),
+            "monotonic": monotonic_map.get(self.monotonic.currentIndex(), "free"),
+            "min_internal": self.min_internal.value(),
+            "max_internal": self.max_internal.value(),
+            "rjmcmc": {
+                "logLikeSigma": self.logLikeSigma.value(),
+                "parameters": {
+                    "p_birth": self.p_birth.value(),
+                    "p_death": self.p_death.value(),
+                    "p_move_time": self.p_move_times.value(),
+                    "p_move_temp": self.p_move_temp.value(),
+                    "p_move_endpoints": self.p_move_endpoints.value(),
+                    "sigma_birth": self.sigma_birth.value(),
+                    "sigma_t_birth": self.sigma_t_birth.value(),
+                    "sigma_temp": self.sigma_temp.value(),
+                    "sigma_time_frac": self.sigma_time_frac.value(),
+                    "sigma_endpoints": self.sigma_endpoints.value(),
+                },
+                "burn_in": {
+                    "burn": self.burn_in.isChecked(),
+                    "max_steps": self.max_steps.value(),
+                    "window": self.window.value(),
+                    "patience_windows": self.patience_windows.value(),
+                    "adjustment_factor": self.adjustment_factor.value(),
+                    "eta_prob": self.eta_prob.value(),
+                    "eta_sigma": self.eta_sigma.value(),
+                    "move_bounds": move_bounds,
+                    "overall_check": self.overall_check.isChecked(),
+                    "individual_check": self.individual_check.isChecked(),
+                    "verbose": self.verbose.isChecked(),
+                    "overall_accept_target": overall_accept_target,
+                    "birth_accept_target": birth_accept_target,
+                    "death_accept_target": death_accept_target,
+                    "move_time_accept_target": move_time_accept_target,
+                    "move_temp_accept_target": move_temp_accept_target,
+                    "move_endpoints_accept_target": move_endpoints_accept_target,
+                    "sigma_birth_bounds": sigma_birth_bounds,
+                    "sigma_birth_t_bounds": sigma_birth_t_bounds,
+                    "sigma_time_bounds": sigma_time_bounds,
+                    "sigma_temp_bounds": sigma_temp_bounds,
+                    "sigma_endpoints_bounds": sigma_endpoints_bounds,
+                },
+            },
+        }
+
+        try:
+            self.chronProf = ChronologyProfile.model_validate(data)
+            self.pageCleared.emit(3, self.chronName.text())
+            return True
+
+        except ValidationError as exc:
+            messages = []
+            for error in exc.errors():
+                field = ".".join(str(part) for part in error.get("loc", []))
+                message = error.get("msg", "Invalid value")
+                if field:
+                    messages.append(f"{field}: {message}")
+                else:
+                    messages.append(message)
+
+            QMessageBox.warning(
+                self,
+                "Invalid chronology profile",
+                "Please fix the following chronology values:\n\n" + "\n".join(messages),
+            )
+            self.pageCleared.emit(3, None)
+            return False
+
+        except ValueError as exc:
+            QMessageBox.warning(
+                self,
+                "Invalid chronology profile",
+                str(exc),
+            )
+            self.pageCleared.emit(3, None)
+            return False
+
+
+
+    def burnInToggled(self, checked:bool):
+        if checked: 
+            self.BurnInWidget.show()
+        else:
+            self.BurnInWidget.hide() 
+
+    def overallToggled(self, checked:bool):
+        if checked: 
+            self.overall_min.setEnabled(True)
+            self.overall_max.setEnabled(True)
+        else:
+            self.overall_min.setEnabled(False)
+            self.overall_max.setEnabled(False)
+    
+    def individualToggled(self,checked:bool):
+        if checked: 
+            self.birthMin.setEnabled(True)
+            self.birthMax.setEnabled(True)
+            self.deathMin.setEnabled(True)
+            self.deathMax.setEnabled(True)
+            self.timeMin.setEnabled(True)
+            self.timeMax.setEnabled(True)
+            self.tempMin.setEnabled(True)
+            self.tempMax.setEnabled(True)
+            self.endpointMin.setEnabled(True)
+            self.endpointMax.setEnabled(True)
+            self.sigmabirthtempMax.setEnabled(True)
+            self.sigmabirthtempMin.setEnabled(True)
+            self.sigmabirthtimeMax.setEnabled(True)
+            self.sigmabirthtimeMin.setEnabled(True)
+            self.sigmatimeMin.setEnabled(True)
+            self.sigmatimeMax.setEnabled(True)
+            self.sigmaTempMin.setEnabled(True)
+            self.sigmatempMax.setEnabled(True)
+            self.sigmaEndpointMax.setEnabled(True)
+            self.sigmaEndpointMin.setEnabled(True)
+        else:
+            self.birthMin.setEnabled(False)
+            self.birthMax.setEnabled(False)
+            self.deathMin.setEnabled(False)
+            self.deathMax.setEnabled(False)
+            self.timeMin.setEnabled(False)
+            self.timeMax.setEnabled(False)
+            self.tempMin.setEnabled(False)
+            self.tempMax.setEnabled(False)
+            self.endpointMin.setEnabled(False)
+            self.endpointMax.setEnabled(False)
+            self.sigmabirthtempMax.setEnabled(False)
+            self.sigmabirthtempMin.setEnabled(False)
+            self.sigmabirthtimeMax.setEnabled(False)
+            self.sigmabirthtimeMin.setEnabled(False)
+            self.sigmatimeMin.setEnabled(False)
+            self.sigmatimeMax.setEnabled(False)
+            self.sigmaTempMin.setEnabled(False)
+            self.sigmatempMax.setEnabled(False)
+            self.sigmaEndpointMax.setEnabled(False)
+            self.sigmaEndpointMin.setEnabled(False)
+
+    def chronMethodToggled(self, checked:bool):
+        if checked:
+            self.RJMCMCwidget.show()
+        else:
+            self.RJMCMCwidget.hide()
+
+    def chronTempUnits(self,cel:bool):
+        if cel: 
+            self.chronDegree.show()
+            self.chronDegree1.show()
+            self.chronDegree2.show()
+            self.chronKelvin.hide()
+            self.chronKelvin1.hide()
+            self.chronKelvin2.hide()
+        else: 
+            self.chronDegree.hide()
+            self.chronDegree1.hide()
+            self.chronDegree2.hide()
+            self.chronKelvin.show()
+            self.chronKelvin1.show()
+            self.chronKelvin2.show()
+
+
+    def load_previousChronProfile(self, listnum:int):
+        if listnum == 0: 
+            self.chronProf = ChronologyProfile()
+            self.chronWidget.setEnabled(True)
+            self.chronEditButton.hide()
+            self.chronEditButton.setChecked(False)
+        else: 
+            self.chronWidget.setEnabled(False)
+            self.chronEditButton.show()
+            self.chronEditButton.setChecked(False)
+            profile_name = self.chronInputsList[listnum-1]
+            self.chronName.setText(str(profile_name))
+            data = load_profile(profile_name, CHRON_DIR)
+            self.chronProf = ChronologyProfile.model_validate(data)
+        
+        self.set_chronInfoFromConfig()
+        
+    def loadedChronProfileEdit(self, edit:bool):
+        if edit:
+            self.chronWidget.setEnabled(True)
+            text = self.chronName.text()
+            self.chronName.setText(f"{text} copy")
+        else:
+            self.load_previousChronProfile(self.chronBox.currentIndex())
+            self.chronWidget.setEnabled(False)
+        
+
+
 
 class FwdBckButtons(QWidget, Ui_buttons):
     pageSelect = Signal(int)
@@ -906,7 +1330,7 @@ class fullSetupWindow(QWidget):
             return False 
 
         if chronCheck: 
-            checker =  True #self.setWindow.get_chronInfoToConfig()
+            checker = self.setWindow.get_chronInfoToConfig()
             if not checker:
                 self.changePage(3)
                 return False 
@@ -931,13 +1355,13 @@ class fullSetupWindow(QWidget):
         return path, safe_name
 
     
-    def profile_save(self, name: str, directory: str | Path, profile, exclude_none: bool = False,) -> str:
+    def profile_save(self, name: str, directory: str | Path, profile, exclude_none: bool = False, tocheck:bool = False) -> str:
 
         directory = Path(directory)
         # directory.mkdir(parents=True, exist_ok=True)
         safe_name = name.removesuffix(".yaml")
         path = directory / f"{safe_name}.yaml"
-        if path.exists():
+        if path.exists() and tocheck:
             path, safe_name = self.warning(safe_name,directory)
            
         data = profile.model_dump(exclude_none=exclude_none)
@@ -950,11 +1374,12 @@ class fullSetupWindow(QWidget):
         safe_name = self.buttons.experimentName.removesuffix(".yaml")
         path = Path(USER_CONFIG_DIR,f"{safe_name}.yaml")
         if path.exists():
-            path, safe_name = self.warning(safe_name,USER_CONFIG_DIR)
+            if self.setWindow.expEditButton.isChecked():
+                path, safe_name = self.warning(safe_name,USER_CONFIG_DIR)
 
-
-        self.buttons.temperatureName = self.profile_save(self.buttons.temperatureName, TEMP_DIR, self.setWindow.tempProf, True)
-        self.buttons.physicsName = self.profile_save(self.buttons.physicsName, PHYS_DIR, self.setWindow.physProf, False)
+        
+        self.buttons.temperatureName = self.profile_save(self.buttons.temperatureName, TEMP_DIR, self.setWindow.tempProf, True, self.setWindow.tempEditProfileButton.isChecked())
+        self.buttons.physicsName = self.profile_save(self.buttons.physicsName, PHYS_DIR, self.setWindow.physProf, False, self.setWindow.physEditCheck.isChecked())
         defaults = [{"/physics": self.buttons.physicsName},{"/temp": self.buttons.temperatureName},]
         if self.buttons.chronNeeded: 
             self.buttons.chronName = self.profile_save(self.buttons.chronName, CHRON_DIR, self.setWindow.chronProf, False)

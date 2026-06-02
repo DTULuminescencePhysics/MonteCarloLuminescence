@@ -54,7 +54,7 @@ class _temp(_time, TimeTempProfile):
                 self.temps+=273.15
            
 
-        if self.times is not None and self.temps is not None and self.kind is "Other":
+        if self.times is not None and self.temps is not None and self.kind == "Other":
             if self.temps.size == 2 :
                 if self.temps[0] == self.temps[1]: 
                     self.kind = "Constant"

@@ -108,7 +108,6 @@ class log_likelihood:
     sigma: np.ndarray
 
     def _ll(self, pred:np.ndarray) -> float:
-        print(self.observation,self.sigma)
         return (np.sum(np.power(((self.observation-pred)/self.sigma),2))*(-0.5))
 
 
@@ -301,14 +300,14 @@ class ReverseJumpMCMC:
         if isinstance(self.MC_crystal, MCBase):
             result = np.zeros(1)
             self.MC_crystal.seed += self.MC_crystal.repetion
-            self.MC_crystal.crystal.set_temperature_profile("linearsteps",profile.times.copy(),profile.temps.copy())
+            self.MC_crystal.crystal.set_temperature_profile("Other",profile.times.copy(),profile.temps.copy())
             result[0] =  self.MC_crystal.thermochron_simulation(t,t_pcnt,h_pcnt)
         else: 
             result = np.zeros(len(self.MC_crystal))
             i=0
             for crystal in self.MC_crystal:
                 crystal.seed += crystal.repetion
-                crystal.set_temperature_profile("linearsteps",profile.times.copy(),profile.temps.copy())
+                crystal.set_temperature_profile("Other",profile.times.copy(),profile.temps.copy())
                 result[i] = crystal.thermochron_simulation(t,t_pcnt,h_pcnt)
                 i+=1 
         return result
@@ -348,7 +347,6 @@ class ReverseJumpMCMC:
 
         self.current = self._make_initial_profile()
         self.current_logp = self._log_target(self.current)
-
         if not np.isfinite(self.current_logp):
             raise ValueError("Initial profile has non-finite target_log_prob; check constraints or your target.")
         self._reset_move_stats()
