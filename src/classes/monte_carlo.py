@@ -66,7 +66,7 @@ def _run_single_rep(rep: int, crystal: Box, seed: int, t_pcnt: float,
             max_dt_cnt, max_dt, max_dt_time_chk = _max_dt_finder(
                 max_dt_cnt, crystal, max_dt, max_dt_time_chk
             )
-
+       
         # Clear stale event_code so any early-return path is recorded as no_event.
         crystal.event_code = 0
 
@@ -98,7 +98,7 @@ def _run_single_rep(rep: int, crystal: Box, seed: int, t_pcnt: float,
 
     results[rep, 1, :] /= crystal.N
     results.flush()
-    print(f"Rep {rep + 1} of {total_reps} completed")
+    # print(f"Rep {rep + 1} of {total_reps} completed")
 
 
 
@@ -167,46 +167,6 @@ class MCBase:
             self.max_dt_time_chk = self.crystal.duration*10
     
 
-    # def single_experiment_run(self, rep: int, t: float = 0.0,
-    #                           t_pcnt: float | None = None, h_pcnt:float | None = None) -> None:
-    #     if t_pcnt is None:
-    #         t_pcnt = self.trap_pcnt
-    #     if h_pcnt is None:
-    #         h_pcnt = self.hole_pcnt
-    #     self.crystal.lattice_setup((self.seed+rep), t_pcnt, h_pcnt, t=t)
-    #     i=0
-    #     self.results[rep,0,i] = self.crystal.time
-    #     self.results[rep,1,i] = self.crystal.t_cnt
-    #     self.results[rep,2,i] = 0
-    #     i+=1
-    #     self.max_dt_setter()
-    #     while self.crystal.time < self.crystal.duration:
-    #         if self.crystal.time >= self.max_dt_time_chk:
-    #             self.max_dt_finder()
-    #         dt = min(self.crystal.fill,self.crystal.fade,self.max_dt)
-    #         self.crystal.event_bool = True
-    #         if dt == self.crystal.fill:
-    #             self.crystal.trap_new_electron()
-    #             event = 0
-    #         elif dt == self.crystal.fade:
-    #             self.crystal.remove_electron()
-    #             event = 1
-    #         else:
-    #             self.crystal.event_bool = False
-    #             event = 0
-    #         self.crystal.timestep(dt)
-    #         if self.crystal.time >= self.crystal.duration:
-    #             self.results[rep,0,i] = self.crystal.duration
-    #             self.results[rep,1,i] = self.results[rep,1,i-1]
-    #             self.results[rep,2,i] = 0
-    #             i+=1
-    #             break
-    #         self.results[rep,0,i] = self.crystal.time
-    #         self.results[rep,1,i] = self.crystal.t_cnt
-    #         self.results[rep,2,i] = event
-    #         i+=1
-    #     self.results[rep,1,:] /= self.crystal.N
-    #     self.results.flush()
 
     def single_experiment_run_modified(self, rep: int, t: float = 0.0,
                               t_pcnt: float | None = None, h_pcnt:float | None = None) -> None:
@@ -272,7 +232,7 @@ class MCBase:
         if self.n_jobs == 1:
             for i in range(self.repetion):
                 self.single_experiment_run_modified(i, t, t_pcnt, h_pcnt)
-                print(f"Rep {i+1} of {self.repetion} completed")
+                # print(f"Rep {i+1} of {self.repetion} completed")
             return
 
         self.max_dt_setter()
@@ -330,7 +290,8 @@ class MCBase:
             os.remove(self.data_path)
 
 
-    def thermochron_simulation(self, t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None):
+    def inverse_modeling_simulation(self,t: float = 0.0, t_pcnt: float | None = None, h_pcnt:float | None = None):
+
         def last_non_nan(arr,div):
             valid = np.where(~np.isnan(arr))[0]
             if valid.size > 0:
@@ -342,30 +303,6 @@ class MCBase:
         self.results[:,:,:] = np.nan
         self.results.flush()
         self.monte_carlo_loop(t, t_pcnt, h_pcnt)
-        self.results.flush()
-
-        div = self.repetion
-        ratio = 0
-        for i in range(self.repetion):
-            ratio += last_non_nan(self.results[i, 1],div)
-        ratio /= div
-
-        return ratio
-
-
-    def inverse_modeling_simulation(self,):
-
-        def last_non_nan(arr,div):
-            valid = np.where(~np.isnan(arr))[0]
-            if valid.size > 0:
-                return arr[valid[-1]]
-            else:
-                div -= 1
-                return 0
-
-        self.results[:,:,:] = np.nan
-        self.results.flush()
-        self.monte_carlo_loop()
         self.results.flush()
 
         div = self.repetion

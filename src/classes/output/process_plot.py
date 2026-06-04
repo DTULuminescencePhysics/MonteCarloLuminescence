@@ -78,11 +78,27 @@ def compute_mean_fill_from_results(results, quantiles=(0.1, 0.5, 0.9)):
     return results
 
 
-def clean_up_results(results, crystal, resultsFile: output_file):
+def clean_up_results(results, crystal, resultsFile: output_file, experiment_step: int = 10):
+    """Build cumulative output experiments from intermediate MC results.
 
-    cleaned_results = compute_mean_fill_from_results(results)
-    cleaned_results["temperature"] = crystal.Tat(cleaned_results["timeSteps"])
-    resultsFile.output_data_build(cleaned_results)
+    For example, if ``results`` contains N repetitions and ``experiment_step`` is 10,
+    this writes experiments based on the first 10, 20, 30, ... repetitions, ending
+    with all N repetitions. If N is not an exact multiple of ``experiment_step``, the
+    final experiment still uses all N repetitions.
+    """
+    reps = results.shape[0]
+    if experiment_step <= 0:
+        raise ValueError("experiment_step must be a positive integer")
+
+    repetition_counts = list(range(experiment_step, reps + 1, experiment_step))
+    if not repetition_counts or repetition_counts[-1] != reps:
+        repetition_counts.append(reps)
+
+    for rep_count in repetition_counts:
+        cleaned_results = compute_mean_fill_from_results(results[:rep_count])
+        cleaned_results["temperature"] = crystal.Tat(cleaned_results["timeSteps"])
+        cleaned_results["repetitions"] = rep_count
+        resultsFile.output_data_build(cleaned_results)
    
 
 def plot_crystal(trap_coords: np.ndarray, hole_location: np.ndarray, nearest: np.ndarray, N: int, nearest_no=3):

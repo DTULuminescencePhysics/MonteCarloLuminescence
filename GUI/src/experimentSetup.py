@@ -1005,20 +1005,20 @@ class setupWindow(QToolBox, Ui_Setup):
         if self.individual_check.isChecked():
             move_bounds = [self.movePMin.value(), self.moveP_max.value()]
 
-        overall_accept_target = None
+        overall_accept_target = [0.15,0.45]
         if self.overall_check.isChecked():
             overall_accept_target = [self.overall_min.value(), self.overall_max.value()]
 
-        birth_accept_target = None
-        death_accept_target = None
-        move_time_accept_target = None
-        move_temp_accept_target = None
-        move_endpoints_accept_target = None
-        sigma_birth_bounds = None
-        sigma_birth_t_bounds = None
-        sigma_time_bounds = None
-        sigma_temp_bounds = None
-        sigma_endpoints_bounds = None
+        birth_accept_target = overall_accept_target
+        death_accept_target = overall_accept_target
+        move_time_accept_target = overall_accept_target
+        move_temp_accept_target = overall_accept_target
+        move_endpoints_accept_target = overall_accept_target
+        sigma_birth_bounds = [0,100]
+        sigma_birth_t_bounds = [0,100]
+        sigma_time_bounds = [0,100]
+        sigma_temp_bounds = [0,100]
+        sigma_endpoints_bounds = [0,100]
 
         if self.individual_check.isChecked():
             birth_accept_target = [self.birthMin.value(), self.birthMax.value()]

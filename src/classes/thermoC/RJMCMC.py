@@ -7,7 +7,7 @@ from src.errors import ErrorOutputHandler
 from src.classes.output.graph import chronologyPlot_running
 from src.classes.output.temp_results_file import chronology_results
 from typing import  Literal, Optional, Dict, List, Tuple
-
+from src.classes.constants import time_to_seconds
 
 MonotonicMode = Literal["free", "increasing", "decreasing"]
 
@@ -44,7 +44,15 @@ class TemperatureProfile:
     times: np.ndarray  
     temps: np.ndarray 
 
+    # def __post_init__(self) -> None:
+    #     self.round()
+
+    def round(self,) -> None:
+        self.times.round(decimals=5)
+        self.temps.round(decimals=5)
+
     def copy(self) -> "TemperatureProfile":
+        # self.round()
         return TemperatureProfile(self.times.copy(), self.temps.copy())
 
     @property
@@ -187,6 +195,7 @@ class ReverseJumpMCMC:
         if not (T_global_bounds.lo <= Tf_bounds.lo <= Tf_bounds.hi <= T_global_bounds.hi):
             pass
         
+        self.timeUnitmult = 1 
         self.iters = iters
         self.seed = seed
         
@@ -244,6 +253,7 @@ class ReverseJumpMCMC:
 
     def run(self) -> None:
         """Main function to carry out RJMCMC"""
+        
         for i in range(self.iters):
             self.step(i)
             if i%100 ==0:
@@ -253,9 +263,9 @@ class ReverseJumpMCMC:
         self.pl.save_close_tracker()
 
     def step(self, it: int|None = None) -> None:
+       
         move = self.rng.choice(self.move_names, p=self.move_probs)
         self.attempt_success[move]["selected"] += 1
-
         if move == "birth":
             prop, log_q_fwd, log_q_bwd = self._propose_birth()
         elif move == "death":
@@ -267,6 +277,7 @@ class ReverseJumpMCMC:
         else: 
             prop, log_q_fwd, log_q_bwd = self._propose_move_endpoints()
 
+
         if prop is None:
             return
 
@@ -276,8 +287,9 @@ class ReverseJumpMCMC:
         if not np.isfinite(prop_logp):
             return
        
-        log_alpha = (prop_logp - self.current_logp) + (log_q_bwd - log_q_fwd)
-        if np.log(self.rng.random()) < log_alpha:
+        alp = np.log(self.rng.random())
+        log_alpha = (prop_logp-self.current_logp) + (log_q_fwd-log_q_bwd)
+        if alp < log_alpha:
             self.current = prop
             self.current_logp = prop_logp
             self.attempt_success[move]["accepted"] += 1
@@ -301,14 +313,14 @@ class ReverseJumpMCMC:
             result = np.zeros(1)
             self.MC_crystal.seed += self.MC_crystal.repetion
             self.MC_crystal.crystal.set_temperature_profile("Other",profile.times.copy(),profile.temps.copy())
-            result[0] =  self.MC_crystal.thermochron_simulation(t,t_pcnt,h_pcnt)
+            result[0] =  self.MC_crystal.inverse_modeling_simulation(t,t_pcnt,h_pcnt)
         else: 
             result = np.zeros(len(self.MC_crystal))
             i=0
             for crystal in self.MC_crystal:
                 crystal.seed += crystal.repetion
                 crystal.set_temperature_profile("Other",profile.times.copy(),profile.temps.copy())
-                result[i] = crystal.thermochron_simulation(t,t_pcnt,h_pcnt)
+                result[i] = crystal.inverse_modeling_simulation(t,t_pcnt,h_pcnt)
                 i+=1 
         return result
     
@@ -322,6 +334,7 @@ class ReverseJumpMCMC:
             err.output("Temperature profile setup complete")
             err.output("Setting up simulation crystal...")
             self.MC_crystal = MCBase.from_config(cfg)
+            self.MC_crystal.repetion = 5
             self.MC_crystal.thermochron_initialise()
             err.output("Crystal setup complete.")
         else:
@@ -338,12 +351,14 @@ class ReverseJumpMCMC:
                 self.MC_crystal[i].thermochron_initialise()
                 err.output("Crystal setup complete.")
 
-        self.pl = chronologyPlot_running(duration=self.timeSpan.hi,unit=unit,celsius=celsius)
-        self.pl.set_profile_files(self.iters,self.max_internal)
-        if isinstance(self.MC_crystal, MCBase):
-            self.pl.setup_simulation_tracker(self.MC_crystal.crystal.Tat(self.pl.t_common_unit))
-        else:
-            self.pl.setup_simulation_tracker(self.MC_crystal[0].crystal.Tat(self.pl.t_common_unit))
+        self.timeUnitmult = time_to_seconds[unit] 
+        self.setup_graphic_tracker(unit,celsius)
+        # self.pl = chronologyPlot_running(duration=self.timeSpan.hi,unit=unit,celsius=celsius)
+        # self.pl.set_profile_files(self.iters,self.max_internal)
+        # if isinstance(self.MC_crystal, MCBase):
+        #     self.pl.setup_simulation_tracker(self.MC_crystal.crystal.Tat(self.pl.t_common_unit))
+        # else:
+        #     self.pl.setup_simulation_tracker(self.MC_crystal[0].crystal.Tat(self.pl.t_common_unit))
 
         self.current = self._make_initial_profile()
         self.current_logp = self._log_target(self.current)
@@ -353,28 +368,42 @@ class ReverseJumpMCMC:
     
     def _make_initial_profile(self,) -> TemperatureProfile:
 
-        k_init = self.rng.integers(self.min_internal,self.max_internal)
+        # k_init = int((self.max_internal-self.min_internal)/2)
+        # k_init = self.rng.integers(self.min_internal,self.max_internal)
+        k_init = 0
         T0 = self.T0_bounds._rand_in_bounds(self.rng)
         Tf = self.Tf_bounds._rand_in_bounds(self.rng)
-
+       
         if not self.T_global_bounds.contains(T0) or not self.T_global_bounds.contains(Tf):
             raise ValueError("Endpoint bounds must be within global temperature bounds (or adjust checks).")
 
         if k_init == 0:
-            times = np.array([self.timeSpan.lo, self.timeSpan.hi], dtype=float)
-            temps = np.array([T0, Tf], dtype=float)
+            times = np.array([self.timeSpan.lo, self.timeSpan.hi], dtype=np.float32)
+            temps = np.array([T0, Tf], dtype=np.float32)
         else:
-            internal_times = np.linspace(self.timeSpan.lo, self.timeSpan.hi, num=k_init + 2, dtype=float)[1:-1]
-            times = np.concatenate(([self.timeSpan.lo], internal_times, [self.timeSpan.hi])).astype(float)
-            
-            base = np.linspace(T0, Tf, num=k_init + 2, dtype=float)
-            noise = self.rng.normal(0.0, self.sigma_temp, size=k_init + 2)
-            noise[0] = 0.0
-            noise[-1] = 0.0
-            temps = np.clip(base + noise, self.T_global_bounds.lo, self.T_global_bounds.hi)
-            temps[0] = T0
-            temps[-1] = Tf
-            temps = self._project_monotonic(temps)
+            internal_times = np.zeros(k_init)
+            internal_temps = np.zeros(k_init)
+            for i in range(k_init):
+                internal_times[i] = self.timeSpan._rand_in_bounds(self.rng)
+                internal_temps[i] = self.T_global_bounds._rand_in_bounds(self.rng)
+            internal_times.sort()
+            if T0<Tf:
+                internal_temps.sort() 
+            elif T0>Tf:
+                internal_temps.sort()
+                internal_temps = np.flip(internal_temps)
+
+            # internal_times = np.linspace(self.timeSpan.lo, self.timeSpan.hi, num=k_init + 2, dtype=np.float32)[1:-1]
+            times = np.concatenate(([self.timeSpan.lo], internal_times, [self.timeSpan.hi])).astype(np.float32)
+            temps = np.concatenate(([T0], internal_temps, [Tf])).astype(np.float32)
+            # base = np.linspace(T0, Tf, num=k_init + 2, dtype=np.float32)
+            # noise = self.rng.normal(0.0, self.sigma_temp, size=k_init + 2)
+            # noise[0] = 0.0
+            # noise[-1] = 0.0
+            # temps = np.clip(base + noise, self.T_global_bounds.lo, self.T_global_bounds.hi)
+            # temps[0] = T0
+            # temps[-1] = Tf
+            # temps = self._project_monotonic(temps)
      
         prfl = TemperatureProfile(times=times, temps=temps)
         
@@ -415,19 +444,19 @@ class ReverseJumpMCMC:
         p=(s.times[1:] - s.times[:-1])/(s.times[-1]-s.times[0])
         n_seg = s.k_nodes - 1
         seg_idx = self.rng.choice(n_seg, p=p)
-       
 
-        tL, tR = float(s.times[seg_idx]), float(s.times[seg_idx + 1])
+        tL, tR = (s.times[seg_idx]), (s.times[seg_idx + 1])
         if not (tR > tL):
             return None, 0.0, 0.0
         u1 = self.rng.uniform(0.0, 1.0)
     
-        t_new = tL + self.sigma_t_birth*u1*(tR-tL)
-        TL, TR = float(s.temps[seg_idx]), float(s.temps[seg_idx + 1])
+        t_new = tL + self.sigma_birth*u1*(tR-tL)
+       
+        TL, TR = (s.temps[seg_idx]), (s.temps[seg_idx + 1])
 
         u2= self.rng.uniform(-0.5, 0.5)
-        T_new = TL + u1*self.sigma_t_birth*(TR-TL)+self.sigma_birth*u2
-
+        T_new = TL + u1*self.sigma_birth*(TR-TL)+self.sigma_t_birth*u2
+       
         if not self.T_global_bounds.contains(T_new):
             return None, 0.0, 0.0
 
@@ -439,11 +468,9 @@ class ReverseJumpMCMC:
                               self.T_global_bounds,self.T0_bounds,self.Tf_bounds,self.monotonic):
             return None, 0.0, 0.0
 
-        log_q_fwd = np.log(t_new-tL) + np.log(tR-t_new) + np.log(self.sigma_t_birth*self.sigma_birth) + np.log(self.move_probs[1])
-        log_q_bwd = np.log(tR-tL) + np.log(self.T_global_bounds.width) + np.log(self.move_probs[0])
-    
-
-        return prop, float(log_q_fwd), float(log_q_bwd)
+        log_q_fwd = np.log((t_new-tL)*self.timeUnitmult) + np.log((tR-t_new)*self.timeUnitmult) + np.log(self.sigma_t_birth*self.sigma_birth) + np.log(self.move_probs[1])
+        log_q_bwd = np.log((tR-tL)*self.timeUnitmult) + np.log(self.T_global_bounds.width) + np.log(self.move_probs[0])
+        return prop, (log_q_fwd), (log_q_bwd)
 
     def _propose_death(self) -> Tuple[Optional[TemperatureProfile], float, float]:
         s = self.current
@@ -453,8 +480,7 @@ class ReverseJumpMCMC:
       
         internal_indices = np.arange(1, s.k_nodes - 1)
         rm_idx = int(self.rng.choice(internal_indices))
-
-        t_rm = float(s.times[rm_idx])
+        t_rm = (s.times[rm_idx])
 
         times_new = np.delete(s.times, rm_idx)
         temps_new = np.delete(s.temps, rm_idx)
@@ -464,10 +490,10 @@ class ReverseJumpMCMC:
                               self.T_global_bounds,self.T0_bounds,self.Tf_bounds,self.monotonic):
             return None, 0.0, 0.0
 
-        log_q_fwd = np.log(s.times[rm_idx+1]-s.times[rm_idx-1]) + np.log(self.T_global_bounds.width) + np.log(self.move_probs[0])
-        log_q_bwd = np.log(t_rm-s.times[rm_idx-1]) + np.log(s.times[rm_idx+1]-t_rm) + np.log(self.move_probs[1]) + np.log(self.sigma_t_birth*self.sigma_birth)
-        
-        return prop, float(log_q_fwd), float(log_q_bwd)
+        log_q_fwd = np.log((s.times[rm_idx+1]-s.times[rm_idx-1])*self.timeUnitmult) + np.log(self.T_global_bounds.width) + np.log(self.move_probs[0])
+        log_q_bwd = np.log((t_rm-s.times[rm_idx-1])*self.timeUnitmult) + np.log((s.times[rm_idx+1]-t_rm)*self.timeUnitmult) + np.log(self.move_probs[1]) + np.log(self.sigma_t_birth*self.sigma_birth)
+    
+        return prop, (log_q_fwd), (log_q_bwd)
 
     def _propose_move_time(self) -> Tuple[Optional[TemperatureProfile], float, float]:
         s = self.current
@@ -475,7 +501,7 @@ class ReverseJumpMCMC:
             return None, 0.0, 0.0
 
         idx = int(self.rng.integers(1, s.k_nodes - 1))
-        t_prev, t_cur, t_next = float(s.times[idx - 1]), float(s.times[idx]), float(s.times[idx + 1])
+        t_prev, t_cur, t_next = (s.times[idx - 1]), (s.times[idx]), (s.times[idx + 1])
 
         local = min(t_cur - t_prev, t_next - t_cur)
         if local <= 0:
@@ -484,7 +510,7 @@ class ReverseJumpMCMC:
         
         if not (t_prev < t_new < t_next):
             return None, 0.0, 0.0
-
+        
         times_new = s.times.copy()
         times_new[idx] = t_new
         prop = TemperatureProfile(times_new, s.temps.copy())
@@ -493,8 +519,8 @@ class ReverseJumpMCMC:
                               self.T_global_bounds,self.T0_bounds,self.Tf_bounds,self.monotonic):
             return None, 0.0, 0.0
 
-        log_q_fwd = np.log(t_new-t_prev) + np.log(t_next-t_new)
-        log_q_bwd = np.log(t_cur-t_prev) + np.log(t_next-t_cur)
+        log_q_fwd = np.log((t_new-t_prev)*self.timeUnitmult) + np.log((t_next-t_new)*self.timeUnitmult)
+        log_q_bwd = np.log((t_cur-t_prev)*self.timeUnitmult) + np.log((t_next-t_cur)*self.timeUnitmult)
         
         return prop, log_q_fwd, log_q_bwd 
 
@@ -504,8 +530,8 @@ class ReverseJumpMCMC:
             return None, 0.0, 0.0
 
         idx = int(self.rng.integers(1, s.k_nodes - 1))  
-        T_cur = float(s.temps[idx])
-        T_new = float(T_cur + self.sigma_temp*self.rng.normal(0.0,1.0))
+        T_cur = (s.temps[idx])
+        T_new = (T_cur + self.sigma_temp*self.rng.normal(0.0,1.0))
         if not self.T_global_bounds.contains(T_new):
             return None, 0.0, 0.0
 
@@ -525,14 +551,15 @@ class ReverseJumpMCMC:
         temps_new = s.temps.copy()
 
         if self.rng.random() < 0.5:
-            T0_cur = float(temps_new[0])
-            T0_new = float(T0_cur + self.sigma_endpoints*self.rng.normal(0.0,1.0))
+            T0_cur = (temps_new[0])
+            T0_new = (T0_cur + self.sigma_endpoints*self.rng.normal(0.0,1.0))
             if (not self.T0_bounds.contains(T0_new)) or (not self.T_global_bounds.contains(T0_new)):
                 return None, 0.0, 0.0
             temps_new[0] = T0_new
         else:
-            Tf_cur = float(temps_new[-1])
-            Tf_new = float(Tf_cur + self.sigma_endpoints*self.rng.normal(0.0,1.0))
+            Tf_cur = (temps_new[-1])
+            Tf_new = (Tf_cur + self.sigma_endpoints*self.rng.normal(0.0,1.0))
+            # print(Tf_new)
             if (not self.Tf_bounds.contains(Tf_new)) or (not self.T_global_bounds.contains(Tf_new)):
                 return None, 0.0, 0.0
             temps_new[-1] = Tf_new
@@ -548,7 +575,7 @@ class ReverseJumpMCMC:
 
     # ---------------- Burn-in tuning ----------------
 
-    def burn_in_setup(self, overall_bounds:Tuple[float,float]=(0.15,0.45), 
+    def burn_in_setup(self, overall_accept_target:Bounds = Bounds(0.15,0.45), 
                       birth_accept_target: Optional[Tuple[float,float]] = None, death_accept_target: Optional[Tuple[float,float]] = None,
                       move_time_accept_target: Optional[Tuple[float,float]] = None, move_temp_accept_target: Optional[Tuple[float,float]] = None,
                       move_endpoints_accept_target: Optional[Tuple[float,float]] = None, sigma_time_birth_bounds: Optional[Tuple[float,float]] = None, 
@@ -556,8 +583,6 @@ class ReverseJumpMCMC:
                       sigma_temp_bounds: Optional[Tuple[float,float]] = None, sigma_endpoints_bound: Optional[Tuple[float,float]] = None, 
                       ) -> Tuple[Bounds,Dict[str,Bounds],Dict[str,Bounds]]:
         
-       
-        overall_accept_target = Bounds(overall_bounds[0],overall_bounds[1])
        
         per_move_accept_target = {
             "birth": Bounds(birth_accept_target[0],birth_accept_target[1]) if birth_accept_target is not None else overall_accept_target,
@@ -579,7 +604,7 @@ class ReverseJumpMCMC:
 
     def burn_in_tune(self, max_steps: int, window: int,
                      eta_sigma0: float, eta_prob0:float, overall_check: bool,
-                     individual_check:bool, overall_bounds: Tuple[float,float] = (0.15,0.45),
+                     individual_check:bool, overallbounds: Tuple[float,float] = (0.15,0.45),
                      birth_accept_target: Optional[Tuple[float,float]] = None,
                      death_accept_target: Optional[Tuple[float,float]] = None, move_time_accept_target: Optional[Tuple[float,float]] = None, 
                      move_temp_accept_target: Optional[Tuple[float,float]] = None, move_endpoints_accept_target: Optional[Tuple[float,float]] = None,
@@ -601,7 +626,9 @@ class ReverseJumpMCMC:
 
         Returns a summary dict.
         """
+        print("starting burn_in")
         move_bounds = Bounds(move_bound[0],move_bound[1])
+        overall_bounds = Bounds(overallbounds[0],overallbounds[1])
         if max_steps <= 0:
             raise ValueError("max_steps must be > 0")
         if window <= 0:
@@ -630,7 +657,9 @@ class ReverseJumpMCMC:
             for _ in range(steps_this):
                 self.step()
                 steps_done += 1
-
+                if steps_done % 20 == 0:
+                    print(f"{steps_done} completed")
+                    
             per_move_rates = self.acceptance_rates()
             overall_rate = self._overall_acceptance_rate()
 
@@ -668,12 +697,17 @@ class ReverseJumpMCMC:
                     move_sigmas["move_endpoints"] = self._tune_sigma(move_sigmas["move_endpoints"], eta_sigma, per_move_rates["move_endpoints"]["accepted"], 
                                                         per_move_accept_target["move_endpoints"], per_move_sigma_bounds["move_endpoints"])
 
-                if not(per_move_accept_target["birth"].contains(per_move_rates["birth"]["accepted"])):
-                    move_sigmas["birth"] = self._tune_sigma(move_sigmas["birth"], eta_sigma, per_move_rates["birth"]["accepted"], 
-                                                        per_move_accept_target["birth"], per_move_sigma_bounds["birth"])
-                    
-                    move_sigmas["birth_t"] = self._tune_sigma(move_sigmas["birth_t"], eta_sigma, per_move_rates["birth"]["accepted"], 
-                                                        per_move_accept_target["birth"], per_move_sigma_bounds["birth_t"])
+                birth_acc = per_move_rates["birth"]["accepted"]
+                death_acc = per_move_rates["death"]["accepted"]
+                birth_death_acc = self._birth_death_tuning_rate(birth_acc, death_acc)
+                birth_death_target = self._combined_acceptance_target(
+                    per_move_accept_target["birth"],
+                    per_move_accept_target["death"],
+                )
+
+                if not birth_death_target.contains(birth_death_acc):
+                    move_sigmas["birth"] = self._tune_sigma(move_sigmas["birth"], eta_sigma, birth_death_acc, birth_death_target,per_move_sigma_bounds["birth"],)
+                    move_sigmas["birth_t"] = self._tune_sigma(move_sigmas["birth_t"],eta_sigma,birth_death_acc,birth_death_target,per_move_sigma_bounds["birth_t"],)
 
 
                 # for m in self.move_names:
@@ -708,8 +742,7 @@ class ReverseJumpMCMC:
                 msg2 = ( f"move_probs={{p_birth:{self.p_birth:.4g}, p_death:{self.p_death:.4g}, "
                     f"p_move_temp:{self.p_move_temp:.4g}, p_move_time:{self.p_move_time:.4g},"
                     f"p_move_endpoints:{self.p_move_endpoints:.4g}}}"
-                    f"sigmas={{sigma_birth:{self.sigma_birth:.4g},sigma_t_birth:{self.sigma_t_birth:.4g},"
-                    f"sigma_temp:{self.sigma_t_birth:.4g}, sigma_temp:{self.sigma_temp:.4g},"
+                    f"sigmas={{sigma_birth:{self.sigma_birth:.4g},sigma_t_birth:{self.sigma_t_birth:.4g},sigma_temp:{self.sigma_temp:.4g},"
                     f"sigma_time_frac:{self.sigma_time_frac:.4g}, sigma_endpoints:{self.sigma_endpoints:.4g}}}"
                 )
                 
@@ -719,6 +752,8 @@ class ReverseJumpMCMC:
 
             if consecutive_ok >= patience_windows:
                 break
+        
+        self.pl.burn_clear_lines()
 
     def _overall_acceptance_rate(self) -> float:
         total_att=0
@@ -735,7 +770,7 @@ class ReverseJumpMCMC:
                                    per_move_accept_target: Dict[str,Bounds],) -> bool:
 
         
-        if overall_check and overall_accept_target.contains(overall_rate):
+        if overall_check and not overall_accept_target.contains(overall_rate):
             return False
         
         if individual_check:
@@ -754,6 +789,31 @@ class ReverseJumpMCMC:
         return np.clip(sigma_new, range_bounds.lo, range_bounds.hi)
 
     @staticmethod
+    def _birth_death_tuning_rate(birth_acc: float, death_acc: float) -> float:
+        """
+        Combined diagnostic for the RJMCMC birth/death pair.
+
+        Birth and death are reverse moves, so tune sigma_birth and sigma_t_birth
+        from both rates rather than from birth acceptance alone. The minimum is
+        deliberately conservative: if either direction is poor, the pair should
+        be treated as poorly tuned.
+        """
+        if not np.isfinite(birth_acc):
+            birth_acc = 0.0
+        if not np.isfinite(death_acc):
+            death_acc = 0.0
+        return min(birth_acc, death_acc)
+
+    @staticmethod
+    def _combined_acceptance_target(first: Bounds, second: Bounds) -> Bounds:
+        """Return the overlap of two acceptance target ranges when possible."""
+        lo = max(first.lo, second.lo)
+        hi = min(first.hi, second.hi)
+        if lo <= hi:
+            return Bounds(lo, hi)
+        return Bounds(0.5 * (first.lo + second.lo), 0.5 * (first.hi + second.hi))
+
+    @staticmethod
     def _adapt_prob_weight(p: float, usable_rate: float, eta: float, range: Bounds):
         logit = np.log(max(p, 1e-12))
         logit_new = logit + eta * (usable_rate - 0.5)
@@ -769,19 +829,30 @@ class ReverseJumpMCMC:
     def set_random_generator(self):
         self.rng = np.random.default_rng(self.seed)
 
-    def update_tracker(self, count:int):
+    def setup_graphic_tracker(self, unit, celsius):
+    
+        self.pl = chronologyPlot_running(duration=self.timeSpan.hi,unit=unit,celsius=celsius)
+        self.pl.set_profile_files(self.iters,self.max_internal)
+        if isinstance(self.MC_crystal, MCBase):
+            self.pl.setup_simulation_tracker(self.MC_crystal.crystal.Tat(self.pl.t_common_unit))
+        else:
+            self.pl.setup_simulation_tracker(self.MC_crystal[0].crystal.Tat(self.pl.t_common_unit))
+    
+    def update_tracker(self, count:int| None):
         if isinstance(self.MC_crystal, MCBase):
             self.pl.add_result(self.MC_crystal.crystal.Tat(self.pl.t_common_unit),count)
         else:
             self.pl.add_result(self.MC_crystal[0].crystal.Tat(self.pl.t_common_unit),count)
 
     def store_profile(self, it: int|None, prof:TemperatureProfile, accpt:bool)-> None:
+        if accpt: 
+            self.update_tracker(it)
+        
         if it is None:
             return
         self.result_store.write_result(it,prof.times,prof.temps,accpt,self.current_logp)
 
-        if accpt: 
-            self.update_tracker(it)
+        
 
     def acceptance_rates(self) -> Dict[str, Dict[str,float]]:
         rates = { 

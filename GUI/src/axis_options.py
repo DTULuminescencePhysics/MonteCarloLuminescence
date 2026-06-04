@@ -189,14 +189,18 @@ class EventOptions(QWidget, EventButtonsUi):
         self.savgol_poly.valueChanged.connect(self.savgol_changed)
         self.savgol_window.valueChanged.connect(self.savgol_changed)
 
-        self.savgolWinVals = np.array((14,np.inf,np.inf,np.inf))
+        self.savgolWinVals = np.array((14))
         self._button_values = {
             self.steps: "steps",
             self.lines: "lines",
         }
     @Slot(int,int)
     def savgol_window_max_setter(self, exp_num:int, length:int):
-        self.savgolWinVals[exp_num] = length
+        if exp_num > self.savgolWinVals.size-1:
+            np.append(self.savgolWinVals,length)
+        else: 
+            self.savgolWinVals[exp_num] = length
+            
         self.savgol_window.setMaximum(self.savgolWinVals.min())
 
     def savgol_changed(self):

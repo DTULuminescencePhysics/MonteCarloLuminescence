@@ -61,7 +61,7 @@ def back_tracing_selector(output: output_file, cfg: DictConfig | list[DictConfig
     
     obs = output.get_final_ratios(experiments)
     sigma = output.get_sigmas(experiments)
-    
+    print(obs, sigma)
     if experiments == 1:
         output.chronology_data_initial_build(cfg)
         duration = cfg.temp.duration

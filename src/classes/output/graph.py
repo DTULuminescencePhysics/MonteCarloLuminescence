@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from src.classes.output.results_file import output_file
 
 
-
 class plottingBase():
     """Class that contains the basic graphing functions setting the size and design of the 
     plots as well as the generic plotting function"""
@@ -413,7 +412,20 @@ class chronologyPlot_running(plottingBase):
         if self.timeUnit == 'Ma':
             self.trackAx.invert_xaxis()
         
+        self.trackFig.canvas.draw_idle()
         plt.show(block=False)
+
+    def burn_clear_lines(self,):
+        self.save_figure(self.trackFig,"burn_in_tracking_figure.png")
+
+        for line in self.tracking_lines:
+            line.remove()
+        
+        self.tracking_lines.clear()
+        self.trackAx.legend()
+
+        self.trackFig.canvas.draw_idle()
+        plt.pause(0.1)
 
     def add_result(self, y, it):
         # fade existing lines

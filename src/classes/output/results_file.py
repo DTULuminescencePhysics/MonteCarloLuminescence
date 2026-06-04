@@ -138,6 +138,9 @@ class output_file:
             res = f.require_group("outputs")
             outputs = res.require_group(f"experiment_{exp_cnt}")
 
+            if "repetitions" in results:
+                outputs.attrs["repetitions"] = results["repetitions"]
+
             outputs.create_dataset("timeSteps",data=results["timeSteps"], **self.ds_kwargs)
             outputs.create_dataset("temperature",data=results["temperature"], **self.ds_kwargs)
             outputs.create_dataset("meanTrapRatio",data=results["meanTrapRatio"], **self.ds_kwargs)
@@ -151,19 +154,19 @@ class output_file:
             outputs.create_dataset("filling",data=results["filling"], **self.ds_kwargs)
             outputs.create_dataset("events",data=results["events"], **self.ds_kwargs)
 
-    def output_result_get_number_exp(self,set=False):
-        with h5py.File(self.name,"a") as f:
+    def output_result_get_number_exp(self, set=False):
+        with h5py.File(self.name, "a") as f:
             res = f.require_group("outputs")
-            if "experimentCount" in res.attrs:
-                if set:
-                    res.attrs["experimentCount"] =  + 1
-                exp_cnt = res.attrs["experimentCount"]
-            else: 
-                res.attrs["experimentCount"] = 1
-                exp_cnt = 1
+            exp_cnt = int(res.attrs.get("experimentCount", 0))
+
+            if set:
+                exp_cnt += 1
+                res.attrs["experimentCount"] = exp_cnt
+            elif "experimentCount" not in res.attrs:
+                res.attrs["experimentCount"] = exp_cnt
+       
         return exp_cnt
-
-
+   
     def output_result_get_times(self, exp_cnt:int = 1): 
 
         with h5py.File(self.name,"r") as f:  
