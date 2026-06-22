@@ -1,0 +1,46 @@
+# Crystal geometry / lattice
+uc_h      : 1.e-10  # Unit cell height (m)
+uc_w      : 1.e-10  # Unit cell width  (m)
+uc_l      : 1.e-10  # Unit cell length (m)
+dimension : 7.5e-9  # Approximate test-crystal dimension; null = default 7.5 nm
+rho       : 5.22e25
+urho      : null
+
+# Trap energy levels
+E_loc       : 1.2
+E_cb        : 2.0
+E_loc_sigma : 0.    # std dev of Gaussian for E_loc (eV); 0 = fixed
+E_cb_sigma  : 0.    # std dev of Gaussian for E_cb  (eV); 0 = fixed
+
+# Filling process (dosing) -- start from a pre-filled state, no dosing during read-out
+enable_fill       : False
+D0                : 400.
+D_dot             : 0       # Radiation per time unit
+Dd_unit           : s       # s : Gy/s; ka : Gy/ka, etc.
+combine_when_fill : False
+recom_pre_fill    : 0       # P(recombine) / P(fill vacancy)
+
+# Localized transitions
+enable_tunneling : False
+b                : 1.e12
+alpha_GS         : 9e12
+alpha_ES         : 9e9
+R_tun            : 1.0      # Retrapping ratio for tunnelling
+VRH              : False    # False (default): original tunnelling rate; True: Miller-Abrahams VRH
+
+# Delocalized transitions
+enable_cb : True
+s         : 1.e12
+mu        : 1e-9
+R_CB      : 0.0             # Retrapping ratio for CB transitions
+
+# Simulation mode / optical stimulation (OSL)
+mode      : OSL            # TL | OSL
+sigma     : 1.0e-19        # Optical cross section (m^2) = 1e-22 cm^2
+stim_kind : lm             # cw (constant I) | lm (linear I(t) = I0 + I_rate*t)
+I0        : 0              # CW intensity (photons m^-2 s^-1); sigma*I0 = 100 s^-1 optical rate
+I_rate    : 1e28            # LM ramp rate (photons m^-2 s^-3); used when stim_kind=lm
+
+# Misc
+retrap_mask_factor : 0.8   # Factor to constraint retrapping in adjescent pairs
+phys_type : null

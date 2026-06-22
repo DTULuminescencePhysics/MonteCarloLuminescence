@@ -85,30 +85,58 @@ def time_sequence(input_temps, unit):
     else: 
         return input_temps
 
-def _plot_glow_curve(output_file_name: str,
-                     temperature: np.ndarray,
+def _plot_glow_curve(filename: str,
+                     x: np.ndarray,
                      glow_rate: np.ndarray,
-                     glow_smoothed: np.ndarray | None = None) -> None:
+                     glow_smoothed: np.ndarray | None = None,
+                     xlabel: str = "Temperature (°C)") -> None:
     """
-    Plot the TL glow curve: d(N_holes)/dt vs Temperature.
+    Plot the glow/luminescence curve d(N_holes)/dt against the supplied x axis
+    (Temperature or Time, selected via `xlabel`) and save to `filename`.
 
     If glow_smoothed is provided the raw curve is drawn as a faint dashed
     line and the smoothed curve as a solid line.
     """
     fig, ax = plt.subplots(figsize=(8, 5))
     if glow_smoothed is not None:
-        ax.plot(temperature, glow_rate, color="firebrick", linewidth=0.8,
+        ax.plot(x, glow_rate, color="firebrick", linewidth=0.8,
                 ls="--", alpha=0.4, label="raw")
-        ax.plot(temperature, glow_smoothed, color="firebrick", linewidth=1.5,
+        ax.plot(x, glow_smoothed, color="firebrick", linewidth=1.5,
                 label="smoothed")
         ax.legend(loc="best", fontsize=10)
     else:
-        ax.plot(temperature, glow_rate, color="firebrick", linewidth=1.5)
-    ax.set_xlabel("Temperature (°C)")
+        ax.plot(x, glow_rate, color="firebrick", linewidth=1.5)
+    ax.set_xlabel(xlabel)
     ax.set_ylabel("Glow intensity")
     ax.grid(True, color="grey", alpha=0.4, linewidth=0.6)
     fig.tight_layout()
-    fig.savefig(f"{output_file_name}_glow_curve.png", dpi=300, bbox_inches="tight")
+    fig.savefig(filename, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_ratio_bands(filename: str,
+                      x: np.ndarray,
+                      xlabel: str,
+                      mean_curve: np.ndarray,
+                      ratio_min: np.ndarray,
+                      ratio_max: np.ndarray) -> None:
+    """
+    Plot the trapped-electron ratio n/N (mean with min/max envelope) against
+    the supplied x axis (Temperature or Time, selected via `xlabel`).
+    """
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(x, mean_curve, color="steelblue", linewidth=1.5, label="n/N mean")
+    ax.plot(x, ratio_min, color="steelblue", ls="--",
+            linewidth=1.0, alpha=0.5, label="min / max")
+    ax.plot(x, ratio_max, color="steelblue", ls="--",
+            linewidth=1.0, alpha=0.5)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("n/N Trap ratio")
+    ax.set_ylim(0, 1.1)
+    ax.legend(loc="best", fontsize=10)
+    ax.grid(True, color="grey", alpha=0.4, linewidth=0.6)
+    fig.tight_layout()
+    fig.savefig(filename, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -212,24 +240,15 @@ def clean_up_results(results, output_file_name, crystal,
 
     if plot_error_bands:
         temperature_plot = ratio_results[1, :]
+        time_plot        = ratio_results[0, :]
         mean_curve       = ratio_results[2 + additional, :]
 
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ax.plot(temperature_plot, mean_curve, color="steelblue",
-                linewidth=1.5, label="n/N mean")
-        ax.plot(temperature_plot, ratio_min, color="steelblue", ls="--",
-                linewidth=1.0, alpha=0.5, label="min / max")
-        ax.plot(temperature_plot, ratio_max, color="steelblue", ls="--",
-                linewidth=1.0, alpha=0.5)
-        ax.set_xlabel("Temperature (°C)")
-        ax.set_ylabel("n/N Trap ratio")
-        ax.set_ylim(0, 1.1)
-        ax.legend(loc="best", fontsize=10)
-        ax.grid(True, color="grey", alpha=0.4, linewidth=0.6)
-        fig.tight_layout()
-        fig.savefig(f"{output_file_name}_error_bands.png",
-                    dpi=300, bbox_inches="tight")
-        plt.close(fig)
+        _plot_ratio_bands(f"{output_file_name}_error_bands.png",
+                          temperature_plot, "Temperature (°C)",
+                          mean_curve, ratio_min, ratio_max)
+        _plot_ratio_bands(f"{output_file_name}_error_bands_time.png",
+                          time_plot, "Time (s)",
+                          mean_curve, ratio_min, ratio_max)
 
     del ratio_results
 
@@ -271,8 +290,10 @@ def clean_up_results(results, output_file_name, crystal,
                    header="Time (s),Temperature (C),"
                           "d(N_holes)/dt (holes/s),d(N_holes)/dt smoothed")
 
-        _plot_glow_curve(output_file_name, temperature_glow,
-                         glow_raw, glow_smoothed)
+        _plot_glow_curve(f"{output_file_name}_glow_curve.png", temperature_glow,
+                         glow_raw, glow_smoothed, xlabel="Temperature (°C)")
+        _plot_glow_curve(f"{output_file_name}_glow_curve_time.png", bin_centers,
+                         glow_raw, glow_smoothed, xlabel="Time (s)")
 
     return ratio_file, lum_file
 

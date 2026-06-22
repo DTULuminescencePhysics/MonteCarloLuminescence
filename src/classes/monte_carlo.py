@@ -49,6 +49,8 @@ def _max_dt_finder(
             max_dt = max_time - crystal.times[cnt - 1]
         else:
             max_dt = 1 / abs(crystal.dT[cnt])
+    if getattr(crystal, "mode", "TL") == "OSL" and crystal.stim_kind == "lm":
+        max_dt = min(max_dt, crystal.duration / crystal.lm_resolution)
     return cnt, max_dt, max_dt_time_chk
 
 
@@ -182,6 +184,9 @@ class MCBase:
                 self.max_dt = 1/abs(self.crystal.dT[0])
             self.max_dt_time_chk = self.crystal.times[0]
 
+        if getattr(self.crystal, "mode", "TL") == "OSL" and self.crystal.stim_kind == "lm":
+            self.max_dt = min(self.max_dt, self.crystal.duration / self.crystal.lm_resolution)
+
 
     def max_dt_finder(self):
         if self.max_dt_time_chk > self.crystal.duration:
@@ -216,6 +221,9 @@ class MCBase:
                 self.max_dt = (max_time-self.crystal.times[self.max_dt_cnt-1])
             else:
                 self.max_dt = 1/abs(self.crystal.dT[self.max_dt_cnt])
+
+        if getattr(self.crystal, "mode", "TL") == "OSL" and self.crystal.stim_kind == "lm":
+            self.max_dt = min(self.max_dt, self.crystal.duration / self.crystal.lm_resolution)
 
 
 
@@ -358,7 +366,6 @@ class MCBase:
 
         self.monte_carlo_loop()
 
-        # Re-open as read-only view for post-processing
         self.results = np.memmap(self.data_path, dtype=np.float32, mode='r',
                                  shape=(self.repetion, 4, self.max_length))
 

@@ -32,8 +32,17 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
     enable_tunneling: bool = field(default=True)
     enable_cb:        bool = field(default=True)
 
+    # Simulation mode and optical stimulation (OSL)
+    mode:      str   = field(default="TL")      # "TL" | "OSL"
+    sigma:     float | None = field(default=None)  # Optical cross section (m^2)
+    stim_kind: str   = field(default="cw")      # "cw" (constant I) | "lm" (linear I(t))
+    I0:        float | None = field(default=None)  # CW intensity / LM offset (photons m^-2 s^-1)
+    I_rate:    float = field(default=0.0)        # LM ramp rate (photons m^-2 s^-3)
+
 
     def __post_init__(self):
+
+        self._validate_osl()
 
         if self.alpha_ES is None:
             self.alpha_ES = self.set_alpha()
@@ -54,6 +63,16 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
         self._processes = self.build_processes(tran_kind, **vars(self))
 
     
+    def _validate_osl(self):
+        if self.mode == "OSL":
+            if self.s is None:
+                raise ValueError("OSL mode requires the escape frequency 's' to be set.")
+            if self.sigma is None:
+                raise ValueError("OSL mode requires the optical cross section 'sigma' to be set.")
+            if not self.I0 and not self.I_rate:
+                raise ValueError("OSL mode requires a non-zero intensity ('I0' for cw, "
+                                 "or 'I_rate' for lm).")
+
     def set_transitions(self):
 
         if self.enable_fill and self.D0 is not None:

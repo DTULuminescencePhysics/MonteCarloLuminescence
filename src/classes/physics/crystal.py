@@ -65,6 +65,7 @@ class Box(_temp,_ThermalParameters):
     R_tun: float|None = field(default=0)          # Retrapping ratio of tunnelling
     R_CB:  float|None = field(default=1)          # Retrapping ratio versus recombination of conduction band
     retrap_mask_factor: float = field(default=0.8)
+    lm_resolution: int = field(default=1000)      # LM-OSL time-step subdivisions of the run
     boundary: str = field(default="padded")
     combine_when_fill: bool = field(default=False)
     recom_pre_fill: float = field(default=1.0)
@@ -596,7 +597,9 @@ class Box(_temp,_ThermalParameters):
         Temperature if needed. If the temperature has not changed
         the lifetimes are simply reduced by dt"""
         super().timestep(dt)
-        if self.T_chng or self.event_code != 0: # self.event_bool
+
+        lm_osl = self.mode == "OSL" and self.stim_kind == "lm"
+        if self.T_chng or self.event_code != 0 or lm_osl: # self.event_bool
             self.recalc_times_full()
             self.select_electron()
         else:
@@ -637,6 +640,12 @@ class Box(_temp,_ThermalParameters):
     #         self.fade = np.min(f)
     #         self.fade_index = int(np.argmin(f)) 
 
+    def _stim_intensity(self, t: float) -> float:
+    
+        if self.stim_kind == "lm":
+            return (self.I0 or 0.0) + self.I_rate * t
+        return self.I0 or 0.0
+
     def select_electron(self) -> None:
         """Generate execution time for filling and fading transitions.
         For fading, the overall rate for each occupied electron is
@@ -653,8 +662,15 @@ class Box(_temp,_ThermalParameters):
             self.exec_time = 1e20
             self.exec_index = None
         else:
-            self.F1 = 1. / (1 + np.exp(-self.E_loc_occ / (cnst.k_b_ev * self.T)))
-            self.F2 = 1. / (1 + np.exp( self.E_loc_occ / (cnst.k_b_ev * self.T)))
+            if self.mode == "OSL":
+                A_th  = self.s * np.exp(-self.E_loc_occ / (cnst.k_b_ev * self.T))
+                A_opt = self.sigma * self._stim_intensity(self.time)
+                A     = A_th + A_opt
+                self.F2 = A / (A + self.s)
+                self.F1 = self.s / (A + self.s)
+            else:
+                self.F1 = 1. / (1 + np.exp(-self.E_loc_occ / (cnst.k_b_ev * self.T)))
+                self.F2 = 1. / (1 + np.exp( self.E_loc_occ / (cnst.k_b_ev * self.T)))
 
             total_rate = np.zeros(self.t_cnt)
             for proc in self._processes:
