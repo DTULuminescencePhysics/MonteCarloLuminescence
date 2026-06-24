@@ -53,6 +53,7 @@ class Box(_temp,_ThermalParameters):
     rng: np.random.Generator = field(init=False)
     F1: np.ndarray = field(init=False)
     F2: np.ndarray = field(init=False)
+    A_cb_blue: float = field(init=False, default=0.0)  # blue/UV optical GS/ES->CB rate (s^-1)
     E_loc_array: np.ndarray = field(init=False)   # per-trap E_loc
     E_cb_array:  np.ndarray = field(init=False)   # per-trap E_cb
     E_loc_occ:   np.ndarray = field(init=False)   # E_loc for occupied traps
@@ -640,11 +641,13 @@ class Box(_temp,_ThermalParameters):
     #         self.fade = np.min(f)
     #         self.fade_index = int(np.argmin(f)) 
 
-    def _stim_intensity(self, t: float) -> float:
-    
+    def _stim_intensity(self, t: float, I0, I_rate) -> float:
+        """Photon flux I(t) of one optical channel: constant ('cw') or linearly
+        modulated ('lm', I(t) = I0 + I_rate*t). The cw/lm shape is shared by all
+        channels; the magnitudes (I0, I_rate) are per channel (IR vs blue)."""
         if self.stim_kind == "lm":
-            return (self.I0 or 0.0) + self.I_rate * t
-        return self.I0 or 0.0
+            return (I0 or 0.0) + (I_rate or 0.0) * t
+        return I0 or 0.0
 
     def select_electron(self) -> None:
         """Generate execution time for filling and fading transitions.
@@ -661,16 +664,24 @@ class Box(_temp,_ThermalParameters):
         if self.t_cnt == 0:
             self.exec_time = 1e20
             self.exec_index = None
+            self.A_cb_blue = 0.0
         else:
             if self.mode == "OSL":
+
+                # IR channel: GS->ES, sigma*I = 0 reproduces the TL form
                 A_th  = self.s * np.exp(-self.E_loc_occ / (cnst.k_b_ev * self.T))
-                A_opt = self.sigma * self._stim_intensity(self.time)
+                A_opt = (self.sigma_IR or 0.0) * self._stim_intensity(self.time, self.I0_IR, self.I_rate_IR)
                 A     = A_th + A_opt
                 self.F2 = A / (A + self.s)
                 self.F1 = self.s / (A + self.s)
+
+                # Blue/UV channel: GS/ES -> CB
+                self.A_cb_blue = (self.sigma_blue or 0.0) * self._stim_intensity(
+                    self.time, self.I0_blue, self.I_rate_blue)
             else:
                 self.F1 = 1. / (1 + np.exp(-self.E_loc_occ / (cnst.k_b_ev * self.T)))
                 self.F2 = 1. / (1 + np.exp( self.E_loc_occ / (cnst.k_b_ev * self.T)))
+                self.A_cb_blue = 0.0
 
             total_rate = np.zeros(self.t_cnt)
             for proc in self._processes:

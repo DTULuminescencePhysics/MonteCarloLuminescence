@@ -34,10 +34,15 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
 
     # Simulation mode and optical stimulation (OSL)
     mode:      str   = field(default="TL")      # "TL" | "OSL"
-    sigma:     float | None = field(default=None)  # Optical cross section (m^2)
     stim_kind: str   = field(default="cw")      # "cw" (constant I) | "lm" (linear I(t))
-    I0:        float | None = field(default=None)  # CW intensity / LM offset (photons m^-2 s^-1)
-    I_rate:    float = field(default=0.0)        # LM ramp rate (photons m^-2 s^-3)
+    
+    sigma_IR:  float | None = field(default=None)  # IR optical cross section (m^2)
+    I0_IR:     float | None = field(default=None)  # IR CW intensity / LM offset (photons m^-2 s^-1)
+    I_rate_IR: float = field(default=0.0)        # IR LM ramp rate (photons m^-2 s^-3)
+    
+    sigma_blue:  float | None = field(default=None)  # blue/UV cross section (m^2)
+    I0_blue:     float | None = field(default=None)  # blue CW intensity / LM offset (photons m^-2 s^-1)
+    I_rate_blue: float = field(default=0.0)           # blue LM ramp rate (photons m^-2 s^-3)
 
 
     def __post_init__(self):
@@ -67,11 +72,21 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
         if self.mode == "OSL":
             if self.s is None:
                 raise ValueError("OSL mode requires the escape frequency 's' to be set.")
-            if self.sigma is None:
-                raise ValueError("OSL mode requires the optical cross section 'sigma' to be set.")
-            if not self.I0 and not self.I_rate:
-                raise ValueError("OSL mode requires a non-zero intensity ('I0' for cw, "
-                                 "or 'I_rate' for lm).")
+            
+            # At least one optical channel must be active: IR (GS->ES) and/or blue/UV (GS/ES->CB). 
+            # Each channel needs a cross section and a non-zero intensity ('I0_IR' for cw, or 'I_rate_IR' for lm).
+
+            ir_on   = self.sigma_IR is not None and (self.I0_IR or self.I_rate_IR)
+            blue_on = self.sigma_blue is not None and (self.I0_blue or self.I_rate_blue)
+            if not (ir_on or blue_on):
+                raise ValueError(
+                    "OSL mode requires at least one optical channel: IR "
+                    "('sigma_IR' + 'I0_IR'/'I_rate_IR') and/or blue ('sigma_blue' + "
+                    "'I0_blue'/'I_rate_blue').")
+            if blue_on and not self.enable_cb:
+                raise ValueError(
+                    "Blue/UV stimulation drives GS/ES -> conduction band; "
+                    "'enable_cb' must be True when the blue channel is active.")
 
     def set_transitions(self):
 

@@ -66,7 +66,7 @@ def _build_es_tunnel_procs(alpha_ES: float, b: float, R_tun: float = 0.01,
 
 @Transitions.register_process("ground_state_to_cb")
 def _build_gs_cb_proc(s: float, mu: float, R_CB: float = 1.0, **kw):
-    rate_fn = lambda box: s * np.exp(-box.E_cb_occ / (cnst.k_b_ev * box.T))
+    rate_fn = lambda box: s * np.exp(-box.E_cb_occ / (cnst.k_b_ev * box.T)) + box.A_cb_blue
     mob_fn  = lambda r: np.exp(-(r / mu) ** 2)
     return [ConductionBandExcitation("GS->CB", rate_fn, "F1", mob_fn, R_CB,
                                      recom_operation=RecombinationOperation(EVENT_CODES["GS_CB_recom"]),
@@ -74,7 +74,7 @@ def _build_gs_cb_proc(s: float, mu: float, R_CB: float = 1.0, **kw):
 
 @Transitions.register_process("excited_state_to_cb")
 def _build_es_cb_proc(s: float, mu: float, R_CB: float = 1.0, **kw):
-    rate_fn = lambda box: s * np.exp(-(box.E_cb_occ - box.E_loc_occ) / (cnst.k_b_ev * box.T))
+    rate_fn = lambda box: s * np.exp(-(box.E_cb_occ - box.E_loc_occ) / (cnst.k_b_ev * box.T)) + box.A_cb_blue
     mob_fn  = lambda r: np.exp(-(r / mu) ** 2)
     return [ConductionBandExcitation("ES->CB", rate_fn, "F2", mob_fn, R_CB,
                                      recom_operation=RecombinationOperation(EVENT_CODES["ES_CB_recom"]),

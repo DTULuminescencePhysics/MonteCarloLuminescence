@@ -36,10 +36,18 @@ R_CB      : 0.0             # Retrapping ratio for CB transitions
 
 # Simulation mode / optical stimulation (OSL)
 mode      : OSL            # TL | OSL
-sigma     : 1.0e-19        # Optical cross section (m^2) = 1e-22 cm^2
 stim_kind : lm             # cw (constant I) | lm (linear I(t) = I0 + I_rate*t)
-I0        : 0              # CW intensity (photons m^-2 s^-1); sigma*I0 = 100 s^-1 optical rate
-I_rate    : 1e28            # LM ramp rate (photons m^-2 s^-3); used when stim_kind=lm
+
+# IR channel: GS -> ES (localized excited state)
+sigma_IR  : 1.0e-19        # IR optical cross section (m^2) = 1e-22 cm^2
+I0_IR     : 0              # IR CW intensity (photons m^-2 s^-1)
+I_rate_IR : 1e28            # IR LM ramp rate (photons m^-2 s^-3);
+
+# Blue/UV channel: GS -> CB and ES -> CB (direct optical excitation to the band).
+# Requires enable_cb=True. Leave null/0 to disable (pure IR).
+sigma_blue  : null         # blue/UV cross section (m^2); null -> blue light off
+I0_blue     : 0            # blue CW intensity / LM offset (photons m^-2 s^-1)
+I_rate_blue : 0            # blue LM ramp rate (photons m^-2 s^-3); used when stim_kind=lm
 
 # Misc
 retrap_mask_factor : 0.8   # Factor to constraint retrapping in adjescent pairs
