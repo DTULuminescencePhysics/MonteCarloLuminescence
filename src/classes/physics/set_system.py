@@ -7,6 +7,7 @@ from typing import Dict, List
 # import src.classes.physics.physics_profiles
 from src.classes.physics.transitions import Transitions
 import src.classes.physics.transition_profiles
+from src.classes.physics.cross_section import CrossSection, photon_energy_eV
 
 
 @dataclass
@@ -36,13 +37,39 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
     mode:      str   = field(default="TL")      # "TL" | "OSL"
     stim_kind: str   = field(default="cw")      # "cw" (constant I) | "lm" (linear I(t))
     
-    sigma_IR:  float | None = field(default=None)  # IR optical cross section (m^2)
+    sigma_IR:  float | None = field(default=None)  # IR peak/amplitude cross section sigma0 (m^2)
     I0_IR:     float | None = field(default=None)  # IR CW intensity / LM offset (photons m^-2 s^-1)
     I_rate_IR: float = field(default=0.0)        # IR LM ramp rate (photons m^-2 s^-3)
     
-    sigma_blue:  float | None = field(default=None)  # blue/UV cross section (m^2)
+    sigma_blue:  float | None = field(default=None)  # blue/UV peak/amplitude cross section sigma0 (m^2)
     I0_blue:     float | None = field(default=None)  # blue CW intensity / LM offset (photons m^-2 s^-1)
     I_rate_blue: float = field(default=0.0)           # blue LM ramp rate (photons m^-2 s^-3)
+
+    # Wavelength-dependent photoionisation cross-section sigma(E, T) per channel.
+    xsec_model_IR: str = field(default="const")   # const | lucovsky | grimmeiss
+    lambda_IR:     float | None = field(default=None)  # IR stimulation wavelength (nm)
+    E0_IR:         float | None = field(default=None)  # IR optical threshold / trap depth (eV)
+    m_eff_IR:      float = field(default=1.0)      # effective-mass ratio m*/m_c (grimmeiss)
+
+    xsec_model_blue: str = field(default="const")
+    lambda_blue:     float | None = field(default=None)  # blue/UV stimulation wavelength (nm)
+    E0_blue:         float | None = field(default=None)  # blue/UV optical threshold (eV)
+    m_eff_blue:      float = field(default=1.0)
+    Eu_blue:         float = field(default=0.05)
+
+    # Baril & Huntley (2003) IR intra-centre (GS->ES) resonance parameters,
+    # used by the IR channel when xsec_model_IR=baril_voigt.
+    
+    E1_IR:       float = field(default=1.44)        # principal resonance centre (eV)
+    sigma_g1_IR: float = field(default=0.136)       # principal Gaussian std dev (eV)
+    gamma_l1_IR: float = field(default=0.010)       # principal Lorentzian HWHM (eV)
+    A1_IR:       float = field(default=1.0)          # principal relative amplitude
+    E2_IR:       float | None = field(default=1.57) # secondary Gaussian centre (eV)
+    sigma_g2_IR: float = field(default=0.21)        # secondary Gaussian std dev (eV)
+    A2_IR:       float = field(default=0.333)        # secondary relative amplitude
+    E3_IR:       float | None = field(default=None) # optional third Gaussian centre (eV)
+    sigma_g3_IR: float = field(default=0.0)
+    A3_IR:       float = field(default=0.0)
 
 
     def __post_init__(self):
@@ -67,15 +94,29 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
 
         self._processes = self.build_processes(tran_kind, **vars(self))
 
+        self._build_cross_sections()
+
+    def _build_cross_sections(self):
+        self._sigma_IR_fn = CrossSection.build(
+            self.xsec_model_IR, sigma0=self.sigma_IR, E0=self.E0_IR,
+            m_eff=self.m_eff_IR, E_u=self.Eu_IR,
+            E1=self.E1_IR, sigma_g1=self.sigma_g1_IR, gamma_l1=self.gamma_l1_IR,
+            A1=self.A1_IR, E2=self.E2_IR, sigma_g2=self.sigma_g2_IR, A2=self.A2_IR,
+            E3=self.E3_IR, sigma_g3=self.sigma_g3_IR, A3=self.A3_IR)
+        self._sigma_blue_fn = CrossSection.build(
+            self.xsec_model_blue, sigma0=self.sigma_blue, E0=self.E0_blue,
+            m_eff=self.m_eff_blue, E_u=self.Eu_blue)
+        self._E_IR = (photon_energy_eV(self.lambda_IR * 1e-9)
+                      if self.lambda_IR is not None else None)
+        self._E_blue = (photon_energy_eV(self.lambda_blue * 1e-9)
+                        if self.lambda_blue is not None else None)
+
     
     def _validate_osl(self):
         if self.mode == "OSL":
             if self.s is None:
                 raise ValueError("OSL mode requires the escape frequency 's' to be set.")
             
-            # At least one optical channel must be active: IR (GS->ES) and/or blue/UV (GS/ES->CB). 
-            # Each channel needs a cross section and a non-zero intensity ('I0_IR' for cw, or 'I_rate_IR' for lm).
-
             ir_on   = self.sigma_IR is not None and (self.I0_IR or self.I_rate_IR)
             blue_on = self.sigma_blue is not None and (self.I0_blue or self.I_rate_blue)
             if not (ir_on or blue_on):
@@ -87,6 +128,23 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
                 raise ValueError(
                     "Blue/UV stimulation drives GS/ES -> conduction band; "
                     "'enable_cb' must be True when the blue channel is active.")
+
+            if ir_on and self.xsec_model_IR.lower() != "const":
+                if self.xsec_model_IR.lower() == "baril_voigt":
+                    # Intra-centre resonance: centred on E1_IR, not a threshold E0.
+                    if self.lambda_IR is None or self.E1_IR is None:
+                        raise ValueError(
+                            "IR cross-section model 'baril_voigt' requires "
+                            "'lambda_IR' (nm) and 'E1_IR' (eV).")
+                elif self.lambda_IR is None or self.E0_IR is None:
+                    raise ValueError(
+                        f"IR cross-section model '{self.xsec_model_IR}' requires "
+                        "'lambda_IR' (nm) and 'E0_IR' (eV).")
+            if blue_on and self.xsec_model_blue.lower() != "const":
+                if self.lambda_blue is None or self.E0_blue is None:
+                    raise ValueError(
+                        f"Blue cross-section model '{self.xsec_model_blue}' requires "
+                        "'lambda_blue' (nm) and 'E0_blue' (eV).")
 
     def set_transitions(self):
 

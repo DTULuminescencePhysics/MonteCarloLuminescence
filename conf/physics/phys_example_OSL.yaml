@@ -39,15 +39,39 @@ mode      : OSL            # TL | OSL
 stim_kind : lm             # cw (constant I) | lm (linear I(t) = I0 + I_rate*t)
 
 # IR channel: GS -> ES (localized excited state)
-sigma_IR  : 1.0e-19        # IR optical cross section (m^2) = 1e-22 cm^2
+sigma_IR  : 1.0e-19        # IR peak/amplitude cross section sigma0 (m^2) = 1e-22 cm^2
 I0_IR     : 0              # IR CW intensity (photons m^-2 s^-1)
 I_rate_IR : 1e28            # IR LM ramp rate (photons m^-2 s^-3);
 
 # Blue/UV channel: GS -> CB and ES -> CB (direct optical excitation to the band).
 # Requires enable_cb=True. Leave null/0 to disable (pure IR).
-sigma_blue  : null         # blue/UV cross section (m^2); null -> blue light off
+sigma_blue  : null         # blue/UV peak/amplitude cross section sigma0 (m^2); null -> blue light off
 I0_blue     : 0            # blue CW intensity / LM offset (photons m^-2 s^-1)
 I_rate_blue : 0            # blue LM ramp rate (photons m^-2 s^-3); used when stim_kind=lm
+
+# Wavelength-dependent photoionisation cross-section sigma(E, T) per channel.
+
+xsec_model_IR : const      # const | lucovsky | grimmeiss
+lambda_IR     : 855        # IR stimulation wavelength (nm); ~1.45 eV
+E0_IR         : 1.45       # IR optical threshold / trap depth (eV)
+m_eff_IR      : 0.79       # effective electron mass m*/m_c (feldspar; grimmeiss only)
+
+xsec_model_blue : const    # const | lucovsky | grimmeiss
+lambda_blue     : 470      # blue/UV stimulation wavelength (nm); ~2.64 eV
+E0_blue         : 1.45     # blue/UV optical threshold (eV)
+m_eff_blue      : 0.79     # effective electron mass m*/m_c (feldspar; grimmeiss only)
+
+# Baril & Huntley (2003) IR intra-centre GS->ES resonance, used when
+E1_IR       : 1.44         # principal resonance centre (eV);
+sigma_g1_IR : 0.136        # principal Gaussian std dev (eV)
+gamma_l1_IR : 0.010        # principal Lorentzian HWHM (eV)
+A1_IR       : 1.0          # principal relative amplitude
+E2_IR       : 1.57         # secondary Gaussian centre (eV);
+sigma_g2_IR : 0.21         # secondary Gaussian std dev (eV)
+A2_IR       : 0.333        # secondary relative amplitude
+E3_IR       : null         # optional third Gaussian centre (eV);
+sigma_g3_IR : 0.0          # third Gaussian std dev (eV)
+A3_IR       : 0.0          # third relative amplitude
 
 # Misc
 retrap_mask_factor : 0.8   # Factor to constraint retrapping in adjescent pairs

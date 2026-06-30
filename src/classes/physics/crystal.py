@@ -15,10 +15,10 @@ from src.classes.physics.transition_process import EVENT_CODES
 @dataclass
 class Box(_temp,_ThermalParameters):
 
-    uc_h: float = field(default=8*mp.ang)
-    uc_w: float = field(default=8*mp.ang)
-    uc_l: float = field(default=8*mp.ang)
-    dimension: float = field(default=7.5*mp.n)
+    uc_h: float = field(default=1*mp.ang)
+    uc_w: float = field(default=1*mp.ang)
+    uc_l: float = field(default=1*mp.ang)
+    dimension: float = field(default=22.5*mp.n)
 
     unit_cell_dims: np.ndarray =field(init=False)
     t_cnt: int = field(init=False) 
@@ -668,16 +668,19 @@ class Box(_temp,_ThermalParameters):
         else:
             if self.mode == "OSL":
 
-                # IR channel: GS->ES, sigma*I = 0 reproduces the TL form
+                # IR channel: GS->ES, sigma*I = 0 reproduces the TL form.
+                # sigma is sigma(E, T) at the channel's photon energy (E = hc/lambda);
+                # the 'const' model returns a fixed sigma0 (legacy behaviour).
                 A_th  = self.s * np.exp(-self.E_loc_occ / (cnst.k_b_ev * self.T))
-                A_opt = (self.sigma_IR or 0.0) * self._stim_intensity(self.time, self.I0_IR, self.I_rate_IR)
+                A_opt = (self._sigma_IR_fn(self._E_IR, self.T)
+                         * self._stim_intensity(self.time, self.I0_IR, self.I_rate_IR))
                 A     = A_th + A_opt
                 self.F2 = A / (A + self.s)
                 self.F1 = self.s / (A + self.s)
 
                 # Blue/UV channel: GS/ES -> CB
-                self.A_cb_blue = (self.sigma_blue or 0.0) * self._stim_intensity(
-                    self.time, self.I0_blue, self.I_rate_blue)
+                self.A_cb_blue = (self._sigma_blue_fn(self._E_blue, self.T)
+                                  * self._stim_intensity(self.time, self.I0_blue, self.I_rate_blue))
             else:
                 self.F1 = 1. / (1 + np.exp(-self.E_loc_occ / (cnst.k_b_ev * self.T)))
                 self.F2 = 1. / (1 + np.exp( self.E_loc_occ / (cnst.k_b_ev * self.T)))
