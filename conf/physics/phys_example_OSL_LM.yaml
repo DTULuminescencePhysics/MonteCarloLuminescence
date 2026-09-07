@@ -13,6 +13,7 @@ uc_w      : 1.e-10
 uc_l      : 1.e-10
 dimension : 7.5e-9
 rho       : 5.22e25
+rho_h     : null    # Hole/recombination-centre density (m^-3); null -> equals rho
 urho      : null
 
 # Trap energy levels
@@ -28,6 +29,9 @@ D_dot             : 0
 Dd_unit           : s
 combine_when_fill : False
 recom_pre_fill    : 0
+fill_mode         : uniform # uniform | spatial
+mu_fill           : null    # null -> use mu (CB delocalization range)
+recom_new_pair    : False   # True -> the e-h pair born in one event may recombine
 
 # Localized transitions (off for this LM-OSL test)
 enable_tunneling : False

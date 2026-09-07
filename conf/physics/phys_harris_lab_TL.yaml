@@ -4,10 +4,11 @@ uc_w      : 1.e-10  # Unit cell width  (m)
 uc_l      : 1.e-10  # Unit cell length (m)
 dimension : 22.5e-9  # Approximate test-crystal dimension; null = default 7.5 nm
 rho       : 5.22e25
+rho_h     : null    # Hole/recombination-centre density (m^-3); null -> equals rho
 urho      : null    # 3e-4
 
 # Trap energy levels
-E_loc       : 0.8
+E_loc       : 1.4
 E_cb        : 2.0
 E_loc_sigma : 0.    # std dev of Gaussian for E_loc (eV); 0 = fixed
 E_cb_sigma  : 0.    # std dev of Gaussian for E_cb  (eV); 0 = fixed
@@ -19,9 +20,12 @@ D_dot             : 0       # Radiation per time unit
 Dd_unit           : s       # s : Gy/s; ka : Gy/ka, etc.
 combine_when_fill : False
 recom_pre_fill    : 0       # P(recombine) / P(fill vacancy)
+fill_mode         : spatial # uniform | spatial
+mu_fill           : 1.e-9    # null -> use mu (CB delocalization range)
+recom_new_pair    : False   # True -> the e-h pair born in one event may recombine
 
 # Localized transitions
-enable_tunneling : False
+enable_tunneling : True
 b                : 1.e12
 alpha_GS         : 9.e12
 alpha_ES         : 9.e9
@@ -31,8 +35,8 @@ VRH              : False    # False (default): original tunnelling rate; True: M
 # Delocalized transitions
 enable_cb : True
 s         : 1.e12           # 7.5e13
-mu        : 0.1
-R_CB      : 0.0             # Retrapping ratio for CB transitions
+mu        : 1.e-9           # Kernel width (m)
+R_CB      : 1.0             # Retrapping ratio for CB transitions
 
 # Simulation mode / optical stimulation (OSL)
 mode      : TL              # TL | OSL  (TL ignores the optical block below)

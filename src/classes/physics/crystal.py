@@ -71,6 +71,7 @@ class Box(_temp,_ThermalParameters):
     combine_when_fill: bool = field(default=False)
     recom_pre_fill: float = field(default=1.0)
     event_code: int = field(init=False, default=0)
+    event_photons: int = field(init=False, default=0)
 
 
     def __repr__(self):
@@ -182,7 +183,7 @@ class Box(_temp,_ThermalParameters):
     
     def NumberofHoles(self)-> None:
         """Returns the number of holes to generate with the boundary padding"""
-        self.HN = round(self.rho*self.volume[1])
+        self.HN = round((self.rho if self.rho_h is None else self.rho_h)*self.volume[1])
 
     # def topk_manhattan(self,traps, holes, k=20):
     #     """Finds the k nearest holes that are not necerssarily
@@ -235,6 +236,9 @@ class Box(_temp,_ThermalParameters):
             trap_coords = (self.rng.random((self.N,3))*size)+(self.dimension*0.25) 
 
         nn = self.HN
+
+        self.trap_coords = trap_coords
+        self.hole_coords = hole_coords
 
         self.create_distance_matrix(trap_coords,hole_coords)
         self.nearest = np.argsort(self.dist,axis=1)[:,:nn]
@@ -371,6 +375,56 @@ class Box(_temp,_ThermalParameters):
         delta = coords_a[:, None, :] - coords_b[None, :, :]
         delta -= L * np.round(delta / L)            # round=0 if delta<L/2, round=1 if delta>L/2, round=-1 if delta<-L/2
         return np.linalg.norm(delta, axis=2)
+
+    def _dist_from_point(self, point: np.ndarray, coords: np.ndarray) -> np.ndarray:
+        delta = coords - point
+        if self.boundary == "periodic":
+            L = self.dimension
+            delta = delta - L * np.round(delta / L)
+        return np.linalg.norm(delta, axis=1)
+
+    def _random_generation_point(self) -> np.ndarray:
+        if self.boundary == "periodic":
+            return self.rng.random(3) * self.dimension
+        return self.rng.random(3) * self.dimension + 0.25 * self.dimension
+
+    def _fill_kernel(self, r: np.ndarray) -> np.ndarray:
+        return np.exp(-(r / self.mu_fill) ** 2)
+
+    def _pick_spatial(self, r0: np.ndarray, blocks) -> tuple[int, int] | None:
+        weights = []
+        sizes = []
+        dists = []
+        for idx, coords, scale in blocks:
+            if idx.size == 0 or scale <= 0.0:
+                weights.append(np.empty(0))
+                dists.append(np.empty(0))
+                sizes.append(0)
+                continue
+            r = self._dist_from_point(r0, coords)
+            weights.append(scale * self._fill_kernel(r))
+            dists.append(r)
+            sizes.append(int(idx.size))
+
+        total_size = sum(sizes)
+        if total_size == 0:
+            return None
+
+        w = np.concatenate(weights)
+        tot = w.sum()
+        if not np.isfinite(tot) or tot <= 0.0:
+            flat = int(np.argmin(np.concatenate(dists)))
+        else:
+            flat = int(np.searchsorted(np.cumsum(w) / tot, self.rng.random()))
+            if flat >= total_size:
+                flat = total_size - 1
+
+        offset = 0
+        for block, size in enumerate(sizes):
+            if flat < offset + size:
+                return block, flat - offset
+            offset += size
+        return None
         
         
     # def distance_from_store(self) -> None:
@@ -439,11 +493,61 @@ class Box(_temp,_ThermalParameters):
             self.dg_ee_E = np.where(mask, 0.0,    self.dg_ee_E)
         
 
+    def _trap_new_electron_spatial(self):
+        r0 = self._random_generation_point()
+        acted = False
+        new_e_site = None
+
+        empty_t = np.flatnonzero(self.occ_trap == 0)
+        occ_h = np.flatnonzero(self.occ_hole == 1)
+        sel = self._pick_spatial(r0, [(empty_t, self.trap_coords[empty_t], 1.0),
+                                      (occ_h, self.hole_coords[occ_h],
+                                       self.recom_pre_fill)])
+        if sel is not None:
+            block, i = sel
+            if block == 0:
+                new_e_site = int(empty_t[i])
+                self.occ_trap[new_e_site] = 1
+                self.t_cnt += 1
+                self.event_code = EVENT_CODES["fill_trap_e"]
+            else:
+                self.occ_hole[occ_h[i]] = 0
+                self.h_cnt -= 1
+                self.event_photons += 1
+                self.event_code = EVENT_CODES["fill_recom_e"]
+            acted = True
+
+        empty_h = np.flatnonzero(self.occ_hole == 0)
+        occ_t = np.flatnonzero(self.occ_trap == 1)
+        if new_e_site is not None and not self.recom_new_pair:
+            occ_t = occ_t[occ_t != new_e_site]
+        sel = self._pick_spatial(r0, [(empty_h, self.hole_coords[empty_h], 1.0),
+                                      (occ_t, self.trap_coords[occ_t],
+                                       self.recom_pre_fill)])
+        if sel is not None:
+            block, i = sel
+            if block == 0:
+                self.occ_hole[empty_h[i]] = 1
+                self.h_cnt += 1
+                self.event_code = EVENT_CODES["fill_settle_h"]
+            else:
+                self.occ_trap[occ_t[i]] = 0
+                self.t_cnt -= 1
+                self.event_photons += 1
+                self.event_code = EVENT_CODES["fill_recom_h"]
+            acted = True
+
+        if acted:
+            self.define_new_d_full()
+
     def trap_new_electron(self):
         """
-        If recombination is allowed in filling, hole and electron 
+        If recombination is allowed in filling, hole and electron
         annihilation are treated separately.
         """
+        if self.fill_mode == "spatial":
+            return self._trap_new_electron_spatial()
+
         if not self.combine_when_fill:
             
             if self.t_cnt >= self.N:
@@ -616,7 +720,15 @@ class Box(_temp,_ThermalParameters):
         """Recalculates fill time. Transition rates are computed
         on demand by the process objects."""
 
-        if self.D0 == None or self.D_dot == 0 or self.h_cnt >= self.HN:
+        if self.fill_mode == "spatial":
+            electron_blocked = self.t_cnt >= self.N and self.h_cnt <= 0
+            hole_blocked = self.h_cnt >= self.HN and self.t_cnt <= 0
+            blocked = (self.D0 == None or self.D_dot == 0
+                       or (electron_blocked and hole_blocked))
+        else:
+            blocked = self.D0 == None or self.D_dot == 0 or self.h_cnt >= self.HN
+
+        if blocked:
             self.fill_time = 1e20
         else:
             fill_rate = self._fill(self.N, self.t_cnt, self.D_dot)
@@ -690,9 +802,14 @@ class Box(_temp,_ThermalParameters):
             for proc in self._processes:
                 total_rate += proc.bulk_rates_sum(self)
 
-            f = self.rng.exponential(1.0 / total_rate)
-            self.exec_time = np.min(f)
-            self.exec_index = int(np.argmin(f))
+            if not np.any(total_rate > 0.0):
+                self.exec_time = 1e20
+                self.exec_index = None
+            else:
+                with np.errstate(divide="ignore"):
+                    f = self.rng.exponential(1.0 / total_rate)
+                self.exec_time = np.min(f)
+                self.exec_index = int(np.argmin(f))
 
     # def select_fading_event(self) -> None:
     #     """Generates new random transition"""

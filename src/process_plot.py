@@ -266,7 +266,7 @@ def clean_up_results(results, output_file_name, crystal,
         for i in range(S):
             t_i   = results[i, 0, :lengths[i]]
             lum_i = results[i, 2, :lengths[i]]
-            all_lum_times.append(t_i[lum_i == 1])
+            all_lum_times.append(np.repeat(t_i, np.clip(lum_i, 0, None).astype(int)))
         all_lum_times = np.concatenate(all_lum_times)
 
         bin_edges   = np.arange(0, steady_time[-1] + glow_bin_width, glow_bin_width)

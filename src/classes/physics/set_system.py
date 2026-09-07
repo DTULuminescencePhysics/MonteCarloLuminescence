@@ -22,10 +22,14 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
     E_cb:    float | None = field(default=None) # Conduction band energy
     s :      float | None = field(default=None) # Escape frequency
     rho:     float | None = field(default=None) # Density
+    rho_h:   float | None = field(default=None) # Hole density; None -> rho
     urho:    float | None = field(default=None) # Unitless density
     D0:      float | None = field(default=None) # Characteristic doses
     D_dot:   float | None = field(default=None) # Radition per time unit
     mu:      float | None = field(default=None) # Electron spread range in CB
+    mu_fill: float | None = field(default=None) # Carrier spread range when filling; None -> mu
+    fill_mode: str = field(default="uniform")   # uniform | spatial
+    recom_new_pair: bool = field(default=False) # True: e-h pair born in one event may recombine
     Dd_unit: str = field(default='s')           # Units of Radiation s : Gy/s; ka : Gy/Ka etc.
     phys_type: str   = field(default="")        # Kind of fading model
     VRH:     bool   = field(default=False)      # If True, tunneling retrapping uses Miller-Abrahams VRH
@@ -55,7 +59,6 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
     lambda_blue:     float | None = field(default=None)  # blue/UV stimulation wavelength (nm)
     E0_blue:         float | None = field(default=None)  # blue/UV optical threshold (eV)
     m_eff_blue:      float = field(default=1.0)
-    Eu_blue:         float = field(default=0.05)
 
     # Baril & Huntley (2003) IR intra-centre (GS->ES) resonance parameters,
     # used by the IR channel when xsec_model_IR=baril_voigt.
@@ -75,6 +78,7 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
     def __post_init__(self):
 
         self._validate_osl()
+        self._validate_fill()
 
         if self.alpha_ES is None:
             self.alpha_ES = self.set_alpha()
@@ -99,19 +103,36 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
     def _build_cross_sections(self):
         self._sigma_IR_fn = CrossSection.build(
             self.xsec_model_IR, sigma0=self.sigma_IR, E0=self.E0_IR,
-            m_eff=self.m_eff_IR, E_u=self.Eu_IR,
+            m_eff=self.m_eff_IR,
             E1=self.E1_IR, sigma_g1=self.sigma_g1_IR, gamma_l1=self.gamma_l1_IR,
             A1=self.A1_IR, E2=self.E2_IR, sigma_g2=self.sigma_g2_IR, A2=self.A2_IR,
             E3=self.E3_IR, sigma_g3=self.sigma_g3_IR, A3=self.A3_IR)
         self._sigma_blue_fn = CrossSection.build(
             self.xsec_model_blue, sigma0=self.sigma_blue, E0=self.E0_blue,
-            m_eff=self.m_eff_blue, E_u=self.Eu_blue)
+            m_eff=self.m_eff_blue)
         self._E_IR = (photon_energy_eV(self.lambda_IR * 1e-9)
                       if self.lambda_IR is not None else None)
         self._E_blue = (photon_energy_eV(self.lambda_blue * 1e-9)
                         if self.lambda_blue is not None else None)
 
     
+    def _validate_fill(self):
+        mode = str(self.fill_mode).lower()
+        if mode not in ("uniform", "spatial"):
+            raise ValueError(
+                f"Unknown fill_mode '{self.fill_mode}'. Available: 'uniform', 'spatial'.")
+        self.fill_mode = mode
+
+        if self.mu_fill is None:
+            self.mu_fill = self.mu
+        if mode == "spatial":
+            if self.mu_fill is None:
+                raise ValueError(
+                    "fill_mode='spatial' requires a carrier spread range: set "
+                    "'mu_fill' explicitly, or set 'mu' to inherit it.")
+            if self.mu_fill <= 0:
+                raise ValueError(f"mu_fill must be positive, received {self.mu_fill}.")
+
     def _validate_osl(self):
         if self.mode == "OSL":
             if self.s is None:

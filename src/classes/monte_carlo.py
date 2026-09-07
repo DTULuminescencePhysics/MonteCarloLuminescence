@@ -96,6 +96,7 @@ def _run_single_rep(
 
         dt = min(crystal.fill_time, crystal.exec_time, max_dt)
 
+        crystal.event_photons = 0
         if dt == crystal.fill_time:
             crystal.trap_new_electron()
             event_code = crystal.event_code
@@ -116,7 +117,7 @@ def _run_single_rep(
 
         results[rep, 0, i] = crystal.time
         results[rep, 1, i] = crystal.t_cnt
-        results[rep, 2, i] = 1 if is_luminescence(event_code) else 0
+        results[rep, 2, i] = crystal.event_photons
         results[rep, 3, i] = event_code
         i += 1
 
@@ -292,6 +293,7 @@ class MCBase:
             dt = min(self.crystal.fill_time,self.crystal.exec_time,self.max_dt)
 
             # self.crystal.event_bool = True
+            self.crystal.event_photons = 0
             if dt == self.crystal.fill_time:
                 self.crystal.trap_new_electron()
                 event_code = self.crystal.event_code
@@ -313,7 +315,7 @@ class MCBase:
 
             self.results[rep,0,i] = self.crystal.time
             self.results[rep,1,i] = self.crystal.t_cnt
-            self.results[rep,2,i] = 1 if is_luminescence(event_code) else 0
+            self.results[rep,2,i] = self.crystal.event_photons
             self.results[rep,3,i] = event_code
             i+=1
 

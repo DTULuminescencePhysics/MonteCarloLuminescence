@@ -4,6 +4,7 @@ uc_w      : 1.e-10  # Unit cell width  (m)
 uc_l      : 1.e-10  # Unit cell length (m)
 dimension : 7.5e-9  # Approximate test-crystal dimension; null = default 7.5 nm
 rho       : 5.22e25
+rho_h     : null    # Hole/recombination-centre density (m^-3); null -> equals rho
 urho      : null
 
 # Trap energy levels
@@ -19,6 +20,9 @@ D_dot             : 0       # Radiation per time unit
 Dd_unit           : s       # s : Gy/s; ka : Gy/ka, etc.
 combine_when_fill : False
 recom_pre_fill    : 0       # P(recombine) / P(fill vacancy)
+fill_mode         : uniform # uniform | spatial
+mu_fill           : null    # null -> use mu (CB delocalization range)
+recom_new_pair    : False   # True -> the e-h pair born in one event may recombine
 
 # Localized transitions
 enable_tunneling : False

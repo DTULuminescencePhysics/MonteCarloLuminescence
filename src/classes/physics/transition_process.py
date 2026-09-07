@@ -24,6 +24,10 @@ EVENT_CODES = {
     "ES_CB_recom":      8,
     "ES_CB_retrap":     9,
     "bleach":           10,
+    "fill_trap_e":      11,
+    "fill_recom_e":     12,
+    "fill_settle_h":    13,
+    "fill_recom_h":     14,
 }
 
 EVENT_NAMES = {v: k for k, v in EVENT_CODES.items()}    # Reverse event codes
@@ -66,6 +70,7 @@ class RecombinationOperation:
         box.t_cnt -= 1
         box.h_cnt -= 1
         box.event_code = self.event_code
+        box.event_photons += 1
 
 
 @dataclass(slots=True)
