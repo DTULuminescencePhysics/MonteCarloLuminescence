@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 from scipy.signal import savgol_filter,lfilter 
 from src.classes.constants import time_to_seconds
-from src.classes.physics.transition_process import EVENT_NAMES
+from src.classes.physics.transition_process import EVENT_CODES, EVENT_NAMES
 
 mpl.rcParams['font.family']='DejaVu Sans'
 plt.rcParams['font.size']=18
@@ -18,6 +18,12 @@ plt.rcParams['axes.linewidth']=2
 
 colors = ['g','b','k','c','m','y','r']
 lines  = ['-','--','-.',':']
+
+LOCALIZED_CODES   = np.array([EVENT_CODES["GS_tun_recom"],
+                              EVENT_CODES["ES_tun_recom"]])
+DELOCALIZED_CODES = np.array([EVENT_CODES["GS_CB_recom"],
+                              EVENT_CODES["ES_CB_recom"]])
+READOUT_CODES     = np.concatenate([LOCALIZED_CODES, DELOCALIZED_CODES])
 
 
 def plot_crystal(trap_coords: np.ndarray, hole_location: np.ndarray, nearest: np.ndarray, N: int, nearest_no=3):
@@ -85,26 +91,43 @@ def time_sequence(input_temps, unit):
     else: 
         return input_temps
 
+def _std_from_moments(total: np.ndarray, total_sq: np.ndarray, n: int) -> np.ndarray:
+
+    if n < 2:
+        return np.zeros_like(total)
+    var = (total_sq - total * total / n) / (n - 1)
+    return np.sqrt(np.clip(var, 0.0, None))
+
+
 def _plot_glow_curve(filename: str,
                      x: np.ndarray,
                      glow_rate: np.ndarray,
                      glow_smoothed: np.ndarray | None = None,
-                     xlabel: str = "Temperature (°C)") -> None:
+                     xlabel: str = "Temperature (°C)",
+                     glow_std: np.ndarray | None = None) -> None:
     """
     Plot the glow/luminescence curve d(N_holes)/dt against the supplied x axis
     (Temperature or Time, selected via `xlabel`) and save to `filename`.
 
     If glow_smoothed is provided the raw curve is drawn as a faint dashed
-    line and the smoothed curve as a solid line.
+    line and the smoothed curve as a solid line. If glow_std is provided a
+    +/- 1 sigma band (spread over repetitions) is shaded around it.
     """
     fig, ax = plt.subplots(figsize=(8, 5))
     if glow_smoothed is not None:
         ax.plot(x, glow_rate, color="firebrick", linewidth=0.8,
                 ls="--", alpha=0.4, label="raw")
+        if glow_std is not None:
+            ax.fill_between(x, glow_smoothed - glow_std, glow_smoothed + glow_std,
+                            color="firebrick", alpha=0.18, linewidth=0,
+                            label="±1 s.d.")
         ax.plot(x, glow_smoothed, color="firebrick", linewidth=1.5,
                 label="smoothed")
         ax.legend(loc="best", fontsize=10)
     else:
+        if glow_std is not None:
+            ax.fill_between(x, glow_rate - glow_std, glow_rate + glow_std,
+                            color="firebrick", alpha=0.18, linewidth=0)
         ax.plot(x, glow_rate, color="firebrick", linewidth=1.5)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Glow intensity")
@@ -119,12 +142,20 @@ def _plot_ratio_bands(filename: str,
                       xlabel: str,
                       mean_curve: np.ndarray,
                       ratio_min: np.ndarray,
-                      ratio_max: np.ndarray) -> None:
+                      ratio_max: np.ndarray,
+                      ratio_std: np.ndarray | None = None) -> None:
     """
     Plot the trapped-electron ratio n/N (mean with min/max envelope) against
     the supplied x axis (Temperature or Time, selected via `xlabel`).
+
+    If ratio_std is given a +/- 1 sigma band over the repetitions is shaded
+    inside the min/max envelope.
     """
     fig, ax = plt.subplots(figsize=(8, 5))
+    if ratio_std is not None:
+        ax.fill_between(x, mean_curve - ratio_std, mean_curve + ratio_std,
+                        color="steelblue", alpha=0.2, linewidth=0,
+                        label="±1 s.d.")
     ax.plot(x, mean_curve, color="steelblue", linewidth=1.5, label="n/N mean")
     ax.plot(x, ratio_min, color="steelblue", ls="--",
             linewidth=1.0, alpha=0.5, label="min / max")
@@ -158,24 +189,25 @@ def clean_up_results(results, output_file_name, crystal,
 
     time_max    = max(results[i, 0, lengths[i]-1] for i in range(S))
     steady_time = np.linspace(0, time_max, 20000)
-    divisor     = closest_divisor(S)
-    additional  = S // divisor - 1
 
-    ratio_results = np.zeros((5 + additional, steady_time.size))
+    ratio_results = np.zeros((6, steady_time.size))
     ratio_results[0, :] = steady_time
 
-    lum_results = np.zeros((3 + additional, steady_time.size))
+    lum_results = np.zeros((6, steady_time.size))
     lum_results[0, :] = steady_time
 
     n_codes      = max(EVENT_NAMES.keys()) + 1
     event_counts = np.zeros((steady_time.size, n_codes), dtype=np.int64)
 
-    cnt       = 0
-    cnt_lum   = 0
-    header     = ["Time (s)", "Temperature (C)"]
-    lum_header = ["Time (s)", "Temperature (C)"]
+    header     = ["Time (s)", "Temperature (C)",
+                  f"n/N mean ({S} reps)", f"n/N std ({S} reps)",
+                  "n/N min (all reps)", "n/N max (all reps)"]
+    lum_header = ["Time (s)", "Temperature (C)", f"Lum ({S} reps)",
+                  f"photon_loc ({S} reps)", f"photon_deloc ({S} reps)",
+                  f"photon_fill ({S} reps)"]
 
     sumed     = np.zeros(steady_time.size)
+    sumed_sq  = np.zeros(steady_time.size)
     ratio_min = np.full(steady_time.size, np.inf)
     ratio_max = np.full(steady_time.size, -np.inf)
 
@@ -185,15 +217,11 @@ def clean_up_results(results, output_file_name, crystal,
         lum_i = results[i, 2, :lengths[i]]
         c_i   = results[i, 3, :lengths[i]].astype(int)
 
-        interp_i = np.interp(steady_time, t_i, y_i)
-        sumed   += interp_i
+        interp_i  = np.interp(steady_time, t_i, y_i)
+        sumed    += interp_i
+        sumed_sq += interp_i * interp_i
         np.minimum(ratio_min, interp_i, out=ratio_min)
         np.maximum(ratio_max, interp_i, out=ratio_max)
-
-        if ((i + 1) % divisor == 0 and i != 0) or (S == 1):
-            ratio_results[2 + cnt, :] = sumed / (i + 1)
-            cnt += 1
-            header.append(f"n/N (avg {i+1} reps)")
 
         ev_mask = c_i >= 1
         t_ev    = t_i[ev_mask]
@@ -205,23 +233,25 @@ def clean_up_results(results, output_file_name, crystal,
             counts   = np.bincount(flat_idx, minlength=steady_time.size * n_codes)
             event_counts += counts.reshape(steady_time.size, n_codes)
 
-        lum_times = t_i[lum_i == 1]
+        lum_mask   = lum_i >= 1
+        lum_times  = t_i[lum_mask]
         if lum_times.size > 0:
             bin_idx = np.searchsorted(steady_time, lum_times, side='right') - 1
             bin_idx = np.clip(bin_idx, 0, steady_time.size - 1)
-            np.add.at(lum_results[2 + cnt_lum], bin_idx, 1)
-        if (i + 1) % divisor == 0 and i != 0:
-            if i < S - 1:
-                lum_results[2 + cnt_lum + 1] += lum_results[2 + cnt_lum]
-                lum_header.append(f"Lum (avg {i+1} reps)")
-            cnt_lum += 1
-        elif S == 1:
-            lum_header.append(f"Lum (avg {i+1} reps)")
+            photons   = lum_i[lum_mask]
+            lum_codes = c_i[lum_mask]
+            np.add.at(lum_results[2], bin_idx, photons)
+            loc = np.isin(lum_codes, LOCALIZED_CODES)
+            np.add.at(lum_results[3], bin_idx[loc], photons[loc])
+            deloc = np.isin(lum_codes, DELOCALIZED_CODES)
+            np.add.at(lum_results[4], bin_idx[deloc], photons[deloc])
+            fill = ~np.isin(lum_codes, READOUT_CODES)
+            np.add.at(lum_results[5], bin_idx[fill], photons[fill])
 
-    ratio_results[3 + additional, :] = ratio_min
-    ratio_results[4 + additional, :] = ratio_max
-    header.append("n/N min (all reps)")
-    header.append("n/N max (all reps)")
+    ratio_results[2, :] = sumed / S
+    ratio_results[3, :] = _std_from_moments(sumed, sumed_sq, S)
+    ratio_results[4, :] = ratio_min
+    ratio_results[5, :] = ratio_max
 
     ratio_results[1, :] = crystal.Tat(ratio_results[0, :]) - 273.15
 
@@ -241,14 +271,15 @@ def clean_up_results(results, output_file_name, crystal,
     if plot_error_bands:
         temperature_plot = ratio_results[1, :]
         time_plot        = ratio_results[0, :]
-        mean_curve       = ratio_results[2 + additional, :]
+        mean_curve       = ratio_results[2, :]
+        std_curve        = ratio_results[3, :]
 
         _plot_ratio_bands(f"{output_file_name}_error_bands.png",
                           temperature_plot, "Temperature (°C)",
-                          mean_curve, ratio_min, ratio_max)
+                          mean_curve, ratio_min, ratio_max, std_curve)
         _plot_ratio_bands(f"{output_file_name}_error_bands_time.png",
                           time_plot, "Time (s)",
-                          mean_curve, ratio_min, ratio_max)
+                          mean_curve, ratio_min, ratio_max, std_curve)
 
     del ratio_results
 
@@ -256,28 +287,61 @@ def clean_up_results(results, output_file_name, crystal,
 
     if os.path.exists(f"{lum_file}.csv"):
         os.remove(f"{lum_file}.csv")
+
+    
+    lum_fmt = ["%.10g", "%.4f"] + ["%d"] * (lum_results.shape[0] - 2)
     np.savetxt(f"{lum_file}.csv", lum_results.T, delimiter=",",
-               header=",".join(lum_header))
+               fmt=lum_fmt, header=",".join(lum_header))
     del lum_results
 
     if plot_glow_curve:
 
-        all_lum_times = []
-        for i in range(S):
-            t_i   = results[i, 0, :lengths[i]]
-            lum_i = results[i, 2, :lengths[i]]
-            all_lum_times.append(np.repeat(t_i, np.clip(lum_i, 0, None).astype(int)))
-        all_lum_times = np.concatenate(all_lum_times)
-
         bin_edges   = np.arange(0, steady_time[-1] + glow_bin_width, glow_bin_width)
         bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+        n_bins      = bin_centers.size
 
-        counts, _   = np.histogram(all_lum_times, bins=bin_edges)
-        cum_events  = np.cumsum(counts / S)          # average over reps
-        glow_raw    = np.gradient(cum_events, bin_centers)
+    if plot_glow_curve and n_bins >= 2:
 
-        win = min(savgol_window, len(glow_raw) if len(glow_raw) % 2 == 1 else len(glow_raw) - 1)
-        glow_smoothed = np.clip(savgol_filter(glow_raw, win, savgol_poly), 0, None)
+        win = min(savgol_window, n_bins if n_bins % 2 == 1 else n_bins - 1)
+        smooth = win > savgol_poly
+
+        raw_sum    = np.zeros(n_bins)
+        raw_sumsq  = np.zeros(n_bins)
+        sm_sum     = np.zeros(n_bins)
+        sm_sumsq   = np.zeros(n_bins)
+        sm_loc     = np.zeros(n_bins)
+        sm_deloc   = np.zeros(n_bins)
+        sm_fill    = np.zeros(n_bins)
+
+        for i in range(S):
+            t_i   = results[i, 0, :lengths[i]]
+            lum_i = np.clip(results[i, 2, :lengths[i]], 0, None)
+            c_i   = results[i, 3, :lengths[i]].astype(int)
+
+            counts, _ = np.histogram(t_i, bins=bin_edges, weights=lum_i)
+            raw_i     = np.gradient(np.cumsum(counts), bin_centers)
+            raw_sum   += raw_i
+            raw_sumsq += raw_i * raw_i
+
+            sm_i      = savgol_filter(raw_i, win, savgol_poly) if smooth else raw_i
+            sm_sum    += sm_i
+            sm_sumsq  += sm_i * sm_i
+
+            for mask, accum in ((np.isin(c_i, LOCALIZED_CODES), sm_loc),
+                                (np.isin(c_i, DELOCALIZED_CODES), sm_deloc),
+                                (~np.isin(c_i, READOUT_CODES), sm_fill)):
+                w = np.where(mask, lum_i, 0.0)
+                r = np.gradient(np.cumsum(np.histogram(t_i, bins=bin_edges,
+                                                       weights=w)[0]), bin_centers)
+                accum += savgol_filter(r, win, savgol_poly) if smooth else r
+
+        glow_raw          = raw_sum / S
+        glow_raw_std      = _std_from_moments(raw_sum, raw_sumsq, S)
+        glow_smoothed     = np.clip(sm_sum / S, 0, None)
+        glow_smoothed_std = _std_from_moments(sm_sum, sm_sumsq, S)
+        glow_loc          = np.clip(sm_loc / S, 0, None)
+        glow_deloc        = np.clip(sm_deloc / S, 0, None)
+        glow_fill         = np.clip(sm_fill / S, 0, None)
 
         temperature_glow = crystal.Tat(bin_centers) - 273.15
 
@@ -285,15 +349,23 @@ def clean_up_results(results, output_file_name, crystal,
         if os.path.exists(f"{glow_file}.csv"):
             os.remove(f"{glow_file}.csv")
         np.savetxt(f"{glow_file}.csv",
-                   np.column_stack([bin_centers, temperature_glow, glow_raw]),
+                   np.column_stack([bin_centers, temperature_glow,
+                                    glow_raw, glow_raw_std,
+                                    glow_smoothed, glow_smoothed_std,
+                                    glow_loc, glow_deloc, glow_fill]),
                    delimiter=",",
                    header="Time (s),Temperature (C),"
-                          "d(N_holes)/dt (holes/s),d(N_holes)/dt smoothed")
+                          "d(N_holes)/dt (holes/s),d(N_holes)/dt std,"
+                          "d(N_holes)/dt smoothed,d(N_holes)/dt smoothed std,"
+                          "d(N_holes)/dt loc smoothed,d(N_holes)/dt deloc smoothed,"
+                          "d(N_holes)/dt fill smoothed")
 
         _plot_glow_curve(f"{output_file_name}_glow_curve.png", temperature_glow,
-                         glow_raw, glow_smoothed, xlabel="Temperature (°C)")
+                         glow_raw, glow_smoothed, xlabel="Temperature (°C)",
+                         glow_std=glow_smoothed_std)
         _plot_glow_curve(f"{output_file_name}_glow_curve_time.png", bin_centers,
-                         glow_raw, glow_smoothed, xlabel="Time (s)")
+                         glow_raw, glow_smoothed, xlabel="Time (s)",
+                         glow_std=glow_smoothed_std)
 
     return ratio_file, lum_file
 
@@ -381,22 +453,32 @@ def _load_ratio_csv(path: str):
     data = np.loadtxt(path, delimiter=",", usecols=range(ncols))
     return data, header_line
 
+def _mean_ratio_columns(header_line: str, ncols: int) -> Tuple[list[int], list[str]]:
+    """
+    Column indices (and names) of the mean n/N curve(s) in a ratio CSV,
+    skipping the std, min/max and dominant-event columns.
+    """
+    names = [h.strip().lstrip('#').strip() for h in header_line.split(',')]
+    idx, labels = [], []
+    for i, name in enumerate(names[:ncols]):
+        low = name.lower()
+        if 'mean' in low and 'std' not in low:
+            idx.append(i)
+            labels.append(name)
+    return idx, labels
+
 def plot_forward_results(ratio_file: str, lum_file:str, T_unit: str = 's', T_type: str = 'constant') -> None:
 
     data, header = _load_ratio_csv(f"{ratio_file}.csv")
     times = time_sequence(data[:,0], T_unit)
 
-    header_names = header.split(',')[2:]
-    
-    header_names = [h for h in header_names
-                    if 'event' not in h.lower() and 'min' not in h.lower()
-                    and 'max' not in h.lower()]
+    cols, header_names = _mean_ratio_columns(header, data.shape[1])
 
-    plot_forward_ratio(f"Time_filling_{ratio_file}.png",data[:,2:-2],times, T_unit,header_names)
+    plot_forward_ratio(f"Time_filling_{ratio_file}.png",data[:,cols],times, T_unit,header_names)
     plot_T_profile("Temperature_Profile.png",data[:,1],times,T_unit)
 
     if T_type != 'constant':
-        plot_forward_ratio_T(f"Time_filling_{ratio_file}_T.png",data[:,2:-2],data[:,1],header_names)
+        plot_forward_ratio_T(f"Time_filling_{ratio_file}_T.png",data[:,cols],data[:,1],header_names)
 
 def plot_forward_multi_experiment(ratio_files: list[str],file_name: str,T_unit: str = 's') -> None:
     fig=plt.figure(figsize=(3.37,5.055))
@@ -407,9 +489,10 @@ def plot_forward_multi_experiment(ratio_files: list[str],file_name: str,T_unit: 
             j = ((j+1)%4)
 
         file = ratio_files[i]
-        data, _ = _load_ratio_csv(file)
+        data, header = _load_ratio_csv(file)
         times = time_sequence(data[:,0], T_unit)
-        ratio_vs(times,data[:,-1],ax,colors[i%7],lines[j],f"Experiment no.{i+1}")
+        cols, _ = _mean_ratio_columns(header, data.shape[1])
+        ratio_vs(times,data[:,cols[-1]],ax,colors[i%7],lines[j],f"Experiment no.{i+1}")
 
 
     plot_time_label(ax, T_unit)

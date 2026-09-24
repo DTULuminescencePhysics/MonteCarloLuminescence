@@ -732,8 +732,14 @@ class Box(_temp,_ThermalParameters):
             self.fill_time = 1e20
         else:
             fill_rate = self._fill(self.N, self.t_cnt, self.D_dot)
-            # self._filltime = self.rng.exponential(1/fill_rate)
-            self.fill_time = self.rng.exponential(1/fill_rate)
+            # A non-positive rate is the "never fill" sentinel: the 'none'
+            # builder returns -1e20 when enable_fill is False, and the dose
+            # builder collapses to ~0 once no vacancy is left. Feeding either
+            # to 1/rate gives a negative exponential scale, which raises.
+            if fill_rate <= 0.0:
+                self.fill_time = 1e20
+            else:
+                self.fill_time = self.rng.exponential(1 / fill_rate)
 
     # def random_fill_fade(self) -> None:
     #     """Generates new random fill and fade times"""
