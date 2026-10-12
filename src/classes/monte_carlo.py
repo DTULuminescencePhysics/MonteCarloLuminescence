@@ -13,11 +13,9 @@ from src.classes.physics.transition_process import is_luminescence
 
 
 def _max_dt_finder(
-    cnt: int, crystal: Box, max_dt: float, max_dt_time_chk: float
-) -> tuple[int, float, float]:
+    cnt: int, crystal: Box, max_dt: float, max_dt_time_chk: float) -> tuple[int, float, float]:
     """Pure-function equivalent of MCBase.max_dt_finder for worker processes.
 
-    Returns (updated_cnt, updated_max_dt, updated_max_dt_time_chk).
     """
     if max_dt_time_chk > crystal.duration:
         return cnt, max_dt, max_dt_time_chk
@@ -94,7 +92,9 @@ def _run_single_rep(
                 max_dt_cnt, crystal, max_dt, max_dt_time_chk
             )
 
-        dt = min(crystal.fill_time, crystal.exec_time, max_dt)
+        
+        dt = min(crystal.fill_time, crystal.exec_time, max_dt, crystal.dose_dt_cap(),
+                 max_dt_time_chk - crystal.time)
 
         crystal.event_photons = 0
         if dt == crystal.fill_time:
@@ -290,7 +290,10 @@ class MCBase:
             if self.crystal.time >= self.max_dt_time_chk:
                 self.max_dt_finder()
 
-            dt = min(self.crystal.fill_time,self.crystal.exec_time,self.max_dt)
+            # Never step past the next temperature-segment boundary.
+            dt = min(self.crystal.fill_time,self.crystal.exec_time,self.max_dt,
+                     self.crystal.dose_dt_cap(),
+                     self.max_dt_time_chk - self.crystal.time)
 
             # self.crystal.event_bool = True
             self.crystal.event_photons = 0
