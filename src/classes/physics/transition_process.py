@@ -136,16 +136,21 @@ class TunnelingRecombination:
     operation: Operation
 
     def rates(self, box: Box, exec_index: int) -> ArrayLike:
-        if box.d.size == 0:
+        W = box._W_recom.get(id(self))
+        if W is None or not box._occ_hole_b.any():
             return np.empty(0)
         F = getattr(box, self.pop_factor_key)
-        return F[exec_index] * self.rate_fn(box.d[exec_index, :])
+        t_index = box._occ_trap_idx[exec_index]
+        return F[exec_index] * W[t_index][box._occ_hole_b]
 
     def bulk_rates_sum(self, box: Box) -> ArrayLike:
-        if box.d.size == 0:
+        # The per-trap sum over occupied holes is maintained incrementally by
+        # Box._sync_recom_sums, so there is no matrix pass here at all.
+        W = box._W_recom.get(id(self))
+        if W is None or not box._occ_hole_b.any():
             return np.zeros(box.t_cnt)
         F = getattr(box, self.pop_factor_key)
-        return F * self.rate_fn(box.d).sum(axis=1)
+        return F * box._S_recom[id(self)][box._occ_trap_b]
 
     def execute(self, box: Box, exec_index: int, local_idx: int) -> None:
         t_index = np.flatnonzero(box.occ_trap)[exec_index]
@@ -159,7 +164,6 @@ class TunnelingRetrapping:
     Miller-Abrahams variable-range-hopping Boltzmann factor
         exp( -(dE + |dE|) / (2 * k_b * T) )
     """
-
     name: str
     rate_fn: Callable[[ArrayLike], ArrayLike]
     pop_factor_key: str

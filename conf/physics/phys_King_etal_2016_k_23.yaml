@@ -13,4 +13,5 @@ urho      : [3.890451449942800e-6,3.162277660168380e-6,1.445439770745930e-6,1.34
 D0        : [620,681,767,669] #Gy
 D_dot     : [7.0,7.0,7.0,7.0] #Gy ka-1 
 Dd_unit   : Ka 
+dose_time : null # Dose-on duration in temp-config time units; null -> temp.duration
 phys_type : null

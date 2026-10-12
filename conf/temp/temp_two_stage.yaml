@@ -1,0 +1,13 @@
+unit: s # unit of time s -- sections, y -- years, Ma -- mega-annum i.e. 1000000 years
+celsius: true # true if temperatures are given in celsius else false for kelvin
+kind: linearsteps # constant; linear; step; steps; lineardrops; linearsteps; exponetial
+T0: 20 # Initial temperature, always required in celsius
+duration: 1735336 # 7200 s + 1728000 s (20d) + 136 s TL readout
+# Stage 1:    0 - 7200 s  hold 20 C
+# Stage 2: 7200 - 7400 s  hold 20 C (dark room storage)
+# Stage 3: 7400 - 7496 s  TL, 20 -> 500 C at 5 K/s
+times: [7200, 1735200] # start times of stages 2 and 3
+dT_step: [0, 0] # no instant temperature jump at the stage boundaries
+dT: [0, 0, -5] # rate per stage; T(t) = T0 - dT*t, so -5 heats at 5 K/s
+T_inf: 0 # Minimum temperature if using exponential cooling
+k: 10 # Exponential factor in T(t) = T_inf + (T0 - T_inf) * exp(-k t)

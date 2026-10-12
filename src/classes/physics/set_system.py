@@ -26,6 +26,7 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
     urho:    float | None = field(default=None) # Unitless density
     D0:      float | None = field(default=None) # Characteristic doses
     D_dot:   float | None = field(default=None) # Radition per time unit
+    dose_time: float | None = field(default=None) # Dose-on duration (temp time unit); None -> duration
     mu:      float | None = field(default=None) # Electron spread range in CB
     mu_fill: float | None = field(default=None) # Carrier spread range when filling; None -> mu
     fill_mode: str = field(default="uniform")   # uniform | spatial
@@ -79,6 +80,7 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
 
         self._validate_osl()
         self._validate_fill()
+        self._validate_dose_time()
 
         if self.alpha_ES is None:
             self.alpha_ES = self.set_alpha()
@@ -132,6 +134,21 @@ class _ThermalParameters(Transitions):    # CrystalPhysics
                     "'mu_fill' explicitly, or set 'mu' to inherit it.")
             if self.mu_fill <= 0:
                 raise ValueError(f"mu_fill must be positive, received {self.mu_fill}.")
+
+    def _validate_dose_time(self):
+        # Duration comes from _temp, time unit is determined by temp history
+
+        duration = getattr(self, "duration", None)
+        if duration is None:
+            return
+        if self.dose_time is None:
+            self.dose_time = duration
+            return
+        unit = getattr(self, "unit", "s")
+        if unit != "s":
+            self.dose_time *= time_to_seconds[unit]   # same unit as temp.duration
+        if self.dose_time > duration:
+            raise ValueError("Dose duration cannot exceed simulation time!")
 
     def _validate_osl(self):
         if self.mode == "OSL":

@@ -109,6 +109,7 @@ class Box(_temp,_ThermalParameters):
                   f"and the tunneling rate constant is : {self.alpha_ES} (m^-1).\n"
                   f"The escape frequecy is : {self.s} (s^-1).\n"
                   f"The crystal is dosed at rate of : {self.D_dot} (Gy/s) \n"
+                  f"for a dose duration of : {self.dose_time} (s)\n"
                   f"with a characteristic dose of : {self.D0} (Gy)\n"
                   f"{temp}")
         
@@ -155,6 +156,8 @@ class Box(_temp,_ThermalParameters):
         self.h= np.zeros(2)
         self.w= np.zeros(2)
         self.l= np.zeros(2) 
+        self._D_dot_on = self.D_dot     # configured rate; D_dot drops to 0 after dose_time
+        self.dose_on = True
         self.set_dimensions()
       
     def set_dimensions(self, N_number: int = 100) -> None:
@@ -241,14 +244,19 @@ class Box(_temp,_ThermalParameters):
         self.hole_coords = hole_coords
 
         self.create_distance_matrix(trap_coords,hole_coords)
-        self.nearest = np.argsort(self.dist,axis=1)[:,:nn]
+        self.nearest = None                
+
+        self._precompute_transition_matrices()
 
         self.E_es_array  = self.E_cb_array - self.E_loc_array
-        self.E_diff_ee   = self.E_es_array[:, None] - self.E_es_array[None, :]
-        np.fill_diagonal(self.E_diff_ee, 0.0)
-        self.E_diff_gs_ee = self.E_cb_array[:, None] - self.E_cb_array[None, :]
-        np.fill_diagonal(self.E_diff_gs_ee, 0.0)
-      
+        if self._needs_d_ee:
+            self.E_diff_ee   = self.E_es_array[:, None] - self.E_es_array[None, :]
+            np.fill_diagonal(self.E_diff_ee, 0.0)
+            self.E_diff_gs_ee = self.E_cb_array[:, None] - self.E_cb_array[None, :]
+            np.fill_diagonal(self.E_diff_gs_ee, 0.0)
+        else:
+            self.E_diff_ee = self.E_diff_gs_ee = np.zeros((0, 0))
+
         self.occ_trap = np.zeros(self.N,dtype=np.uint8)
         self.occ_hole = np.zeros(self.HN,dtype=np.uint8)
 
@@ -268,7 +276,8 @@ class Box(_temp,_ThermalParameters):
                     avail = np.flatnonzero(self.occ_trap==0)
                     t_index = self.rng.choice(avail)
                     if hole_tot < self.h_cnt:
-                        nn = self.nearest[t_index][~np.isin(self.nearest[t_index],np.flatnonzero(self.occ_hole))]
+                        near = self._nearest_holes()
+                        nn = near[t_index][~np.isin(near[t_index],np.flatnonzero(self.occ_hole))]
                         if len(nn) > 0 : 
                             h_index = nn[0]
                         else: 
@@ -368,13 +377,20 @@ class Box(_temp,_ThermalParameters):
             raise ValueError(f"Invalid boundary condition: {self.boundary}")
         np.fill_diagonal(self.dist_ee, 1e-20)
 
-    def _min_image_dist(self, coords_a: np.ndarray, coords_b: np.ndarray) -> np.ndarray:
+    def _min_image_dist(self, coords_a: np.ndarray, coords_b: np.ndarray,
+                        block: int = 512) -> np.ndarray:
         """Compute pairwise Euclidean distances using the minimum-image
-        convention for a cubic box of side length self.dimension."""
+        convention for a cubic box of side length self.dimension.
+        """
         L = self.dimension
-        delta = coords_a[:, None, :] - coords_b[None, :, :]
-        delta -= L * np.round(delta / L)            # round=0 if delta<L/2, round=1 if delta>L/2, round=-1 if delta<-L/2
-        return np.linalg.norm(delta, axis=2)
+        n_a, n_b = coords_a.shape[0], coords_b.shape[0]
+        out = np.empty((n_a, n_b), dtype=float)
+        for i0 in range(0, n_a, max(1, block)):
+            i1 = min(i0 + max(1, block), n_a)
+            delta = coords_a[i0:i1, None, :] - coords_b[None, :, :]
+            delta -= L * np.round(delta / L)        # round=0 if delta<L/2, round=1 if delta>L/2, round=-1 if delta<-L/2
+            np.sqrt(np.einsum("ijk,ijk->ij", delta, delta), out=out[i0:i1])
+        return out
 
     def _dist_from_point(self, point: np.ndarray, coords: np.ndarray) -> np.ndarray:
         delta = coords - point
@@ -451,6 +467,78 @@ class Box(_temp,_ThermalParameters):
         # self.d = np.ma.array(self.dist,mask=mask)#.compressed()
         # self.d = np.ma.array(self.dist,mask=mask).min(axis=1).compressed()
 
+    def _nearest_holes(self) -> np.ndarray:
+        # Hole indices per trap sorted by distance.
+        if self.nearest is None:
+            self.nearest = np.argsort(self.dist, axis=1)[:, :self.HN]
+        return self.nearest
+
+    def _precompute_transition_matrices(self) -> None:
+        # Evaluate every distance-dependent tunnelling rate law once.
+
+        from src.classes.physics.transition_process import (
+            ConductionBandExcitation, TunnelingRecombination,
+            TunnelingRetrapping)
+
+        procs = getattr(self, "_processes", []) or []
+        self._W_recom = {}
+        for proc in procs:
+            if isinstance(proc, TunnelingRecombination):
+                W = np.asarray(proc.rate_fn(self.dist), dtype=float)
+                self._W_recom[id(proc)] = W if W.any() else None
+        self._S_recom = {}
+        self._S_ref = {}
+        self._occ_hole_prev = None
+        self._recom_since_refresh = 0
+
+        needs_cb = any(isinstance(p, ConductionBandExcitation) for p in procs)
+        live_retrap = any(isinstance(p, TunnelingRetrapping)
+                          and p.pre_factor != 0.0 for p in procs)
+        self._needs_d_ee = bool(needs_cb or live_retrap)
+        self._needs_d = bool(needs_cb
+                             or (live_retrap and self.retrap_mask_factor > 0.0))
+
+    _RECOM_REFRESH = 512
+    _RECOM_GUARD = 1e-6
+
+    def _sync_recom_sums(self, col_m: np.ndarray) -> None:
+        #vKeep sum over OCCUPIED holes j of W[i,j] current for every trap i.
+
+        if not self._W_recom:
+            return
+        prev = self._occ_hole_prev
+        changed = None if prev is None else np.flatnonzero(col_m != prev)
+        full = (prev is None or changed.size > 2
+                or self._recom_since_refresh >= self._RECOM_REFRESH)
+        if not full:
+            for pid, W in self._W_recom.items():
+                if W is None:
+                    continue
+                S = self._S_recom[pid]
+                for j in changed:
+                    if col_m[j]:
+                        S += W[:, j]
+                    else:
+                        S -= W[:, j]
+            
+            for pid, W in self._W_recom.items():
+                if W is None:
+                    continue
+                if np.any(self._S_recom[pid]
+                          < self._RECOM_GUARD * self._S_ref[pid]):
+                    full = True
+                    break
+        if full:
+            col_f = col_m.astype(float)
+            for pid, W in self._W_recom.items():
+                if W is not None:
+                    self._S_recom[pid] = W @ col_f
+                    self._S_ref[pid] = self._S_recom[pid].copy()
+            self._recom_since_refresh = 0
+        else:
+            self._recom_since_refresh += 1
+        self._occ_hole_prev = col_m.copy()
+
     def define_new_d_full(self):
         """Updates the distance matrix between occupied electron trap and
         occupied hole trap pair and the distance between occupied electron trap
@@ -461,12 +549,23 @@ class Box(_temp,_ThermalParameters):
 
         row_m = self.occ_trap.astype(bool)
         col_m = self.occ_hole.astype(bool)
-        full = self.dist[row_m][:,col_m]
-        # self.d = full
-        if full.size == 0:
+
+        self._occ_trap_b = row_m
+        self._occ_hole_b = col_m
+        self._occ_trap_idx = occ_idx
+        self._sync_recom_sums(col_m)
+
+        empty = not row_m.any() or not col_m.any()
+        if self._needs_d and not empty:
+            self.d = self.dist[row_m][:, col_m]
+        else:
             self.d = np.zeros(0)
+
+        if empty or not self._needs_d_ee:
+            self.d_ee    = np.zeros(0)
+            self.de_ee_E = np.zeros(0)
+            self.dg_ee_E = np.zeros(0)
             return
-        self.d = full   # .min(axis=1)
 
         col_m = np.invert(self.occ_trap.astype(bool))
         self.d_ee    = self.dist_ee[row_m][:, col_m]
@@ -703,8 +802,14 @@ class Box(_temp,_ThermalParameters):
         the lifetimes are simply reduced by dt"""
         super().timestep(dt)
 
+        dose_switched = False
+        if self.dose_on and self.time >= self.dose_time:
+            self.D_dot = 0.0            # dose off for the rest of this repetition
+            self.dose_on = False
+            dose_switched = True
+
         lm_osl = self.mode == "OSL" and self.stim_kind == "lm"
-        if self.T_chng or self.event_code != 0 or lm_osl: # self.event_bool
+        if self.T_chng or self.event_code != 0 or lm_osl or dose_switched: # self.event_bool
             self.recalc_times_full()
             self.select_electron()
         else:
@@ -732,10 +837,6 @@ class Box(_temp,_ThermalParameters):
             self.fill_time = 1e20
         else:
             fill_rate = self._fill(self.N, self.t_cnt, self.D_dot)
-            # A non-positive rate is the "never fill" sentinel: the 'none'
-            # builder returns -1e20 when enable_fill is False, and the dose
-            # builder collapses to ~0 once no vacancy is left. Feeding either
-            # to 1/rate gives a negative exponential scale, which raises.
             if fill_rate <= 0.0:
                 self.fill_time = 1e20
             else:
@@ -760,20 +861,13 @@ class Box(_temp,_ThermalParameters):
     #         self.fade_index = int(np.argmin(f)) 
 
     def _stim_intensity(self, t: float, I0, I_rate) -> float:
-        """Photon flux I(t) of one optical channel: constant ('cw') or linearly
-        modulated ('lm', I(t) = I0 + I_rate*t). The cw/lm shape is shared by all
-        channels; the magnitudes (I0, I_rate) are per channel (IR vs blue)."""
+        
         if self.stim_kind == "lm":
             return (I0 or 0.0) + (I_rate or 0.0) * t
         return I0 or 0.0
 
     def select_electron(self) -> None:
-        """Generate execution time for filling and fading transitions.
-        For fading, the overall rate for each occupied electron is
-        computed by summing bulk_rates_sum() across all active processes,
-        then an exponential random time is drawn for each electron and
-        the fastest one is selected.
-        """
+        
         # if (self.h_cnt < self.HN) and self.fill_time > 0:
         #     self.fill = self.fill_time
         # else:
@@ -786,9 +880,6 @@ class Box(_temp,_ThermalParameters):
         else:
             if self.mode == "OSL":
 
-                # IR channel: GS->ES, sigma*I = 0 reproduces the TL form.
-                # sigma is sigma(E, T) at the channel's photon energy (E = hc/lambda);
-                # the 'const' model returns a fixed sigma0 (legacy behaviour).
                 A_th  = self.s * np.exp(-self.E_loc_occ / (cnst.k_b_ev * self.T))
                 A_opt = (self._sigma_IR_fn(self._E_IR, self.T)
                          * self._stim_intensity(self.time, self.I0_IR, self.I_rate_IR))
@@ -796,7 +887,6 @@ class Box(_temp,_ThermalParameters):
                 self.F2 = A / (A + self.s)
                 self.F1 = self.s / (A + self.s)
 
-                # Blue/UV channel: GS/ES -> CB
                 self.A_cb_blue = (self._sigma_blue_fn(self._E_blue, self.T)
                                   * self._stim_intensity(self.time, self.I0_blue, self.I_rate_blue))
             else:
@@ -836,10 +926,23 @@ class Box(_temp,_ThermalParameters):
     #         self.fade_index = int(np.argmin(f)) 
 
      
+    def dose_dt_cap(self) -> float:
+        """Largest dt that does not step past dose_time while the dose is on"""
+        if self.dose_on:
+            return self.dose_time - self.time
+        return np.inf
+
     def initial_times(self, t: float = 0.0) -> None:
         """Generates the initial fill and fade times"""
         self.time = t
         self.T = self(self.time)
+
+        # Reset the dose every repetition
+        self.D_dot = self._D_dot_on
+        self.dose_on = self.dose_time < self.duration
+        if self.dose_on and self.time >= self.dose_time:
+            self.D_dot = 0.0
+            self.dose_on = False
         self.recalc_times_full()    # self.recalc_times()
         self.select_electron()      # self.random_fill_fade()
 

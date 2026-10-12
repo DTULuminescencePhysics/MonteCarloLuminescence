@@ -13,4 +13,5 @@ urho     : 8e-4
 D0       : 3
 D_dot    : 0.092
 Dd_unit   : s 
+dose_time : null # Dose-on duration in temp-config time units; null -> temp.duration
 phys_type : none

@@ -98,6 +98,19 @@ def _std_from_moments(total: np.ndarray, total_sq: np.ndarray, n: int) -> np.nda
     var = (total_sq - total * total / n) / (n - 1)
     return np.sqrt(np.clip(var, 0.0, None))
 
+def _tl_window(temperature: np.ndarray) -> np.ndarray:
+
+    mask = np.zeros(temperature.size, dtype=bool)
+    heating = np.diff(temperature) > 1e-9             # heating[k]: bin k -> k+1 rises
+    if not heating.any():
+        return mask
+    end   = int(np.flatnonzero(heating)[-1])
+    start = end
+    while start > 0 and heating[start - 1]:           # walk back over the ramp
+        start -= 1
+    mask[start:end + 2] = True
+    return mask
+
 
 def _plot_glow_curve(filename: str,
                      x: np.ndarray,
@@ -174,8 +187,8 @@ def _plot_ratio_bands(filename: str,
 def clean_up_results(results, output_file_name, crystal,
                      plot_error_bands: bool = True,
                      plot_glow_curve: bool = True,
-                     glow_bin_width: float = 1,
-                     savgol_window: int = 15,
+                     glow_bin_width: float = 2,
+                     savgol_window: int = 9,
                      savgol_poly: int = 2):
     S, C, L = results.shape
 
@@ -318,8 +331,9 @@ def clean_up_results(results, output_file_name, crystal,
             lum_i = np.clip(results[i, 2, :lengths[i]], 0, None)
             c_i   = results[i, 3, :lengths[i]].astype(int)
 
+            # Photons per bin / bin width
             counts, _ = np.histogram(t_i, bins=bin_edges, weights=lum_i)
-            raw_i     = np.gradient(np.cumsum(counts), bin_centers)
+            raw_i     = counts / glow_bin_width
             raw_sum   += raw_i
             raw_sumsq += raw_i * raw_i
 
@@ -331,8 +345,7 @@ def clean_up_results(results, output_file_name, crystal,
                                 (np.isin(c_i, DELOCALIZED_CODES), sm_deloc),
                                 (~np.isin(c_i, READOUT_CODES), sm_fill)):
                 w = np.where(mask, lum_i, 0.0)
-                r = np.gradient(np.cumsum(np.histogram(t_i, bins=bin_edges,
-                                                       weights=w)[0]), bin_centers)
+                r = np.histogram(t_i, bins=bin_edges, weights=w)[0] / glow_bin_width
                 accum += savgol_filter(r, win, savgol_poly) if smooth else r
 
         glow_raw          = raw_sum / S
@@ -360,12 +373,15 @@ def clean_up_results(results, output_file_name, crystal,
                           "d(N_holes)/dt loc smoothed,d(N_holes)/dt deloc smoothed,"
                           "d(N_holes)/dt fill smoothed")
 
-        _plot_glow_curve(f"{output_file_name}_glow_curve.png", temperature_glow,
-                         glow_raw, glow_smoothed, xlabel="Temperature (°C)",
-                         glow_std=glow_smoothed_std)
-        _plot_glow_curve(f"{output_file_name}_glow_curve_time.png", bin_centers,
-                         glow_raw, glow_smoothed, xlabel="Time (s)",
-                         glow_std=glow_smoothed_std)
+
+        tl = _tl_window(temperature_glow)
+        if not tl.any():
+            tl = np.ones(n_bins, dtype=bool)
+
+        _plot_glow_curve(f"{output_file_name}_glow_curve.png", temperature_glow[tl],
+                         glow_raw[tl], glow_smoothed[tl], xlabel="Temperature (°C)")
+        _plot_glow_curve(f"{output_file_name}_glow_curve_time.png", bin_centers[tl],
+                         glow_raw[tl], glow_smoothed[tl], xlabel="Time (s)")
 
     return ratio_file, lum_file
 

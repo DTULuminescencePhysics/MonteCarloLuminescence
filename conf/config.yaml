@@ -2,14 +2,14 @@ defaults:
   - _self_
   - physics: phys_harris_lab_TL # phys_example_OSL #  # phys_King_etal_2016_k_23 #
   - mc: monte_carlo_crib
-  - temp: temp_linear #temp_constant_T
+  - temp: temp_two_stage # temp_constant_T  # temp_linear
   - override hydra/job_logging: custom
   - override hydra/hydra_logging: disabled
 
 setup:
   physics_name: Example
   project: "${mc.name}_${mc.exp_typ}_${setup.physics_name}"
-  seed: 1
+  seed: 2026
 
 hydra:
   run:

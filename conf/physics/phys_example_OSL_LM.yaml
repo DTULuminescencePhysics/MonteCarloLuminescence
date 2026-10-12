@@ -27,6 +27,7 @@ enable_fill       : False
 D0                : 400.
 D_dot             : 0
 Dd_unit           : s
+dose_time         : null      # Dose-on duration in temp-config time units; null -> temp.duration
 combine_when_fill : False
 recom_pre_fill    : 0
 fill_mode         : uniform # uniform | spatial

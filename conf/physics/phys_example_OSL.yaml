@@ -18,6 +18,7 @@ enable_fill       : False
 D0                : 400.
 D_dot             : 0       # Radiation per time unit
 Dd_unit           : s       # s : Gy/s; ka : Gy/ka, etc.
+dose_time         : null      # Dose-on duration in temp-config time units; null -> temp.duration
 combine_when_fill : False
 recom_pre_fill    : 0       # P(recombine) / P(fill vacancy)
 fill_mode         : uniform # uniform | spatial
