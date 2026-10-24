@@ -52,25 +52,15 @@ def _max_dt_finder(
     return cnt, max_dt, max_dt_time_chk
 
 
-def _run_single_rep(
-    rep: int,
-    crystal: Box,
-    seed: int,
-    t_pcnt: float,
-    h_pcnt: float,
-    t: float,
-    initial_max_dt: float,
-    initial_max_dt_time_chk: float,
-    data_path: str,
-    max_length: int,
-    total_reps: int,
-) -> None:
+def _run_single_rep(rep: int, crystal: Box, seed: int, t_pcnt: float,
+    h_pcnt: float, t: float, initial_max_dt: float, initial_max_dt_time_chk: float,
+    data_path: str, max_length: int, total_reps: int) -> None:
     """Run one Monte Carlo repetition in a worker process.
 
     Writes results directly to the shared memmap file and flushes.
     Each rep writes only to row *rep*, so concurrent writes are safe.
     """
-    results = np.memmap(data_path, dtype=np.float32, mode='r+',
+    results = np.memmap(data_path, dtype=np.float64, mode='r+',
                         shape=(total_reps, 4, max_length))
 
     crystal.lattice_setup(seed + rep, t_pcnt, h_pcnt, t=t)
@@ -94,7 +84,7 @@ def _run_single_rep(
 
         
         dt = min(crystal.fill_time, crystal.exec_time, max_dt, crystal.dose_dt_cap(),
-                 max_dt_time_chk - crystal.time)
+                 max_dt_time_chk - crystal.time, crystal.duration - crystal.time)
 
         crystal.event_photons = 0
         if dt == crystal.fill_time:
@@ -141,6 +131,8 @@ class MCBase:
     data_path: str = field(default="sim_prelim_results.dat")
     result_csv_path: str = field(default="MC_results")
     n_jobs: int = field(default=1)
+    output_per_rep: bool = field(default=False)
+    output_glow: bool = field(default=True)
     results: np.memmap = field(init=False)
 
 
@@ -148,8 +140,12 @@ class MCBase:
     def from_config(cls, cfg: DictConfig) -> "MCBase":
         crs = Box.from_config(cfg)
         n_jobs = getattr(cfg.mc, 'n_jobs', 1)
+        output_per_rep = bool(getattr(cfg.mc, 'output_per_rep', False))
+        output_glow = bool(getattr(cfg.mc, 'output_glow', True))
         return cls(cfg.mc.reps, cfg.setup.seed, cfg.mc.t_pcnt,
-                   cfg.mc.h_pcnt, crs, n_jobs=n_jobs)
+                   cfg.mc.h_pcnt, crs, n_jobs=n_jobs,
+                   output_per_rep=output_per_rep,
+                   output_glow=output_glow)
 
 
     @classmethod
@@ -293,7 +289,8 @@ class MCBase:
             # Never step past the next temperature-segment boundary.
             dt = min(self.crystal.fill_time,self.crystal.exec_time,self.max_dt,
                      self.crystal.dose_dt_cap(),
-                     self.max_dt_time_chk - self.crystal.time)
+                     self.max_dt_time_chk - self.crystal.time,
+                     self.crystal.duration - self.crystal.time)
 
             # self.crystal.event_bool = True
             self.crystal.event_photons = 0
@@ -364,14 +361,14 @@ class MCBase:
         if os.path.exists(self.data_path):
             os.remove(self.data_path)
 
-        self.results = np.memmap(self.data_path, dtype=np.float32, mode='w+', shape=(self.repetion, 4, self.max_length))
+        self.results = np.memmap(self.data_path, dtype=np.float64, mode='w+', shape=(self.repetion, 4, self.max_length))
         self.results[:,:,:] = np.nan
         self.results.flush()
         err.output(f"Starting Monte Carlo simulation with {self.repetion} repetitions")
 
         self.monte_carlo_loop()
 
-        self.results = np.memmap(self.data_path, dtype=np.float32, mode='r',
+        self.results = np.memmap(self.data_path, dtype=np.float64, mode='r',
                                  shape=(self.repetion, 4, self.max_length))
 
         err.output("Monte Carlo simulation complete, cleaning up results...")

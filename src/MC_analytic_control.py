@@ -3,7 +3,7 @@ from src.errors import ErrorOutputHandler
 from omegaconf import DictConfig
 from src.classes.monte_carlo import MCBase
 from src.classes.analytic_model import analytical_crystal
-from src.process_plot import clean_up_results, plot_forward_results, plot_forward_multi_experiment
+from src.process_plot import clean_up_results, write_photon_history, plot_forward_results, plot_forward_multi_experiment
 from src.process_plot import plot_analytical_results, plot_forward_multi_analytical_experiment
  
 
@@ -17,7 +17,10 @@ def monte_carlo_control_functions(cfg: DictConfig | list[DictConfig],
         err.output("Crystal setup complete.")
         err.output(MC.crystal.__repr__())
         MC.full_monte_carlo_simulation(err)
-        ratio_file, lum_file = clean_up_results(MC.results, MC.result_csv_path,MC.crystal)
+        ratio_file, lum_file = clean_up_results(MC.results, MC.result_csv_path,MC.crystal,
+                                                plot_glow_curve=MC.output_glow)
+        if MC.output_per_rep:
+            write_photon_history(MC.results, MC.result_csv_path, MC.crystal)
         plot_forward_results(ratio_file, lum_file, MC.crystal.unit, MC.crystal.kind)
         MC.clean_up()
         del lum_file
@@ -31,7 +34,10 @@ def monte_carlo_control_functions(cfg: DictConfig | list[DictConfig],
             err.output("Crystal setup complete.")
             err.output(MC.crystal.__repr__())
             MC.full_monte_carlo_simulation(err)
-            ratio_file, lum_file = clean_up_results(MC.results, MC.result_csv_path,MC.crystal)
+            ratio_file, lum_file = clean_up_results(MC.results, MC.result_csv_path,MC.crystal,
+                                                    plot_glow_curve=MC.output_glow)
+            if MC.output_per_rep:
+                write_photon_history(MC.results, MC.result_csv_path, MC.crystal)
             plot_forward_results(ratio_file, lum_file, MC.crystal.unit, MC.crystal.kind)
             MC.clean_up()
             file_names.append(f"{ratio_file}.csv")

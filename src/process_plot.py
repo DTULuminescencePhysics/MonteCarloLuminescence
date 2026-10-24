@@ -112,20 +112,52 @@ def _tl_window(temperature: np.ndarray) -> np.ndarray:
     return mask
 
 
-def _plot_glow_curve(filename: str,
-                     x: np.ndarray,
-                     glow_rate: np.ndarray,
+def _glow_bin_count(t_end: float, bin_width: float) -> int:
+    return int(np.ceil((t_end + bin_width) / bin_width)) - 1
+
+
+def _heating_spans(crystal, t_end: float, bin_width: float, n_full: int,
+                   pad: int, margin: int) -> list[tuple[int, int, int, int]]:
+
+    times = np.atleast_1d(np.asarray([] if crystal.times is None else crystal.times, dtype=float))
+    knots = np.unique(np.concatenate(([0.0], times[(times > 0) & (times < t_end)], [t_end])))
+    seg_start, seg_end = knots[:-1], knots[1:]
+    eps     = 1e-6 * (seg_end - seg_start)
+    heating = crystal.Tat(seg_end - eps) - crystal.Tat(seg_start + eps) > 1e-9
+
+    spans = []
+    for lo, hi in zip(seg_start[heating], seg_end[heating]):
+        k0 = max(int(lo // bin_width) - margin, 0)
+        k1 = min(int(np.ceil(hi / bin_width)) + margin, n_full)
+        if spans and k0 <= spans[-1][3]:
+            k0 = spans.pop()[2]
+        spans.append((max(k0 - pad, 0), min(k1 + pad, n_full), k0, k1))
+    return spans
+
+
+def _glow_spans(crystal, t_end: float, bin_width: float, savgol_window: int,
+                max_bins: int, fallback_bins: int) -> tuple[float, int, list[tuple[int, int, int, int]]]:
+
+    n_full = _glow_bin_count(t_end, bin_width)
+    win    = min(savgol_window, n_full if n_full % 2 == 1 else n_full - 1)
+    if n_full <= max_bins:
+        return bin_width, win, [(0, n_full, 0, n_full)]
+
+    spans = _heating_spans(crystal, t_end, bin_width, n_full, win // 2 + 1, savgol_window)
+    if spans and sum(c1 - c0 for c0, c1, _, _ in spans) <= max_bins:
+        return bin_width, win, spans
+
+    bin_width = t_end / fallback_bins
+    n_full    = _glow_bin_count(t_end, bin_width)
+    win       = min(savgol_window, n_full if n_full % 2 == 1 else n_full - 1)
+    return bin_width, win, [(0, n_full, 0, n_full)]
+
+
+def _plot_glow_curve(filename: str, x: np.ndarray, glow_rate: np.ndarray,
                      glow_smoothed: np.ndarray | None = None,
                      xlabel: str = "Temperature (°C)",
                      glow_std: np.ndarray | None = None) -> None:
-    """
-    Plot the glow/luminescence curve d(N_holes)/dt against the supplied x axis
-    (Temperature or Time, selected via `xlabel`) and save to `filename`.
 
-    If glow_smoothed is provided the raw curve is drawn as a faint dashed
-    line and the smoothed curve as a solid line. If glow_std is provided a
-    +/- 1 sigma band (spread over repetitions) is shaded around it.
-    """
     fig, ax = plt.subplots(figsize=(8, 5))
     if glow_smoothed is not None:
         ax.plot(x, glow_rate, color="firebrick", linewidth=0.8,
@@ -150,20 +182,10 @@ def _plot_glow_curve(filename: str,
     plt.close(fig)
 
 
-def _plot_ratio_bands(filename: str,
-                      x: np.ndarray,
-                      xlabel: str,
-                      mean_curve: np.ndarray,
-                      ratio_min: np.ndarray,
-                      ratio_max: np.ndarray,
-                      ratio_std: np.ndarray | None = None) -> None:
-    """
-    Plot the trapped-electron ratio n/N (mean with min/max envelope) against
-    the supplied x axis (Temperature or Time, selected via `xlabel`).
+def _plot_ratio_bands(filename: str, x: np.ndarray, xlabel: str,
+                      mean_curve: np.ndarray, ratio_min: np.ndarray,
+                      ratio_max: np.ndarray, ratio_std: np.ndarray | None = None) -> None:
 
-    If ratio_std is given a +/- 1 sigma band over the repetitions is shaded
-    inside the min/max envelope.
-    """
     fig, ax = plt.subplots(figsize=(8, 5))
     if ratio_std is not None:
         ax.fill_between(x, mean_curve - ratio_std, mean_curve + ratio_std,
@@ -184,12 +206,48 @@ def _plot_ratio_bands(filename: str,
     plt.close(fig)
 
 
+def write_photon_history(results, output_file_name, crystal) -> str:
+
+    S, C, L = results.shape
+
+    assert C == 4
+
+    rep_file = output_file_name + "_glow_rep"
+
+    valid_mask = ~np.isnan(results[:, 0, :])
+    lengths    = valid_mask.sum(axis=1)
+
+    columns = []
+    header  = []
+    for i in range(S):
+        t_i   = results[i, 0, :lengths[i]].astype(np.float64)
+        lum_i = results[i, 2, :lengths[i]]
+
+        lum_mask = lum_i >= 1
+        t_ph     = np.repeat(t_i[lum_mask], lum_i[lum_mask].astype(int))
+        columns.append([f"{t:.10g}" for t in t_ph])
+        columns.append([f"{T:.4f}" for T in crystal.Tat(t_ph) - 273.15])
+        header += [f"Time (rep {i+1})", f"Temp (rep {i+1})"]
+
+    n_rows = max((len(c) for c in columns), default=0)
+
+    if os.path.exists(f"{rep_file}.csv"):
+        os.remove(f"{rep_file}.csv")
+    with open(f"{rep_file}.csv", "w") as f:
+        f.write(",".join(header) + "\n")
+        for j in range(n_rows):
+            f.write(",".join(c[j] if j < len(c) else "" for c in columns) + "\n")
+    return rep_file
+
+
 def clean_up_results(results, output_file_name, crystal,
                      plot_error_bands: bool = True,
                      plot_glow_curve: bool = True,
                      glow_bin_width: float = 2,
                      savgol_window: int = 9,
-                     savgol_poly: int = 2):
+                     savgol_poly: int = 2,
+                     max_glow_bins: int = 2_000_000,
+                     fallback_glow_bins: int = 20000):
     S, C, L = results.shape
 
     assert C == 4
@@ -200,7 +258,7 @@ def clean_up_results(results, output_file_name, crystal,
     valid_mask = ~np.isnan(results[:, 0, :])
     lengths    = valid_mask.sum(axis=1)
 
-    time_max    = max(results[i, 0, lengths[i]-1] for i in range(S))
+    time_max    = min(max(results[i, 0, lengths[i]-1] for i in range(S)), crystal.duration)
     steady_time = np.linspace(0, time_max, 20000)
 
     ratio_results = np.zeros((6, steady_time.size))
@@ -309,13 +367,18 @@ def clean_up_results(results, output_file_name, crystal,
 
     if plot_glow_curve:
 
-        bin_edges   = np.arange(0, steady_time[-1] + glow_bin_width, glow_bin_width)
-        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+        glow_bin_width, win, spans = _glow_spans(crystal, steady_time[-1], glow_bin_width,
+                                                 savgol_window, max_glow_bins, fallback_glow_bins)
+        span_edges = [np.arange(c0, c1 + 1) * glow_bin_width for c0, c1, _, _ in spans]
+        span_keep  = [slice(k0 - c0, k1 - c0) for c0, _, k0, k1 in spans]
+        offsets    = np.cumsum([0] + [k1 - k0 for _, _, k0, k1 in spans])
+        span_out   = [slice(offsets[j], offsets[j + 1]) for j in range(len(spans))]
+        bin_centers = np.concatenate([(0.5 * (e[:-1] + e[1:]))[keep]
+                                      for e, keep in zip(span_edges, span_keep)])
         n_bins      = bin_centers.size
 
     if plot_glow_curve and n_bins >= 2:
 
-        win = min(savgol_window, n_bins if n_bins % 2 == 1 else n_bins - 1)
         smooth = win > savgol_poly
 
         raw_sum    = np.zeros(n_bins)
@@ -331,22 +394,24 @@ def clean_up_results(results, output_file_name, crystal,
             lum_i = np.clip(results[i, 2, :lengths[i]], 0, None)
             c_i   = results[i, 3, :lengths[i]].astype(int)
 
-            # Photons per bin / bin width
-            counts, _ = np.histogram(t_i, bins=bin_edges, weights=lum_i)
-            raw_i     = counts / glow_bin_width
-            raw_sum   += raw_i
-            raw_sumsq += raw_i * raw_i
+            channels = [(np.where(mask, lum_i, 0.0), accum)
+                        for mask, accum in ((np.isin(c_i, LOCALIZED_CODES), sm_loc),
+                                            (np.isin(c_i, DELOCALIZED_CODES), sm_deloc),
+                                            (~np.isin(c_i, READOUT_CODES), sm_fill))]
 
-            sm_i      = savgol_filter(raw_i, win, savgol_poly) if smooth else raw_i
-            sm_sum    += sm_i
-            sm_sumsq  += sm_i * sm_i
+            for edges, keep, out in zip(span_edges, span_keep, span_out):
+                counts, _ = np.histogram(t_i, bins=edges, weights=lum_i)
+                raw_i     = counts / glow_bin_width
+                sm_i      = savgol_filter(raw_i, win, savgol_poly) if smooth else raw_i
+                raw_i, sm_i = raw_i[keep], sm_i[keep]
+                raw_sum[out]   += raw_i
+                raw_sumsq[out] += raw_i * raw_i
+                sm_sum[out]    += sm_i
+                sm_sumsq[out]  += sm_i * sm_i
 
-            for mask, accum in ((np.isin(c_i, LOCALIZED_CODES), sm_loc),
-                                (np.isin(c_i, DELOCALIZED_CODES), sm_deloc),
-                                (~np.isin(c_i, READOUT_CODES), sm_fill)):
-                w = np.where(mask, lum_i, 0.0)
-                r = np.histogram(t_i, bins=bin_edges, weights=w)[0] / glow_bin_width
-                accum += savgol_filter(r, win, savgol_poly) if smooth else r
+                for w, accum in channels:
+                    r = np.histogram(t_i, bins=edges, weights=w)[0] / glow_bin_width
+                    accum[out] += (savgol_filter(r, win, savgol_poly) if smooth else r)[keep]
 
         glow_raw          = raw_sum / S
         glow_raw_std      = _std_from_moments(raw_sum, raw_sumsq, S)

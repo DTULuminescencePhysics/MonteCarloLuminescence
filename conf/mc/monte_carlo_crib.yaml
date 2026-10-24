@@ -3,11 +3,10 @@ exp_typ   : TL      # Type of experiment
 max_dt    : 0.5       # Maximum time step in specified time units
 t_pcnt    : 0.0      # Ratio of filled electrons traps
 h_pcnt    : 0.0     # Ratio of recombination centers filled with holes
-reps      : 1000     # Number of Monte Carlo simulations to repeat
+reps      : 50     # Number of Monte Carlo simulations to repeat
 mc        : True
 ac        : False
 boundary  : periodic  # "padded" (default) or "periodic"
 n_jobs    : 5        # parallel workers (1 = sequential)
-
-
- 
+output_per_rep : False  # write MC_results_glow_rep.csv with every photon event of each rep
+output_glow    : True   # write MC_results_glow.csv and plot the glow curves; False skips both

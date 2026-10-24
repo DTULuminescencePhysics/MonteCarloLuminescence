@@ -1,0 +1,51 @@
+# Crystal geometry / lattice
+uc_h      : 1.e-10  # Unit cell height (m)
+uc_w      : 1.e-10  # Unit cell width  (m)
+uc_l      : 1.e-10  # Unit cell length (m)
+dimension : 17.5e-9  # Approximate test-crystal dimension; null = default 7.5 nm
+rho       : 5.0e26
+rho_h     : 5.0e26    # Hole/recombination-centre density (m^-3); null -> equals rho
+urho      : null    # 3e-4
+
+# Trap energy levels
+E_loc       : 1.00
+E_cb        : 1.80
+E_loc_sigma : 0.    # std dev of Gaussian for E_loc (eV); 0 = fixed
+E_cb_sigma  : 0.    # std dev of Gaussian for E_cb  (eV); 0 = fixed
+
+# Filling process (dosing)
+enable_fill       : True
+D0                : 1600.
+D_dot             : 8.       # Radiation per time unit: 7 Gy/ka natural dose rate
+Dd_unit           : ka         # s : Gy/s; ka : Gy/ka, etc.
+dose_time         : 1577847600000.  # 50 ka in s (temp unit is s); dose off during the TL ramp
+combine_when_fill : False    # True
+recom_pre_fill    : 1.0       # P(recombine) / P(fill vacancy)
+fill_mode         : spatial # uniform | spatial
+mu_fill           : 1.e-9     # null -> use mu (CB delocalization range)
+recom_new_pair    : False   # True -> the e-h pair born in one event may recombine
+
+# Localized transitions
+enable_tunneling : True
+b                : 4.6e14
+alpha_GS         : 9.e12
+alpha_ES         : 9.e9  # 9.e9
+R_tun            : 0.0      # Retrapping ratio for tunnelling
+VRH              : False    # False (default): original tunnelling rate; True: Miller-Abrahams variable-range hopping
+
+# Delocalized transitions
+enable_cb : True
+s         : 4.2e12           # 7.5e13
+mu        : 5.e-9           # Kernel width (m)
+R_CB      : 1.0             # Retrapping ratio for CB transitions
+
+# Simulation mode / optical stimulation (OSL)
+mode      : TL              # TL | OSL  (TL ignores the optical block below)
+sigma_IR  : 1.0e-20        # Optical cross section (m^2)
+stim_kind : cw             # cw (constant I) | lm (linear I(t) = I0 + I_rate*t)
+I0_IR     : 0.             # CW intensity / LM offset (photons m^-2 s^-1)
+I_rate_IR : 0.             # LM ramp rate (photons m^-2 s^-3); used when stim_kind=lm
+
+# Misc
+retrap_mask_factor : 0.8    # Factor to constraint retrapping in adjescent pairs
+phys_type : null

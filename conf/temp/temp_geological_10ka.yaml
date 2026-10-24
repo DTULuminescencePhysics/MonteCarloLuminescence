@@ -1,0 +1,11 @@
+unit: ka # unit of time s -- sections, y -- years, ka -- kilo-annum, Ma -- mega-annum i.e. 1000000 years
+celsius: true # true if temperatures are given in celsius else false for kelvin
+kind: constant # constant; linear; step; steps; lineardrops; linearsteps; exponetial
+T0: 20 # Initial temperature, always required in celsius
+duration: 50 # 50 ka = 50000 years of natural irradiation at constant 20 C
+# Pair with physics D_dot: 5., Dd_unit: ka, dose_time: 50. (or null) -> 250 Gy total dose
+times: [0.1] # times steps occur (unused for constant; must be non-null so duration is converted to seconds)
+dT_step: [20] # size(s) of step(s) down either
+dT: [0] # linear rate of change(s). If using linearsteps one more gradient than number of steps must be given
+T_inf: 0 # Minimum temperature if using exponential cooling
+k: 10 # Exponential factor in T(t) = T_inf + (T0 - T_inf) * exp(-k t)
